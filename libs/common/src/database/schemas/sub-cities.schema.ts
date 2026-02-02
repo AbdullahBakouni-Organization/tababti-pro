@@ -49,5 +49,4 @@ export class SubCities extends Document {
 
 export const SubCitiesSchema = SchemaFactory.createForClass(SubCities);
 
-SubCitiesSchema.index({ name: 1 }, { unique: true });
-SubCitiesSchema.index({ 'subCities.name': 1 });
+SubCitiesSchema.index({ name: 1, cityId: 1 }, { unique: true });

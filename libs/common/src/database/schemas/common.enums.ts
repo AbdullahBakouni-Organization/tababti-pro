@@ -101,7 +101,7 @@ export enum RuralDamascusAreas {
 }
 
 export enum AleppoAreas {
-  Old_City = 'المدينة القديمة',
+  Aleppo_Old_City = 'المدينة القديمة',
   Al_Sayfate = 'السيفات',
   Al_Hamdaniya = 'الحمدانية',
   Sheikh_Maqsoud = 'الشيخ مقصود',
@@ -121,7 +121,7 @@ export enum AleppoAreas {
 }
 
 export enum HomsAreas {
-  Old_City = 'المدينة القديمة',
+  Homs_Old_City = 'المدينة القديمة',
   Al_Khaldiya = 'الخالدية',
   Bab_Al_Rakiz = 'باب الركيز',
   Al_Zahra = 'الزهراء',
@@ -136,7 +136,7 @@ export enum HomsAreas {
 }
 
 export enum HamaAreas {
-  Old_City = 'المدينة القديمة',
+  Hama_Old_City = 'المدينة القديمة',
   Al_Qosour = 'القصور',
   Al_Muradi = 'المرادي',
   Al_Jalaa = 'الجلاء',
@@ -151,7 +151,7 @@ export enum HamaAreas {
 }
 
 export enum LatakiaAreas {
-  Old_City = 'المدينة القديمة',
+  Latakia_Old_City = 'المدينة القديمة',
   Al_Safsafa = 'الصفصافة',
   Jableh = 'جبلة',
   Qardaha = 'القرداحة',
@@ -165,7 +165,7 @@ export enum LatakiaAreas {
 }
 
 export enum TartousAreas {
-  Old_City = 'المدينة القديمة',
+  Tartous_Old_City = 'المدينة القديمة',
   Safita = 'صافيتا',
   Banyas = 'بانياس',
   Al_Dreikish = 'الدريكيش',
@@ -178,7 +178,7 @@ export enum TartousAreas {
 }
 
 export enum IdlibAreas {
-  Old_City = 'المدينة القديمة',
+  Idlib_Old_City = 'المدينة القديمة',
   Maaret_Al_Nuuman = 'معرة النعمان',
   Salqin = 'سلقين',
   Ariha = 'أريحا',
@@ -191,7 +191,7 @@ export enum IdlibAreas {
 }
 
 export enum DaraaAreas {
-  Old_City = 'المدينة القديمة',
+  Daraa_Old_City = 'المدينة القديمة',
   Daraa_Al_Balda = 'درعا البلدة',
   Daraa_South = 'درعا الجنوب',
   Daraa_North = 'درعا الشمال',
@@ -204,7 +204,7 @@ export enum DaraaAreas {
 }
 
 export enum QuneitraAreas {
-  Old_City = 'المدينة القديمة',
+  Quneitra_Old_City = 'المدينة القديمة',
   Quneitra_City = 'القنيطرة البلدة',
   Hader = 'حضر',
   Khan_Al_Sheikh = 'خان الشيح',
@@ -214,7 +214,7 @@ export enum QuneitraAreas {
 }
 
 export enum SweidaAreas {
-  Old_City = 'المدينة القديمة',
+  Sweida_Old_City = 'المدينة القديمة',
   Sweida_City = 'السويداء البلدة',
   Shahba = 'شهبا',
   Salkhad = 'صلخد',
@@ -225,7 +225,7 @@ export enum SweidaAreas {
 }
 
 export enum HassakehAreas {
-  Old_City = 'المدينة القديمة',
+  Hassakeh_Old_City = 'المدينة القديمة',
   Hassakeh_City = 'الحسكة البلدة',
   Al_Qehtaniyah = 'القحطانية',
   Ras_Al_Ain = 'رأس العين',
@@ -235,7 +235,7 @@ export enum HassakehAreas {
 }
 
 export enum RaqqaAreas {
-  Old_City = 'المدينة القديمة',
+  Raqqa_Old_City = 'المدينة القديمة',
   Raqqa_City = 'الرقة البلدة',
   Ain_Issa = 'عين عيسى',
   Tal_Abyad = 'تل أبيض',
@@ -245,7 +245,7 @@ export enum RaqqaAreas {
 }
 
 export enum DeirEzzorAreas {
-  Old_City = 'المدينة القديمة',
+  DeirEzzor_Old_City = 'المدينة القديمة',
   DeirEzzor_South = 'دير الزور الجنوب',
   DeirEzzor_North = 'دير الزور الشمال',
   Al_Mayadeen = 'الميادين',

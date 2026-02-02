@@ -27,6 +27,7 @@ import { SubscriptionSchema } from './schemas/subscribtion.schema';
 import { SubCitiesSchema } from './schemas/sub-cities.schema';
 import { AdsSchema } from './schemas/ads.schema';
 import { SystemConfigSchema } from './schemas/system-config.schema';
+import { CitySchema } from './schemas/cities.schema';
 
 @Global()
 @Module({
@@ -81,7 +82,7 @@ import { SystemConfigSchema } from './schemas/system-config.schema';
       },
       {
         name: 'Cities',
-        schema: SubCitiesSchema,
+        schema: CitySchema,
       },
       {
         name: 'Ads',
