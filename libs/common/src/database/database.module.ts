@@ -15,10 +15,18 @@ import { PublicSpecializationSchema } from './schemas/publicspecializations.sche
 import { PrivateSpecializationSchema } from './schemas/privatespecializations.schema';
 import { NotificationSchema } from './schemas/notification.schema';
 import { BookingSchema } from './schemas/booking.schema';
-import { ContentSchema } from './schemas/post.schema';
-import { InsuranceCompanySchema } from './schemas/insurancecompany.schema';
+
 import { TransliterationCacheSchema } from './schemas/transliteration-cache.schema';
 import { AdminSchema } from './schemas/admin.schema';
+import { OffersSchema } from './schemas/offers.schema';
+import { RatingSchema } from './schemas/rating.schema';
+import { PostSchema } from './schemas/post.schema';
+import { MedicalEquipmentRequestSchema } from './schemas/medical_equipment_requests.schema';
+import { LegalAdviceRequestSchema } from './schemas/legal_advice_requests.schema';
+import { SubscriptionSchema } from './schemas/subscribtion.schema';
+import { SubCitiesSchema } from './schemas/sub-cities.schema';
+import { AdsSchema } from './schemas/ads.schema';
+import { SystemConfigSchema } from './schemas/system-config.schema';
 
 @Global()
 @Module({
@@ -43,11 +51,46 @@ import { AdminSchema } from './schemas/admin.schema';
       { name: 'PublicSpecialization', schema: PublicSpecializationSchema },
       { name: 'PrivateSpecialization', schema: PrivateSpecializationSchema },
       { name: 'Notification', schema: NotificationSchema },
+      { name: 'Offer', schema: OffersSchema },
+      { name: 'Post', schema: PostSchema },
       { name: 'Booking', schema: BookingSchema },
-      { name: 'Content', schema: ContentSchema },
-      { name: 'InsuranceCompany', schema: InsuranceCompanySchema },
-      { name: 'TransliterationCache', schema: TransliterationCacheSchema },
-      { name: 'Admin', schema: AdminSchema },
+      { name: 'Rating', schema: RatingSchema },
+      {
+        name: 'MedicalEquipmentRequest',
+        schema: MedicalEquipmentRequestSchema,
+      },
+      {
+        name: 'LegalAdviceRequest',
+        schema: LegalAdviceRequestSchema,
+      },
+      {
+        name: 'TransliterationCache',
+        schema: TransliterationCacheSchema,
+      },
+      {
+        name: 'Admin',
+        schema: AdminSchema,
+      },
+      {
+        name: 'Subscription',
+        schema: SubscriptionSchema,
+      },
+      {
+        name: 'SubCities',
+        schema: SubCitiesSchema,
+      },
+      {
+        name: 'Cities',
+        schema: SubCitiesSchema,
+      },
+      {
+        name: 'Ads',
+        schema: AdsSchema,
+      },
+      {
+        name: 'SystemConfig',
+        schema: SystemConfigSchema,
+      },
     ]),
   ],
   exports: [MongooseModule],

@@ -6,9 +6,9 @@ networks:
         - subnet: 172.25.0.0/24
 
 volumes:
-  mongodb_data:
+  postgres_data:
     driver: local
-  mongodb_config:
+  mongodb_data:
     driver: local
   redis_data:
     driver: local
@@ -77,66 +77,76 @@ services:
   # Kafka
   # ============================
   kafka:
-    image: confluentinc/cp-kafka:7.6.0
+    image: confluentinc/cp-kafka:7.5.0
     container_name: tababti-kafka
     restart: unless-stopped
-    ports:
-      - '9092:9092'
+
     environment:
+      # === KRaft settings ===
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
-
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:29093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
-
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:29093
-      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+
+      # === Listeners ===
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+
+      # === Single-node safe settings ===
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_MIN_INSYNC_REPLICAS: 1
+
+      # === Required for KRaft ===
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      CLUSTER_ID: pZC0K2d9Q9mXyQb9sX3Fvw
+
+    ports:
+      - '${KAFKA_PORT:-9092}:9092'
+      - '29092:29092'
 
     volumes:
       - kafka_data:/var/lib/kafka/data
+
+    networks:
+      tababti-network:
+        ipv4_address: 172.25.0.6
 
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
     container_name: tababti-kafka-ui
     restart: unless-stopped
-    environment:
-      KAFKA_CLUSTERS_0_NAME: tababti-cluster
-      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
-    ports:
-      - '8080:8080'
-    networks:
-      tababti-network:
-        ipv4_address: 172.25.0.6
     depends_on:
       - kafka
-    profiles:
-      - development
+
+    environment:
+      KAFKA_CLUSTERS_0_NAME: tababti-cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+
+    ports:
+      - '${KAFKA_UI_PORT:-8080}:8080'
+
+    networks:
+      tababti-network:
+        ipv4_address: 172.25.0.7
 
   redis-commander:
     image: rediscommander/redis-commander:latest
     container_name: tababti-redis-commander
     restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
     environment:
       REDIS_HOSTS: local:redis:6379:0:${REDIS_PASSWORD:-redis123}
     ports:
-      - '8081:8081'
+      - '${REDIS_COMMANDER_PORT:-8081}:8081'
     networks:
       tababti-network:
-        ipv4_address: 172.25.0.6
-    depends_on:
-      - redis
-    profiles:
-      - development
-      # ============================================
-      # Mongo Express – MongoDB Web GUI
-      # ============================================
+        ipv4_address: 172.25.0.8
 
   mongo-express:
     image: mongo-express:latest

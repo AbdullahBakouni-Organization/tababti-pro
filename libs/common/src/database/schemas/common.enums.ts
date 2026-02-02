@@ -13,20 +13,246 @@ export enum UserRole {
 }
 
 export enum City {
-  DAMASCUS = 'DAMASCUS',
-  ALEPPO = 'ALEPPO',
-  DAMASCUS_COUNTRYSIDE = 'DAMASCUS_COUNTRYSIDE',
-  HAMA = 'HAMA',
-  IDLIB = 'IDLIB',
-  DEIR_EZ_ZOR = 'DEIR_EZ_ZOR',
-  RAQQA = 'RAQQA',
-  ALSUWIDA = 'ALSUWIDA',
-  HOMS = 'HOMS',
-  DARAA = 'DARAA',
-  TARTUS = 'TARTUS',
-  LATA = 'LATA',
-  LATTAKIA = 'LATTAKIA',
-  ALHASAKA = 'ALHASAKA',
+  Damascus = 'دمشق',
+  RifDimashq = 'ريف دمشق',
+  Aleppo = 'حلب',
+  Homs = 'حمص',
+  Hama = 'حماة',
+  Latakia = 'اللاذقية',
+  Tartus = 'طرطوس',
+  Idlib = 'إدلب',
+  Raqqa = 'الرقة',
+  DeirEzzor = 'دير الزور',
+  AlHasakah = 'الحسكة',
+  Daraa = 'درعا',
+  Suwayda = 'السويداء',
+  Quneitra = 'القنيطرة',
+}
+export enum DamascusAreas {
+  Old_Damascus = 'دمشق القديمة',
+  Baghdad_Street = 'شارع بغداد',
+  Medhat_Basha_Souk = 'سوق مدحت باشا',
+  Al_Hamidiya_Souk = 'سوق الحميدية',
+  Al_Midan = 'الميدان',
+  Al_Shaalan = 'الشعلان',
+  Abu_Rummaneh = 'أبو رمانة',
+  Al_Qaymariya = 'القيمرية',
+  Al_Maliki = 'المالكي',
+  Kafr_Susa = 'كفرسوسة',
+  Al_Mazza = 'المزة',
+  Muhajirin_Afeef = 'المهاجرين عفيف',
+  Muhajirin_Jadat = 'المهاجرين جادات',
+  Al_Baramka = 'البرامكة',
+  Thawra_Street = 'شارع الثورة',
+  Rukn_Al_Din = 'ركن الدين',
+  Bab_Srije = 'باب سريجة',
+  Bab_Touma = 'باب توما',
+  Al_Salihiya = 'الصالحية',
+  Al_Hamra = 'الحمرا',
+  Sarouja = 'ساروجة',
+  Nahr_Aisha = 'نهر عيشة',
+  Zahira_New = 'زاهرة جديدة',
+  Zahira_Old = 'زاهرة قديمة',
+  Dummar_Old = 'دمّر البلد',
+  Dummar_Project = 'مشروع دمر',
+  Barzeh = 'برزة',
+  Barzeh_Housing = 'مساكن برزة',
+  Al_Qasaa = 'القصاع',
+  Al_Qosour = 'القصور',
+  Douylaa = 'دويلعة',
+  Al_Qadam = 'القدم',
+  Al_Tadamon = 'التضامن',
+  Al_Hamah = 'الهامة',
+}
+
+export enum RuralDamascusAreas {
+  Al_Qaboun = 'القابون',
+  Douma = 'دوما',
+  Saqba = 'سقبا',
+  Arbeen = 'عربين',
+  Harasta = 'حرستا',
+  Zemelka = 'زملكا',
+  Hamouria = 'حمورية',
+  Jobar = 'جوبر',
+  Muadamiya_AlSham = 'معضمية الشام',
+  Nawa = 'نوى',
+  Germana = 'جرمانا',
+  Qudsaya = 'قدسيا',
+  Yalda = 'يلدا',
+  Babila = 'ببيلا',
+  Beit_Sahm = 'بيت سحم',
+  Al_Harjalah = 'الحرجلة',
+  Al_Mliha = 'المليحة',
+  Al_Zabadani = 'الزبداني',
+  Deir_Ashira = 'دير عشيرة',
+  Ain_Al_Naser = 'عين الناصر',
+  Al_Rehanyah = 'الريحانية',
+  Al_Tal = 'التل',
+  Al_Qutayfeh = 'القطيفة',
+  Harasta_Suburb = 'ضاحية حرستا',
+  Maraba = 'معربا',
+  Aqraba = 'عقربا',
+  Sidi_Miqdad = 'سيدي مقداد',
+  Saidnaya = 'صيدنايا',
+  Ain_Al_Fijah = 'عين الفيجة',
+  Al_Qalamoun = 'القلمون',
+  Sahnaya = 'صحنايا',
+  Al_Kiswah = 'الكسوة',
+}
+
+export enum AleppoAreas {
+  Old_City = 'المدينة القديمة',
+  Al_Sayfate = 'السيفات',
+  Al_Hamdaniya = 'الحمدانية',
+  Sheikh_Maqsoud = 'الشيخ مقصود',
+  Al_Ansari = 'الأنصاري',
+  Al_Kulliya = 'الكلية',
+  Al_Shaar = 'الشعار',
+  Al_Sakhour = 'الصاخور',
+  Al_Khaldiya = 'الخالدية',
+  Al_Suryan = 'السريان',
+  Al_Muwasalat = 'المواصلات',
+  Al_Rashedin = 'الراشدين',
+  Salah_Al_Din = 'صلاح الدين',
+  Bab_Nayrab = 'حي باب نيرب',
+  Bab_Al_Jeel = 'حي باب الجيل',
+  Al_Sukkari = 'حي السكري',
+  Sheikh_Lotfi = 'حي الشيخ لطفي',
+}
+
+export enum HomsAreas {
+  Old_City = 'المدينة القديمة',
+  Al_Khaldiya = 'الخالدية',
+  Bab_Al_Rakiz = 'باب الركيز',
+  Al_Zahra = 'الزهراء',
+  Al_Qosour = 'القصور',
+  Ain_Al_Zarqa = 'عين الزرقاء',
+  Al_Bayada = 'البياضة',
+  Wadi_Al_Shater = 'وادي الشاطر',
+  Al_Villas = 'حي الفيلات',
+  Al_Makhram = 'المخرم',
+  Al_Amari = 'العماري',
+  Al_Makhram_North = 'المخرم الشمالي',
+}
+
+export enum HamaAreas {
+  Old_City = 'المدينة القديمة',
+  Al_Qosour = 'القصور',
+  Al_Muradi = 'المرادي',
+  Al_Jalaa = 'الجلاء',
+  Al_Sawameh = 'الصوامع',
+  Al_Salamiyah = 'السلمية',
+  Halfaya = 'حلفايا',
+  Souran = 'صوران',
+  Masyaf = 'مصياف',
+  Al_Zakat = 'الزكاة',
+  Al_Latamineh = 'اللطامنة',
+  Al_Iyada = 'العيادة',
+}
+
+export enum LatakiaAreas {
+  Old_City = 'المدينة القديمة',
+  Al_Safsafa = 'الصفصافة',
+  Jableh = 'جبلة',
+  Qardaha = 'القرداحة',
+  Kasab = 'كسب',
+  Al_Haffa = 'الحفة',
+  Rabeea = 'ربيعة',
+  Al_Shati = 'الشاطئ',
+  Kasab_West = 'الكسب الغربي',
+  Old_Jableh = 'جبلة القديمة',
+  Ramlat_Al_Bihar = 'رملة البحار',
+}
+
+export enum TartousAreas {
+  Old_City = 'المدينة القديمة',
+  Safita = 'صافيتا',
+  Banyas = 'بانياس',
+  Al_Dreikish = 'الدريكيش',
+  Al_Haffa = 'الحفة',
+  Tartous_South = 'طرطوس الجنوب',
+  Tartous_North = 'طرطوس الشمال',
+  Al_Qadmous = 'القدموس',
+  Batrumaz = 'بطرماز',
+  Al_Hawataniyah = 'الحوطانية',
+}
+
+export enum IdlibAreas {
+  Old_City = 'المدينة القديمة',
+  Maaret_Al_Nuuman = 'معرة النعمان',
+  Salqin = 'سلقين',
+  Ariha = 'أريحا',
+  Khan_Sheikhoun = 'خان شيخون',
+  Idlib_City = 'إدلب المدينة',
+  Kafr_Nabl = 'كفر نبل',
+  Jisr_Al_Shughur = 'جسر الشغور',
+  Saraqib = 'سراقب',
+  Al_Dana = 'الدانا',
+}
+
+export enum DaraaAreas {
+  Old_City = 'المدينة القديمة',
+  Daraa_Al_Balda = 'درعا البلدة',
+  Daraa_South = 'درعا الجنوب',
+  Daraa_North = 'درعا الشمال',
+  Tafas = 'طفس',
+  Nawa = 'نوى',
+  Saida = 'صيدا',
+  Al_Harak = 'الحراك',
+  Al_Lajat = 'اللجاة',
+  Dael = 'داعل',
+}
+
+export enum QuneitraAreas {
+  Old_City = 'المدينة القديمة',
+  Quneitra_City = 'القنيطرة البلدة',
+  Hader = 'حضر',
+  Khan_Al_Sheikh = 'خان الشيح',
+  Mazareeb = 'مزيريب',
+  Al_Gharzeh = 'الغرزة',
+  Jaba = 'جبا',
+}
+
+export enum SweidaAreas {
+  Old_City = 'المدينة القديمة',
+  Sweida_City = 'السويداء البلدة',
+  Shahba = 'شهبا',
+  Salkhad = 'صلخد',
+  Saida = 'صيدا',
+  Daraa_North = 'درعا الشمالي',
+  Dabba = 'ضبعة',
+  Saasa = 'سعسع',
+}
+
+export enum HassakehAreas {
+  Old_City = 'المدينة القديمة',
+  Hassakeh_City = 'الحسكة البلدة',
+  Al_Qehtaniyah = 'القحطانية',
+  Ras_Al_Ain = 'رأس العين',
+  Al_Shaddadi = 'الشدادي',
+  Amouda = 'عامودا',
+  Al_Hawl = 'الهول',
+}
+
+export enum RaqqaAreas {
+  Old_City = 'المدينة القديمة',
+  Raqqa_City = 'الرقة البلدة',
+  Ain_Issa = 'عين عيسى',
+  Tal_Abyad = 'تل أبيض',
+  Al_Tabaqa = 'الطبقة',
+  Raqqa_North = 'الرقة الشمالي',
+  Raqqa_South = 'الرقة الجنوبي',
+}
+
+export enum DeirEzzorAreas {
+  Old_City = 'المدينة القديمة',
+  DeirEzzor_South = 'دير الزور الجنوب',
+  DeirEzzor_North = 'دير الزور الشمال',
+  Al_Mayadeen = 'الميادين',
+  Al_Bukamal = 'البوكمال',
+  Al_Salihiya = 'الصالحية',
+  Al_Hawaij = 'الحوايج',
+  Al_Baghdadi = 'البغدادي',
 }
 export enum SubCity {
   DAMASCUS_CITY = 'DAMASCUS_CITY',
@@ -106,7 +332,7 @@ export enum HospitalSpecialization {
   BloodBank = 'بنك الدم',
 }
 
-export enum CenterCategory {
+export enum CenterSpecialization {
   GeneralMedicine = 'طب عام',
   CosmeticDermatology = 'تجميل وصحة الجلد',
   Dentistry = 'أسنان',
@@ -262,11 +488,122 @@ export enum SubscriptionStatus {
 }
 
 export enum DepartmentType {
-  RADIOLOGY = 'radiology',
-  SURGERY = 'surgery',
-  ICU = 'icu',
-  LAB = 'lab',
+  Internal_Medicine = 'الطب الداخلي',
+  General_Medicine = 'الطب العام',
+  Internal_Physician = 'الطب الباطني',
+
+  // الجراحة
+  General_Surgery = 'الجراحة العامة',
+  Cardiac_Surgery = 'جراحة قلب',
+  Neurosurgery = 'جراحة أعصاب',
+  Orthopedic_Surgery = 'جراحة عظام',
+  Joint_Surgery = 'جراحة مفاصل',
+  Vascular_Surgery = 'جراحة أوعية دموية',
+  Gastrointestinal_Surgery = 'جراحة جهاز هضمي',
+  Liver_Pancreas_Surgery = 'جراحة كبد وبنكرياس',
+
+  // النساء والتوليد
+  Gynecology_Obstetrics = 'نساء وتوليد',
+  Infertility_Clinic = 'طب العقم',
+
+  // الأطفال
+  Pediatrics = 'طب أطفال',
+  Neonatology = 'حديثي الولادة',
+  Pediatric_ICU = 'العناية المركزة للأطفال',
+
+  // العيون
+  Ophthalmology = 'طب العيون',
+  Eye_Surgery = 'جراحة عيون',
+
+  // الأسنان
+  Dentistry = 'طب الأسنان',
+  Dental_Surgery = 'جراحة أسنان',
+  Orthodontics = 'تقويم أسنان',
+
+  // الأنف والأذن والحنجرة
+  ENT_Clinic = 'طب أنف أذن حنجرة',
+  ENT_Surgery = 'جراحة أنف أذن حنجرة',
+
+  // الجلدية والتجميل
+  Dermatology = 'طب جلدية',
+  Cosmetic_Surgery = 'جراحة تجميل',
+  Minor_Cosmetic_Procedure = 'جراحة تجميل صغيرة',
+  Tattoo_Removal = 'إزالة وشم',
+
+  // التخدير والعناية المركزة
+  Anesthesia = 'التخدير',
+  ICU = 'العناية المركزة',
+
+  // الأشعة والتصوير الطبي
+  Radiology = 'الأشعة',
+  CT_Scan = 'الأشعة المقطعية (طبقي محوري)',
+  MRI = 'الرنين المغناطيسي',
+  Ultrasound = 'موجات فوق صوتية',
+  X_Ray = 'أشعة سينية',
+
+  // المختبرات الطبية
+  Blood_Lab = 'مختبر دم',
+  Urine_Lab = 'مختبر بول',
+  Microbiology_Lab = 'مختبر ميكروبيولوجي',
+  Chemistry_Lab = 'مختبر كيمياء',
+
+  // الطوارئ
+  Emergency_Department = 'قسم طوارئ',
+  Ambulance_Services = 'إسعاف ونقل مريض',
+  Emergency_Staff = 'موظف طوارئ',
+
+  // العلاج الطبيعي وإعادة التأهيل
+  Physiotherapy = 'علاج طبيعي',
+  Rehabilitation = 'إعادة تأهيل',
+  Physiotherapy_Technician = 'فني علاج طبيعي',
+  Rehabilitation_Specialist = 'أخصائي إعادة تأهيل',
+
+  // التغذية والصحة العامة
+  Nutritionist = 'أخصائي تغذية',
+  Diet_Therapy = 'تغذية علاجية',
+  Public_Health_Specialist = 'أخصائي صحة عامة',
+  Public_Health = 'صحة عامة',
+
+  // المسالك البولية والكلى
+  Urology = 'مسالك بولية',
+  Dialysis = 'غسيل كلوي',
+
+  // الأطباء حسب التخصص
+  General_Physician = 'طبيب عام',
+  Internal_Physician_Doctor = 'طبيب باطنة',
+  Surgeon = 'طبيب جراحة',
+  Pediatric_Doctor = 'طبيب أطفال',
+  Gynecology_Obstetrics_Doctor = 'طبيب نساء وتوليد',
+  Ophthalmologist = 'طبيب عيون',
+  Dentist = 'طبيب أسنان',
+  ENT_Doctor = 'طبيب أنف أذن حنجرة',
+  Dermatologist = 'طبيب جلدية',
+  Anesthesiologist = 'طبيب تخدير',
+  Neurologist = 'طبيب أعصاب',
+  Oncologist = 'طبيب أورام',
+  Vascular_Doctor = 'طبيب أوعية دموية',
+
+  // الصيادلة
+  Pharmacist = 'صيدلي',
+  Clinical_Pharmacist = 'صيدلي سريري',
+
+  // الممرضين والمساعدين
+  Nurse = 'ممرض',
+  Female_Nurse = 'ممرضة',
+  Nursing_Assistant = 'مساعد تمريض',
+
+  // الفنيين
+  Lab_Technician = 'فني مختبر',
+  Radiology_Technician = 'فني أشعة',
+  Surgery_Technician = 'فني جراحة',
+
+  // موظفين إداريين
+  Medical_Records_Staff = 'موظف سجلات طبية',
+
+  // اختصاصات أخرى
+  Psychologist = 'أخصائي نفسية',
 }
+
 export enum Machines {
   XRayMachine = 'جهاز أشعة سينية',
   CTScanner = 'جهاز طبقي محوري',
@@ -308,81 +645,82 @@ export enum Machines {
   ClinicalDiagnosticEquipment = 'جهاز تشخيص سريري',
 }
 
-export enum CenterSpecialization {
-  MEDICINE = 'medicine',
-  DENTISTRY = 'dentistry',
-  VETERINARY = 'veterinary',
-}
+export enum CommonSurgery {
+  Heart_OpenSurgery = 'جراحة قلب مفتوح',
+  Heart_SmallUnitSurgery = 'جراحة قلب بوحدات صغيرة',
+  Heart_CatheterSurgery = 'جراحة قسطرة قلب',
+  Heart_ValveReplacement = 'جراحة زرع صمامات القلب',
 
-export enum CommonOperation {
-  // Cardiology
-  OpenHeartSurgery = 'جراحة قلب مفتوح',
-  MinimallyInvasiveHeartSurgery = 'جراحة قلب بوحدات صغيرة',
-  CardiacCatheterization = 'جراحة قسطرة قلب',
-  HeartValveReplacement = 'جراحة زرع صمامات القلب',
+  // قسم الدماغ والأعصاب
+  Brain_Surgery = 'جراحة دماغ',
+  Nerve_OpenSurgery = 'جراحة أعصاب مفتوحة',
+  Brain_TumorSurgery = 'جراحة أورام دماغ',
+  Spine_Surgery = 'جراحة عمود فقري',
+  Pediatric_NerveSurgery = 'جراحة أعصاب للأطفال',
 
-  // Neurology
-  BrainSurgery = 'جراحة دماغ',
-  OpenNeurosurgery = 'جراحة أعصاب مفتوحة',
-  BrainTumorSurgery = 'جراحة أورام دماغ',
-  SpinalSurgery = 'جراحة عمود فقري',
-  PediatricNeurosurgery = 'جراحة أعصاب للأطفال',
+  // قسم العظام والمفاصل
+  Bones_Surgery = 'جراحة عظام',
+  Knee_Joint_Surgery = 'جراحة مفصل الركبة',
+  Hip_Joint_Surgery = 'جراحة مفصل الورك',
+  Fracture_Surgery = 'جراحة كسور',
+  Bone_Deformity_Surgery = 'جراحة تشوهات العظام',
 
-  // Orthopedics
-  OrthopedicSurgery = 'جراحة عظام',
-  KneeReplacement = 'جراحة مفصل الركبة',
-  HipReplacement = 'جراحة مفصل الورك',
-  FractureSurgery = 'جراحة كسور',
-  BoneDeformitySurgery = 'جراحة تشوهات العظام',
+  // قسم النساء والتوليد
+  Women_Obstetrics_Surgery = 'جراحة نساء وتوليد',
+  Cesarean_Section = 'جراحة ولادة قيصرية',
+  Abortion_Surgery = 'جراحة إجهاض',
+  Infertility_Surgery = 'جراحة لعلاج العقم',
 
-  // OB/GYN
-  OBGYNSurgery = 'جراحة نساء وتوليد',
-  CSection = 'جراحة ولادة قيصرية',
-  AbortionSurgery = 'جراحة إجهاض',
-  InfertilitySurgery = 'جراحة لعلاج العقم',
+  // قسم العيون
+  Eye_LensRemoval = 'جراحة عيون إزالة عدسة',
+  Eye_Laser = 'جراحة عيون ليزر',
+  Eye_Glaucoma = 'جراحة عيون المياه الزرقاء',
 
-  // Ophthalmology
-  LensRemovalSurgery = 'جراحة عيون إزالة عدسة',
-  LaserEyeSurgery = 'جراحة عيون ليزر',
-  GlaucomaSurgery = 'جراحة عيون المياه الزرقاء',
+  // قسم الأنف والأذن والحنجرة
+  Nose_Surgery = 'جراحة أنف',
+  Rhinoplasty = 'جراحة تجميل الأنف',
+  Sinus_Surgery = 'جراحة الجيوب الأنفية',
+  Ear_Surgery = 'جراحة أذن',
+  Throat_Surgery = 'جراحة حنجرة',
 
-  // ENT
-  NasalSurgery = 'جراحة أنف',
-  EarSurgery = 'جراحة أذن',
-  ThroatSurgery = 'جراحة حنجرة',
+  // قسم الأسنان
+  Dental_ToothExtraction = 'جراحة أسنان سحب ضرس',
+  Dental_Implant = 'جراحة أسنان زرع',
+  Dental_Braces = 'جراحة أسنان تقويم',
+  Dental_Fillings = 'جراحة أسنان حشوات',
 
-  // Dental
-  ToothExtraction = 'جراحة أسنان سحب ضرس',
-  DentalImplant = 'جراحة أسنان زرع',
-  OrthodonticSurgery = 'جراحة أسنان تقويم',
+  // قسم الجلدية والتجميل
+  Dermatology_Surgery = 'جراحة جلدية',
+  Cosmetic_Surgery = 'جراحة تجميل',
+  Facelift_Surgery = 'جراحة شد الوجه',
+  Botox_Surgery = 'حقن بوتوكس',
+  Laser_Surgery = 'جراحة ليزر',
+  Burn_Surgery = 'جراحة حروق',
+  Superficial_Burn_Surgery = 'جراحة حروق سطحية',
+  Liposuction = 'شفط الدهون',
+  Breast_Surgery = 'جراحة تكبير/تصغير الثدي',
 
-  // Dermatology & Cosmetic
-  DermatologicalSurgery = 'جراحة جلدية',
-  PlasticSurgery = 'جراحة تجميل',
-  LaserSurgery = 'جراحة ليزر',
-  BurnSurgery = 'جراحة حروق',
+  // قسم الجهاز الهضمي
+  Gastrointestinal_Surgery = 'جراحة جهاز هضمي',
+  Stomach_Surgery = 'جراحة معدة',
+  Intestine_Surgery = 'جراحة أمعاء',
+  Colon_Surgery = 'جراحة قولون',
+  Liver_Pancreas_Surgery = 'جراحة كبد وبنكرياس',
 
-  // Gastroenterology
-  DigestiveSystemSurgery = 'جراحة جهاز هضمي',
-  StomachSurgery = 'جراحة معدة',
-  IntestinalSurgery = 'جراحة أمعاء',
-  ColonSurgery = 'جراحة قولون',
-  LiverPancreasSurgery = 'جراحة كبد وبنكرياس',
+  // قسم المسالك البولية
+  Urinary_Surgery = 'جراحة مسالك بولية',
+  Kidney_Surgery = 'جراحة كلية',
+  Bladder_Surgery = 'جراحة مثانة',
 
-  // Urology
-  UrologicalSurgery = 'جراحة مسالك بولية',
-  KidneySurgery = 'جراحة كلية',
-  BladderSurgery = 'جراحة مثانة',
+  // قسم الطوارئ
+  Emergency_Surgery = 'جراحة طوارئ',
+  Injury_Surgery = 'جراحة إصابات',
+  Accident_Surgery = 'جراحة حوادث',
 
-  // Emergency
-  EmergencySurgery = 'جراحة طوارئ',
-  TraumaSurgery = 'جراحة إصابات',
-  AccidentSurgery = 'جراحة حوادث',
-
-  // Endoscopy
-  Laparoscopy = 'جراحة مناظير بطن',
-  Thoracoscopy = 'جراحة مناظير صدر',
-  UrologicalEndoscopy = 'جراحة مناظير مسالك',
+  // قسم المناظير
+  Laparoscopy_Abdomen = 'جراحة مناظير بطن',
+  Laparoscopy_Chest = 'جراحة مناظير صدر',
+  Laparoscopy_Urology = 'جراحة مناظير مسالك',
 }
 
 export enum AdStatus {
@@ -406,8 +744,17 @@ export enum OfferStatus {
 }
 
 export enum OfferType {
-  PRODUCT = 'product',
-  SERVICE = 'service',
+  FreeCheckup = 'معاينة مجانية',
+  FreeConsultation = 'استشارة مجانية',
+  FreeExamination = 'فحص مجاني',
+  FreeSession = 'جلسة مجانية',
+  FreeFollowUp = 'مراجعة مجانية',
+  ServiceDiscount = 'حسم على الخدمة',
+  PercentageDiscount = 'حسم بنسبة مئوية',
+  DiscountedPackage = 'باقة بسعر مخفض',
+  FreeServiceWithService = 'خدمة مجانية مع خدمة',
+  LimitedTimeOffer = 'عرض لفترة محدودة',
+  Other = 'غير ذلك',
 }
 
 export enum QuestionStatus {

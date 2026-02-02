@@ -5,69 +5,82 @@ import { LRUCache } from 'lru-cache';
 
 @Injectable()
 export class CacheService {
-  // Fix 1: Explicitly type the cache to hold 'any' values
   private memoryCache: LRUCache<string, any>;
 
   constructor(private readonly redisService: RedisService) {
+    // Layer 1: Memory cache
     this.memoryCache = new LRUCache({
-      max: 1000,
-      ttl: 60 * 1000,
+      max: 1000, // max items in memory
+      ttl: 60 * 1000, // 1 minute (milliseconds)
       allowStale: false,
       updateAgeOnGet: false,
       updateAgeOnHas: false,
     });
   }
 
+  /**
+   * Get from cache (checks all layers)
+   */
   async get<T>(key: string): Promise<T | null> {
-    // Layer 1: Check memory cache
-    // Fix 2: Remove <T> from .get() (it's not generic) and cast the result
-    const memoryValue = this.memoryCache.get(key) as T | undefined;
-
+    // Layer 1: Memory cache
+    const memoryValue = this.memoryCache.get(key);
     if (memoryValue !== undefined) {
-      return memoryValue;
+      return memoryValue as T;
     }
 
-    // Layer 2: Check Redis
+    // Layer 2: Redis cache
     const redisValue = await this.redisService.get(key);
     if (redisValue) {
-      this.memoryCache.set(key, redisValue);
+      const parsed = redisValue as T;
 
-      return redisValue as T;
+      // Repopulate memory cache (use default TTL)
+      this.memoryCache.set(key, parsed);
+
+      return parsed;
     }
 
+    // Layer 3: Cache miss
     return null;
   }
 
+  /**
+   * Set in all cache layers
+   */
   async set(
     key: string,
     value: any,
-    memoryTTL: number = 60 * 1000, // Ensure unit is consistent (ms)
+    memoryTTL: number = 60,
     redisTTL: number = 3600,
   ): Promise<void> {
     // Layer 1: Memory cache
-    // Fix 4: 'lru-cache' v7+ expects an options object for TTL, not a raw number
-    this.memoryCache.set(key, value, { ttl: memoryTTL });
+    this.memoryCache.set(key, value, {
+      ttl: memoryTTL * 1000,
+    });
 
     // Layer 2: Redis cache
     await this.redisService.set(key, JSON.stringify(value), redisTTL);
   }
 
+  /**
+   * Invalidate specific key from all layers
+   */
   async invalidate(key: string): Promise<void> {
-    this.memoryCache.delete(key); // Fix 5: method is .delete(), not .del() in newer versions
+    this.memoryCache.delete(key);
     await this.redisService.del(key);
   }
 
+  /**
+   * Invalidate by pattern (only Redis and Memory)
+   */
   async invalidatePattern(pattern: string): Promise<void> {
-    // Fix 6: .keys() returns an Iterator, not an Array. We must convert it.
-    // Also, iterating over all keys in memory can be expensive; use cautiously.
-    const keys = [...this.memoryCache.keys()];
-
-    for (const key of keys) {
+    // Layer 1: Memory cache
+    for (const key of this.memoryCache.keys()) {
       if (this.matchPattern(key, pattern)) {
         this.memoryCache.delete(key);
       }
     }
 
+    // Layer 2: Redis cache
     await this.redisService.deletePattern(pattern);
   }
 

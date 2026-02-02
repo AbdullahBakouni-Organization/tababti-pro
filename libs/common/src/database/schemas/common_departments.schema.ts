@@ -1,6 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
-import { CommonOperation, DepartmentType, Machines } from './common.enums';
+import { CommonSurgery, DepartmentType, Machines } from './common.enums';
 
 @Schema({ timestamps: true, collection: 'common_departments' })
 export class CommonDepartment extends Document {
@@ -56,13 +56,13 @@ export class CommonDepartment extends Document {
   @Prop({
     type: [
       {
-        name: { type: String, enum: Object.values(CommonOperation) }, // Enforces Enum at DB level
+        name: { type: String, enum: Object.values(CommonSurgery) }, // Enforces Enum at DB level
         id: { type: String },
       },
     ],
   })
   operations: {
-    name: CommonOperation; // Enforces Enum at TypeScript level
+    name: CommonSurgery; // Enforces Enum at TypeScript level
     id: string;
   }[];
 

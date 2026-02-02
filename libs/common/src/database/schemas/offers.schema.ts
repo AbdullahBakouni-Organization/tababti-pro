@@ -50,7 +50,7 @@ export class Offer {
   @Prop({
     type: String,
     enum: Object.values(OfferType),
-    default: OfferType.PRODUCT,
+    default: OfferType.DiscountedPackage,
     index: true,
   })
   type: OfferType;

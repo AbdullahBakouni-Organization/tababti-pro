@@ -17,4 +17,3 @@ export class Cities extends Document {
 export const CitySchema = SchemaFactory.createForClass(Cities);
 
 CitySchema.index({ name: 1 }, { unique: true });
-CitySchema.index({ 'subCities.name': 1 });
