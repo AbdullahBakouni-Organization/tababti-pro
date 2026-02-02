@@ -7,7 +7,7 @@ export class SystemConfig extends Document {
   @Prop({ type: String, required: true, unique: true })
   key: string;
 
-  @Prop({ required: true })
+  @Prop({ required: true, type: String })
   value: any;
 
   @Prop({ type: String, required: false })

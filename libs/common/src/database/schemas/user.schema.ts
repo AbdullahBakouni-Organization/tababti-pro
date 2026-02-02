@@ -31,7 +31,11 @@ export class User extends Document {
   @Prop({ required: true, type: Date })
   DataofBirth: Date;
 
-  @Prop({ required: true, default: ApprovalStatus.ACTIVE })
+  @Prop({
+    required: true,
+    type: String,
+    enum: ApprovalStatus,
+  })
   status: ApprovalStatus;
 
   @Prop({ type: String, maxlength: 4096 })

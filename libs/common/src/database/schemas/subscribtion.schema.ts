@@ -8,18 +8,19 @@ import {
 
 @Schema({ timestamps: true, collection: 'subscriptions' })
 export class Subscription extends Document {
-  @Prop({ required: true, enum: SubscriptionOwnerType })
+  @Prop({ required: true, enum: SubscriptionOwnerType, type: String })
   ownerType: SubscriptionOwnerType;
 
   @Prop({ type: Types.ObjectId, required: true })
   ownerId: Types.ObjectId;
 
-  @Prop({ required: true, enum: SubscriptionPlanType })
+  @Prop({ required: true, enum: SubscriptionPlanType, type: String })
   planType: SubscriptionPlanType;
 
   @Prop({
     required: true,
     enum: SubscriptionStatus,
+    type: String,
     default: SubscriptionStatus.ACTIVE,
   })
   status: SubscriptionStatus;

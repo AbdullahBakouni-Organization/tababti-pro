@@ -129,7 +129,11 @@ export class Doctor extends Document {
   @Prop({ default: false })
   isSubscribed: boolean;
 
-  @Prop({ required: true, default: ApprovalStatus.PENDING })
+  @Prop({
+    required: true,
+    type: String,
+    enum: ApprovalStatus,
+  })
   status: ApprovalStatus;
 
   @Prop({ type: Number })
