@@ -3,6 +3,7 @@ import { Document, Types } from 'mongoose';
 import {
   ApprovalStatus,
   HospitalCategory,
+  HospitalSpecialization,
   HospitalStatus,
 } from './common.enums';
 
@@ -51,6 +52,9 @@ export class Hospital extends Document {
   @Prop({ type: String, enum: HospitalStatus, required: true })
   hospitalstatus: HospitalStatus;
 
+  @Prop({ type: String, enum: HospitalSpecialization, required: true })
+  hospitalSpecialization: HospitalSpecialization;
+
   @Prop({
     type: [{ type: Object }],
     index: true,
@@ -66,8 +70,11 @@ export class Hospital extends Document {
   @Prop({ required: false }) // Image is optional
   image?: string;
 
-  @Prop({ type: Number, required: false })
-  numberOfBeds?: number;
+  @Prop({ required: false, type: String }) // Image is optional
+  certificateImage?: string;
+
+  @Prop({ required: false, type: String }) // Image is optional
+  licenseImages?: string;
 
   @Prop({ min: 1, max: 5 })
   rating: number;
@@ -80,43 +87,57 @@ export class Hospital extends Document {
   })
   status: ApprovalStatus;
 
-  @Prop({ type: [Object] }) doctors: {
-    name: string;
-    id: string;
-    departement: string;
-  }[];
-
   @Prop({ type: [Object] }) insuranceCompanies: {
     name: string;
     id: string;
     location: string;
   }[];
 
-  @Prop({ type: String })
-  fcmToken?: string;
+  @Prop({ type: Number })
+  searchCount: number;
+
+  @Prop({ type: Number })
+  profileViews: number;
+
+  @Prop({ type: String, maxlength: 4096 })
+  deviceTokens?: string[];
+
+  @Prop({ type: Types.ObjectId, ref: 'Subscription' })
+  subscriptionId: Types.ObjectId;
+
+  @Prop({ default: false })
+  isSubscribed: boolean;
 }
 export const HospitalSchema = SchemaFactory.createForClass(Hospital);
 
 HospitalSchema.index({
-  city: 1,
+  cityId: 1,
   category: 1,
 });
 HospitalSchema.index({
   category: 1,
-  city: 1,
+  cityId: 1,
 });
 HospitalSchema.index({
   category: 1,
-  city: 1,
-  status: 1,
+});
+HospitalSchema.index({
+  cityId: 1,
+});
+HospitalSchema.index({
+  category: 1,
+  cityId: 1,
+  hospitalSpecialization: 1,
 });
 HospitalSchema.index({
   latitude: 1,
   longitude: 1,
 });
 HospitalSchema.index({
-  city: 1,
+  cityId: 1,
   category: 1,
-  status: 1,
-  numberOfBeds: 1,
+  hospitalSpecialization: 1,
+});
+HospitalSchema.index({
+  hospitalSpecialization: 1,
 });

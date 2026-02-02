@@ -1,16 +1,16 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document } from 'mongoose';
-import { PublicSpecializationEnums } from './common.enums';
+import { GeneralSpecialty } from './common.enums';
 
 @Schema({ timestamps: true, collection: 'publicspecializations' })
 export class PublicSpecialization extends Document {
   @Prop({
     type: String,
-    enum: PublicSpecializationEnums,
+    enum: GeneralSpecialty,
     required: true,
     unique: true,
   })
-  name: PublicSpecializationEnums;
+  name: GeneralSpecialty;
 }
 
 export const PublicSpecializationSchema =

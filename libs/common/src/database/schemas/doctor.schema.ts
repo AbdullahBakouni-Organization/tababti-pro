@@ -106,8 +106,6 @@ export class Doctor extends Document {
   @Prop({ type: [{ type: Types.ObjectId, ref: 'PublicSpecialization' }] })
   publicSpecializationId: Types.ObjectId;
 
-  @Prop({ type: Number }) visitDurationMinutes: number;
-
   @Prop({ type: [Object] }) workingHours: {
     day: Days;
     location: {
@@ -131,7 +129,7 @@ export class Doctor extends Document {
   @Prop({ default: false })
   isSubscribed: boolean;
 
-  @Prop({ required: true, default: ApprovalStatus.ACTIVE })
+  @Prop({ required: true, default: ApprovalStatus.PENDING })
   status: ApprovalStatus;
 
   @Prop({ type: Number })
@@ -146,31 +144,54 @@ export class Doctor extends Document {
 export const DoctorSchema = SchemaFactory.createForClass(Doctor);
 
 DoctorSchema.index({
-  approvalStatus: 1,
   cityId: 1,
+  gender: 1,
   publicSpecializationId: 1,
+  inspectionDuration: 1,
+  inspectionPrice: 1,
+  rating: -1,
 });
 
 DoctorSchema.index({
   publicSpecializationId: 1,
+  cityId: 1,
+  gender: 1,
+  inspectionDuration: 1,
+  inspectionPrice: 1,
+  rating: 1,
 });
-
+DoctorSchema.index({
+  publicSpecializationId: 1,
+});
+DoctorSchema.index({
+  publicSpecializationId: 1,
+  cityId: 1,
+  inspectionPrice: 1,
+});
+DoctorSchema.index({
+  cityId: 1,
+  publicSpecializationId: 1,
+  inspectionPrice: 1,
+});
 DoctorSchema.index({
   yearsOfExperience: 1,
 });
 
 DoctorSchema.index({
-  status: 1,
+  publicSpecializationId: 1,
   rating: -1,
 });
 DoctorSchema.index({
-  rating: -1,
+  gender: 1,
+  rating: 1,
 });
 
 DoctorSchema.index({
   firstName: 1,
 });
-
+DoctorSchema.index({
+  rating: 1,
+});
 DoctorSchema.index({
   lastName: 1,
 });
@@ -181,4 +202,10 @@ DoctorSchema.index({
 DoctorSchema.index({
   latitude: 1,
   longitude: 1,
+});
+DoctorSchema.index({
+  inspectionDuration: 1,
+});
+DoctorSchema.index({
+  inspectionPrice: 1,
 });

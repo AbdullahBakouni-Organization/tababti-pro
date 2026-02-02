@@ -1,6 +1,10 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
-import { NotificationType, UserRole } from './common.enums';
+import {
+  NotificationStatus,
+  NotificationTypes,
+  UserRole,
+} from './common.enums';
 
 // Define Enums for better type safety
 
@@ -14,13 +18,40 @@ export class Notification extends Document {
 
   @Prop({
     type: String,
-    enum: NotificationType,
+    enum: NotificationTypes,
     required: true,
     index: true,
   })
-  Notificationtype: NotificationType;
-  @Prop({ type: Object }) payload: Record<string, any>;
+  Notificationtype: NotificationTypes;
+
+  @Prop({ type: String, required: true })
+  title: string;
+
+  @Prop({ type: String, required: true })
+  message: string;
+
+  @Prop({
+    type: String,
+    enum: Object.values(NotificationStatus),
+    default: NotificationStatus.PENDING,
+    index: true,
+  })
+  status: NotificationStatus;
+
   @Prop({ default: false }) isRead: boolean;
 }
 
 export const NotificationSchema = SchemaFactory.createForClass(Notification);
+
+NotificationSchema.index(
+  {
+    recipientType: 1,
+    recipientId: 1,
+    status: 1,
+    createdAt: 1,
+    Notificationtype: 1,
+  },
+  {
+    unique: true,
+  },
+);

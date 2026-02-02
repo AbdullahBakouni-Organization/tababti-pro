@@ -15,7 +15,7 @@ import { PublicSpecializationSchema } from './schemas/publicspecializations.sche
 import { PrivateSpecializationSchema } from './schemas/privatespecializations.schema';
 import { NotificationSchema } from './schemas/notification.schema';
 import { BookingSchema } from './schemas/booking.schema';
-import { ContentSchema } from './schemas/content.schema';
+import { ContentSchema } from './schemas/post.schema';
 import { InsuranceCompanySchema } from './schemas/insurancecompany.schema';
 import { TransliterationCacheSchema } from './schemas/transliteration-cache.schema';
 import { AdminSchema } from './schemas/admin.schema';

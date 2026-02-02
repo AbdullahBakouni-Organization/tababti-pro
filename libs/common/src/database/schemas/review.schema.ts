@@ -9,16 +9,29 @@ export class Review extends Document {
   @Prop({ type: Types.ObjectId, ref: 'User', index: true })
   userId: Types.ObjectId;
 
-  @Prop({ type: String, enum: UserRole, required: true, index: true })
-  targetType: UserRole;
+  @Prop({ type: Types.ObjectId, index: true, ref: 'Doctor' })
+  doctorId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, index: true })
-  targetId: Types.ObjectId;
+  @Prop({ type: Types.ObjectId, index: true, ref: 'Rating' })
+  ratingId: Types.ObjectId;
 
-  @Prop({ min: 1, max: 5 })
-  rating: number;
   @Prop()
   comment?: string;
+
+  @Prop({ type: String })
+  deletedBy: UserRole.ADMIN;
+
+  @Prop({ type: Date })
+  createdAt?: Date;
+
+  @Prop({ type: Date })
+  updatedAt?: Date;
 }
 
 export const ReviewSchema = SchemaFactory.createForClass(Review);
+
+ReviewSchema.index({ userId: 1, doctorId: 1, ratingId: 1 }, { unique: true });
+ReviewSchema.index(
+  { userId: 1, doctorId: 1, ratingId: 1, deletedBy: 1 },
+  { unique: true },
+);
