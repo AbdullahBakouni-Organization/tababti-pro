@@ -4,6 +4,7 @@ import { HomeServiceController } from './home-service.controller';
 import { HomeServiceService } from './home-service.service';
 import { DatabaseModule } from '@app/common/database/database.module';
 import { KafkaModule } from '@app/common/kafka/kafka.module';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { KafkaModule } from '@app/common/kafka/kafka.module';
       groupId: 'home-consumer',
     }),
     DatabaseModule,
+    AuthModule,
   ],
   controllers: [HomeServiceController],
   providers: [HomeServiceService],
