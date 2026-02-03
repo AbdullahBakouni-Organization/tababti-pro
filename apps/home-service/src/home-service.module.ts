@@ -5,6 +5,7 @@ import { HomeServiceService } from './home-service.service';
 import { DatabaseModule } from '@app/common/database/database.module';
 import { KafkaModule } from '@app/common/kafka/kafka.module';
 import { AuthModule } from './auth/auth.module';
+import { SmsModule } from './sms/sms.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { AuthModule } from './auth/auth.module';
     }),
     DatabaseModule,
     AuthModule,
+    SmsModule,
   ],
   controllers: [HomeServiceController],
   providers: [HomeServiceService],

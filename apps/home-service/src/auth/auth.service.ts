@@ -10,13 +10,9 @@ import { JwtService } from '@nestjs/jwt';
 import { AuthAccount } from '@app/common/database/schemas/auth.schema';
 import { Otp } from '@app/common/database/schemas/otp.schema';
 import { User } from '@app/common/database/schemas/user.schema';
-import { SmsService } from '../sms-service/sms-service.service';
+import { SmsService } from '../sms/sms.service';
 import { RequestOtpDto, ResendOtpDto, VerifyOtpDto } from './dto/auth.dto';
-import {
-  City,
-  Gender,
-  UserRole,
-} from '@app/common/database/schemas/common.enums';
+import { Gender, UserRole } from '@app/common/database/schemas/common.enums';
 import { Response } from 'express';
 import { Doctor } from '@app/common/database/schemas/doctor.schema';
 import { Hospital } from '@app/common/database/schemas/hospital.schema';
@@ -278,10 +274,9 @@ export class AuthService {
             phone,
             username,
             gender: gender || Gender.MALE,
-            city: city || City.ALEPPO,
+            city: city,
             DataofBirth,
             image: imagePath || '',
-            isVerified: true,
           },
         ],
         { session },

@@ -71,7 +71,7 @@ export class RequestOtpDto {
   @IsEnum(Gender)
   gender?: Gender;
 
-  @ApiPropertyOptional({ enum: City, example: City.DAMASCUS })
+  @ApiPropertyOptional({ enum: City, example: City.Damascus })
   @IsOptional()
   @IsEnum(City)
   city?: City;
