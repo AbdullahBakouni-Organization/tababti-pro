@@ -11,9 +11,9 @@ import { DoctorModule } from './doctor/doctor.module';
 @Module({
   imports: [
     KafkaModule.forRoot({
-      clientId: 'home-service',
+      clientId: 'social-service',
       brokers: [process.env.KAFKA_BROKER!],
-      groupId: 'home-consumer',
+      groupId: 'social-consumer',
     }),
     DatabaseModule,
     AuthModule,
