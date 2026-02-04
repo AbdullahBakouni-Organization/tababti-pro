@@ -105,25 +105,14 @@ export class Center extends Document {
 
 export const CenterSchema = SchemaFactory.createForClass(Center);
 
-CenterSchema.index({
-  centerSpecialization: 1,
-  cityId: 1,
-});
+// Main search index (city → specialization)
+CenterSchema.index({ cityId: 1, centerSpecialization: 1 });
 
-CenterSchema.index({
-  cityId: 1,
-  centerSpecialization: 1,
-});
+// Geo-like search (manual, since you're not using 2dsphere)
+CenterSchema.index({ latitude: 1, longitude: 1 });
 
-CenterSchema.index({
-  cityId: 1,
-});
+// Status filtering
+CenterSchema.index({ approvalStatus: 1 });
 
-CenterSchema.index({
-  centerSpecialization: 1,
-});
-
-CenterSchema.index({
-  latitude: 1,
-  longitude: 1,
-});
+// Unique constraint (already creates index)
+CenterSchema.index({ authAccountId: 1 }, { unique: true });

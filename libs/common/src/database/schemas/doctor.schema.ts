@@ -1,7 +1,11 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 import { ApprovalStatus, Days, Gender, WorkigEntity } from './common.enums';
+import { Session, SessionSchema } from './session.schema';
+import { scrypt, randomBytes, timingSafeEqual } from 'crypto';
+import { promisify } from 'util';
 
+const scryptAsync = promisify(scrypt);
 @Schema({ timestamps: true, collection: 'doctors' })
 export class Doctor extends Document {
   @Prop({ type: Types.ObjectId, ref: 'AuthAccount', unique: true })
@@ -34,6 +38,9 @@ export class Doctor extends Document {
   })
   middleName: string;
 
+  @Prop({ required: true, select: false })
+  password: string;
+
   @Prop({ type: Number }) latitude?: number;
 
   @Prop({ type: Number }) longitude?: number;
@@ -41,14 +48,20 @@ export class Doctor extends Document {
   @Prop({ type: Types.ObjectId, ref: 'Cities' })
   cityId: Types.ObjectId;
 
+  @Prop({ type: Types.ObjectId, ref: 'SubCities' })
+  subcityId: Types.ObjectId;
+
+  @Prop({ type: Types.ObjectId, ref: 'PrivateSpecialization' })
+  privateSpecializationId: Types.ObjectId;
+
   @Prop({ required: false, type: String }) // Image is optional
   image?: string;
 
-  @Prop({ required: false, type: String }) // Image is optional
-  certificateImage?: string;
+  @Prop({ required: true, type: String })
+  certificateImage: string;
 
-  @Prop({ required: false, type: String }) // Image is optional
-  licenseImages?: string;
+  @Prop({ required: true, type: String })
+  licenseImage: string;
 
   @Prop({
     type: [{ type: Object }],
@@ -62,7 +75,7 @@ export class Doctor extends Document {
   }[];
 
   @Prop({
-    required: true,
+    required: false,
     trim: true,
     minlength: 3,
     maxlength: 50,
@@ -144,6 +157,62 @@ export class Doctor extends Document {
 
   @Prop({ type: String, maxlength: 4096 })
   deviceTokens?: string[];
+
+  @Prop()
+  rejectionReason?: string;
+
+  @Prop({ type: Types.ObjectId, ref: 'Admin' })
+  approvedBy?: Types.ObjectId;
+
+  @Prop()
+  approvedAt?: Date;
+
+  @Prop({ type: Types.ObjectId, ref: 'Admin' })
+  rejectedBy?: Types.ObjectId;
+
+  @Prop()
+  rejectedAt?: Date;
+
+  @Prop()
+  registeredAt?: Date;
+
+  @Prop({ type: [SessionSchema], default: [] })
+  sessions: Session[];
+
+  @Prop({ default: 5 }) // Max 5 concurrent sessions
+  maxSessions: number;
+
+  // ==================== SECURITY ====================
+
+  @Prop({ default: 0 })
+  failedLoginAttempts: number;
+
+  @Prop()
+  lockedUntil?: Date;
+
+  @Prop()
+  lastLoginAt?: Date;
+
+  @Prop()
+  lastLoginIp?: string;
+
+  @Prop({ default: false })
+  twoFactorEnabled: boolean;
+
+  @Prop({ select: false })
+  twoFactorSecret?: string;
+
+  @Prop({ required: true, type: String })
+  city: string; // City enum value
+
+  @Prop({ required: true })
+  subcity: string;
+
+  @Prop({ required: true, type: String })
+  publicSpecialization: string; // PublicSpecialization enum
+
+  @Prop({ required: true, type: String })
+  privateSpecialization: string; // PrivateSpecialization enum
 }
 export const DoctorSchema = SchemaFactory.createForClass(Doctor);
 
@@ -213,3 +282,118 @@ DoctorSchema.index({
 DoctorSchema.index({
   inspectionPrice: 1,
 });
+
+// ============================================
+// Virtual Fields
+// ============================================
+
+DoctorSchema.virtual('fullName').get(function () {
+  return `${this.firstName} ${this.middleName} ${this.lastName}`;
+});
+
+DoctorSchema.virtual('activeSessions').get(function () {
+  return this.sessions.filter((s) => s.isActive);
+});
+
+DoctorSchema.virtual('isAccountLocked').get(function () {
+  if (!this.lockedUntil) return false;
+  return new Date() < this.lockedUntil;
+});
+
+// / ============================================
+// Pre-save Middleware
+// ============================================
+
+DoctorSchema.pre('save', async function (next: (err?: Error) => void) {
+  // Hash password if modified
+  if (this.isModified('password')) {
+    const salt = randomBytes(16).toString('hex');
+    const derivedKey = (await scryptAsync(this.password, salt, 64)) as Buffer;
+    this.password = `${salt}.${derivedKey.toString('hex')}`;
+  }
+
+  next();
+});
+
+// ============================================
+// Instance Methods
+// ============================================
+
+DoctorSchema.methods.comparePassword = async function (
+  this: Doctor,
+  candidatePassword: string,
+): Promise<boolean> {
+  const [salt, storedHash] = this.password.split('.');
+  const derivedKey = (await scryptAsync(candidatePassword, salt, 64)) as Buffer;
+  const storedHashBuffer = Buffer.from(storedHash, 'hex');
+  return timingSafeEqual(derivedKey, storedHashBuffer);
+};
+
+DoctorSchema.methods.addSession = function (
+  this: Doctor,
+  sessionData: Partial<Session>,
+) {
+  // Remove oldest session if max limit reached
+  if (this.sessions.length >= this.maxSessions) {
+    this.sessions.sort(
+      (a, b) =>
+        new Date(a.lastActivityAt).getTime() -
+        new Date(b.lastActivityAt).getTime(),
+    );
+    this.sessions.shift(); // Remove oldest
+  }
+
+  this.sessions.push(sessionData as Session);
+};
+
+DoctorSchema.methods.removeSession = function (
+  this: Doctor,
+  sessionId: string,
+) {
+  this.sessions = this.sessions.filter((s) => s.sessionId !== sessionId);
+};
+
+DoctorSchema.methods.removeDevice = function (this: Doctor, deviceId: string) {
+  this.sessions = this.sessions.filter((s) => s.deviceId !== deviceId);
+};
+
+DoctorSchema.methods.removeAllSessions = function (this: Doctor) {
+  this.sessions = [];
+};
+
+DoctorSchema.methods.updateSessionActivity = function (
+  this: Doctor,
+  sessionId: string,
+) {
+  const session = this.sessions.find((s) => s.sessionId === sessionId);
+  if (session) {
+    session.lastActivityAt = new Date();
+  }
+};
+
+DoctorSchema.methods.getActiveSessionsCount = function (this: Doctor): number {
+  return this.sessions.filter((s) => s.isActive).length;
+};
+
+DoctorSchema.methods.isSessionActive = function (
+  this: Doctor,
+  sessionId: string,
+): boolean {
+  const session = this.sessions.find((s) => s.sessionId === sessionId);
+  return session ? session.isActive : false;
+};
+
+// Lock account after 5 failed attempts
+DoctorSchema.methods.incrementFailedAttempts = function (this: Doctor) {
+  this.failedLoginAttempts += 1;
+
+  if (this.failedLoginAttempts >= 5) {
+    this.lockedUntil = new Date(Date.now() + 30 * 60 * 1000); // Lock for 30 minutes
+  }
+};
+
+DoctorSchema.methods.resetFailedAttempts = function (this: Doctor) {
+  this.failedLoginAttempts = 0;
+  this.lockedUntil = undefined;
+};
+export type DoctorDocument = Doctor & Document;
