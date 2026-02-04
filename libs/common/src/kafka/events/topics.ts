@@ -16,7 +16,7 @@ export const KAFKA_TOPICS = {
   DOCTOR_APPROVED: 'doctor.approved',
   DOCTOR_ADS_CREATED: 'doctor.ads.created',
   DOCTOR_OFFERS_CREATED: 'doctor.offers.created',
-
+  DOCTOR_REGISTERED: 'doctor.registered',
   // Hospital/Center Events
   HOSPITAL_PROFILE_UPDATED: 'hospital.profile.updated',
   HOSPITAL_APPROVED: 'hospital.approved',

@@ -475,6 +475,7 @@ export enum SubscriptionOwnerType {
 }
 
 export enum SubscriptionPlanType {
+  FREE_TRIAL = 'free_trial',
   DAILY = 'daily',
   YEARLY_TIER_1 = 'yearly_tier1',
   YEARLY_TIER_2 = 'yearly_tier2',

@@ -3,9 +3,15 @@ import { NestFactory } from '@nestjs/core';
 import { HomeServiceModule } from './home-service.module';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import { ValidationPipe } from '@nestjs/common';
+import { NestExpressApplication } from '@nestjs/platform-express';
+import {
+  configureStaticFiles,
+  fileAccessMiddleware,
+} from './config/static-files.config';
 
 async function bootstrap() {
-  const app = await NestFactory.create(HomeServiceModule);
+  const app =
+    await NestFactory.create<NestExpressApplication>(HomeServiceModule);
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -15,6 +21,12 @@ async function bootstrap() {
   );
 
   app.setGlobalPrefix('api/v1');
+
+  // Configure static file serving for uploaded documents
+  configureStaticFiles(app);
+
+  // Add file access security middleware
+  app.use('/uploads', fileAccessMiddleware);
 
   app.connectMicroservice<MicroserviceOptions>({
     transport: Transport.KAFKA,

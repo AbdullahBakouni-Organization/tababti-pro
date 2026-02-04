@@ -165,38 +165,11 @@ export class AuthService {
       await authAccount.save({ session });
       let entityExists = false;
       let entityData: any = null;
-
-      switch (authAccount.role) {
-        case 'user':
-          entityData = await this.userModel
-            .findOne({ authAccountId: authAccount._id })
-            .session(session);
-          entityExists = !!entityData;
-          break;
-
-        case 'doctor':
-          entityData = await this.doctorModel
-            .findOne({ authAccountId: authAccount._id })
-            .session(session);
-          entityExists = !!entityData;
-          break;
-
-        case 'hospital':
-          entityData = await this.hospitalModel
-            .findOne({ authAccountId: authAccount._id })
-            .session(session);
-          entityExists = !!entityData;
-          break;
-
-        case 'center':
-          entityData = await this.centerModel
-            .findOne({ authAccountId: authAccount._id })
-            .session(session);
-          entityExists = !!entityData;
-          break;
-
-        default:
-          throw new BadRequestException('Invalid role');
+      if (authAccount) {
+        entityData = await this.userModel
+          .findOne({ authAccountId: authAccount._id })
+          .session(session);
+        entityExists = !!entityData;
       }
 
       await session.commitTransaction();
