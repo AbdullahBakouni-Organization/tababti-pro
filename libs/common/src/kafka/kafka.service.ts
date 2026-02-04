@@ -1,6 +1,8 @@
 import { Injectable, Inject, OnModuleInit } from '@nestjs/common';
 import { ClientKafka } from '@nestjs/microservices';
 import { KAFKA_TOPICS } from './events/topics';
+import { Observable } from 'rxjs';
+import { firstValueFrom } from 'rxjs';
 
 @Injectable()
 export class KafkaService implements OnModuleInit {
@@ -16,11 +18,11 @@ export class KafkaService implements OnModuleInit {
     await this.kafkaClient.connect();
   }
 
-  emit(topic: string, data: any) {
+  emit(topic: string, data: any): Observable<any> {
     return this.kafkaClient.emit(topic, data);
   }
 
-  send(topic: string, data: any) {
-    return this.kafkaClient.send(topic, data);
+  async send(topic: string, data: any): Promise<any> {
+    return await firstValueFrom(this.kafkaClient.send(topic, data));
   }
 }

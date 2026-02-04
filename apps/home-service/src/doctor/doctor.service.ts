@@ -22,6 +22,9 @@ import {
 import { KafkaService } from '@app/common/kafka/kafka.service';
 import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
 import { ApprovalStatus } from '@app/common/database/schemas/common.enums';
+import { HttpService } from '@nestjs/axios';
+import { ConfigService } from '@nestjs/config';
+import { firstValueFrom } from 'rxjs';
 // import { FreeTrialService } from './free-trial.service';
 // import { SubscriptionOwnerType } from '../schemas/subscription.schema';
 
@@ -65,12 +68,18 @@ export interface DoctorRegisteredEvent {
 @Injectable()
 export class DoctorService {
   private readonly logger = new Logger(DoctorService.name);
+  private readonly socketServiceUrl: string;
 
   constructor(
     @InjectModel(Doctor.name) private doctorModel: Model<DoctorDocument>,
     private kafkaProducer: KafkaService,
-    // private freeTrialService: FreeTrialService,
-  ) {}
+    private httpService: HttpService, // ✅ For direct WebSocket notification
+    private configService: ConfigService,
+  ) {
+    this.socketServiceUrl =
+      this.configService.get('SOCKET_SERVICE_URL') ||
+      'http://socket-service:3001';
+  }
 
   // ============================================
   // Validation Methods
@@ -266,7 +275,19 @@ export class DoctorService {
     // }
 
     // 7. Publish Kafka event (Event-Driven Architecture)
-    this.publishDoctorRegisteredEvent(doctor, processedFiles);
+    try {
+      // await this.publishDoctorRegisteredEvent(doctor, processedFiles);
+      await Promise.allSettled([
+        // Fast path: Direct WebSocket (priority)
+        this.notifyAdminDashboardDirect(doctor, processedFiles),
+
+        // Reliable path: Kafka event (async, can be delayed)
+        this.publishDoctorRegisteredEvent(doctor, processedFiles),
+      ]);
+    } catch (error) {
+      this.logger.error('Failed to publish Kafka event', error);
+      // Don't fail registration if event publishing fails
+    }
 
     return doctor;
   }
@@ -351,7 +372,7 @@ export class DoctorService {
    * 2. WebSocket Service → Notify admin dashboard
    * 3. Analytics Service → Track registration
    */
-  private publishDoctorRegisteredEvent(
+  private async publishDoctorRegisteredEvent(
     doctor: DoctorDocument,
     files?: {
       certificateImage?: string;
@@ -359,7 +380,7 @@ export class DoctorService {
       certificateDocument?: string;
       licenseDocument?: string;
     },
-  ): void {
+  ): Promise<void> {
     const event: DoctorRegisteredEvent = {
       eventType: 'DOCTOR_REGISTERED',
       timestamp: new Date(),
@@ -388,7 +409,7 @@ export class DoctorService {
     };
 
     try {
-      this.kafkaProducer.send(KAFKA_TOPICS.DOCTOR_REGISTERED, {
+      await this.kafkaProducer.send(KAFKA_TOPICS.DOCTOR_REGISTERED, {
         key: doctor._id.toString(),
         value: JSON.stringify(event),
         headers: {
@@ -410,7 +431,118 @@ export class DoctorService {
       // Implement retry mechanism or dead letter queue
     }
   }
+  private async notifyAdminDashboardDirect(
+    doctor: DoctorDocument,
+    files?: any,
+  ): Promise<void> {
+    try {
+      const notification = {
+        event: 'new-registration-pending',
+        data: {
+          type: 'NEW_DOCTOR_REGISTRATION',
+          priority: 'high',
+          timestamp: new Date(),
+          doctor: {
+            id: doctor._id.toString(),
+            fullName: `${doctor.firstName} ${doctor.middleName} ${doctor.lastName}`,
+            phone: doctor.phones
+              .map((p) => p.normal || p.clinic || p.whatsup)
+              .flat()
+              .join(', '),
+            gender: doctor.gender,
+            certificateImage: doctor.certificateImage,
+            licenseImage: doctor.licenseImage,
+            uploadedFiles: files || {},
+            status: doctor.status,
+            registeredAt: doctor.registeredAt,
+          },
+          actions: [
+            {
+              label: 'Review Now',
+              type: 'primary',
+              url: `/admin/doctors/pending/${doctor._id.toString()}`,
+            },
+            {
+              label: 'View Certificate',
+              type: 'secondary',
+              url: doctor.certificateImage,
+              openInNewTab: true,
+            },
+            {
+              label: 'View License',
+              type: 'secondary',
+              url: doctor.licenseImage,
+              openInNewTab: true,
+            },
+          ],
+        },
+      };
 
+      // ✅ Direct HTTP POST to Socket Service
+      const response = await firstValueFrom(
+        this.httpService.post(
+          `${this.socketServiceUrl}/api/v1/notifications/admin/broadcast`,
+          notification,
+          {
+            timeout: 3000, // 3 second timeout (fast fail)
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Source': 'home-service',
+            },
+          },
+        ),
+      );
+
+      this.logger.log(
+        `⚡ FAST: Sent real-time notification to admin dashboard (${response.data.recipientCount} admins)`,
+      );
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `Failed to send direct notification: ${err.message}`,
+        err.stack,
+      );
+      // Don't throw - registration should succeed even if notification fails
+      // Admin can still see pending registrations via polling/refresh
+    }
+  }
+  // async notifyMultiplePendingRegistrations(doctorIds: string[]): Promise<void> {
+  //   try {
+  //     const doctors = await this.doctorModel
+  //       .find({ _id: { $in: doctorIds }, status: 'pending' })
+  //       .lean();
+
+  //     const notifications = doctors.map((doctor) => ({
+  //       id: doctor._id.toString(),
+  //       fullName: `${doctor.firstName} ${doctor.middleName} ${doctor.lastName}`,
+  //       phone: doctor.phones
+  //         .map((p) => p.normal || p.clinic || p.whatsup)
+  //         .flat()[0],
+  //       registeredAt: doctor.registeredAt,
+  //     }));
+
+  //     await firstValueFrom(
+  //       this.httpService.post(
+  //         `${this.socketServiceUrl}/api/v1/notifications/admin/batch`,
+  //         {
+  //           event: 'pending-registrations-batch',
+  //           data: {
+  //             type: 'BATCH_REGISTRATIONS',
+  //             count: notifications.length,
+  //             doctors: notifications,
+  //           },
+  //         },
+  //         { timeout: 3000 },
+  //       ),
+  //     );
+
+  //     this.logger.log(
+  //       `⚡ Sent batch notification for ${notifications.length} doctors`,
+  //     );
+  //   } catch (error) {
+  //     this.logger.error(`Failed to send batch notification: ${error.message}`);
+  //   }
+  // }
   // ============================================
   // Helper Methods
   // ============================================
