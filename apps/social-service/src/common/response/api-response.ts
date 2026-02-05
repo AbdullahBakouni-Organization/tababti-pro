@@ -3,22 +3,22 @@ import { messages } from '../i18n/messages';
 
 type Lang = 'en' | 'ar';
 
-interface ApiResponseOptions<T> {
+interface ApiResponseOptions<T = any> {
   lang?: Lang;
-  messageKey: string; // example: 'question.CREATED'
-  data?: T;
+  messageKey: string;
+  data?: T | null;
   statusCode?: HttpStatus;
 }
 
 export class ApiResponse {
-  static success<T>({
+  static success<T = any>({
     lang = 'en',
     messageKey,
-    data,
+    data = null,
     statusCode = HttpStatus.OK,
   }: ApiResponseOptions<T>) {
     return {
-      status: true,
+      success: true,
       statusCode,
       message: ApiResponse.getMessage(lang, messageKey),
       data,
@@ -29,9 +29,13 @@ export class ApiResponse {
     lang = 'en',
     messageKey,
     statusCode = HttpStatus.BAD_REQUEST,
+  }: {
+    lang?: Lang;
+    messageKey: string;
+    statusCode?: HttpStatus;
   }) {
     return {
-      status: false,
+      success: false,
       statusCode,
       message: ApiResponse.getMessage(lang, messageKey),
       data: null,
@@ -41,11 +45,9 @@ export class ApiResponse {
   private static getMessage(lang: Lang, key: string): string {
     const keys = key.split('.');
     let result: any = messages[lang];
-
     for (const k of keys) {
       result = result?.[k];
     }
-
-    return result || key;
+    return result ?? key;
   }
 }

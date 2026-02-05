@@ -1,10 +1,11 @@
-import { IsString, IsOptional } from 'class-validator';
+import { IsString, IsMongoId, IsArray, ArrayNotEmpty } from 'class-validator';
 
 export class CreateQuestionDto {
   @IsString()
-  title: string;
+  content: string;
 
-  @IsOptional()
-  @IsString()
-  description?: string;
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsMongoId({ each: true })
+  specializationId: string[];
 }

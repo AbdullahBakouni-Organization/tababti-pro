@@ -7,6 +7,7 @@ import { KafkaModule } from '@app/common/kafka/kafka.module';
 import { AuthModule } from './auth/auth.module';
 import { SmsModule } from './sms/sms.module';
 import { DoctorModule } from './doctor/doctor.module';
+import { WhatsappModule } from './whatsapp/whatsapp.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { DoctorModule } from './doctor/doctor.module';
     DatabaseModule,
     AuthModule,
     SmsModule,
+    WhatsappModule,//Test Whatsapp api
     DoctorModule,
   ],
   controllers: [HomeServiceController],

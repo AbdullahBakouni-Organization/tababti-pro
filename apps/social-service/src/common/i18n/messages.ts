@@ -2,9 +2,12 @@ export const messages = {
   en: {
     question: {
       CREATED: 'Question created successfully',
-      UPDATED: 'Question updated successfully',
-      DELETED: 'Question deleted successfully',
+      LIST: 'Questions list',
+      DETAIL: 'Question details',
       NOT_FOUND: 'Question not found',
+    },
+    specialization: {
+      NOT_FOUND: 'Specialization not found',
     },
     common: {
       SUCCESS: 'Success',
@@ -12,13 +15,15 @@ export const messages = {
       VALIDATION_ERROR: 'Validation error',
     },
   },
-
   ar: {
     question: {
       CREATED: 'تم إنشاء السؤال بنجاح',
-      UPDATED: 'تم تحديث السؤال بنجاح',
-      DELETED: 'تم حذف السؤال بنجاح',
+      LIST: 'قائمة الأسئلة',
+      DETAIL: 'تفاصيل السؤال',
       NOT_FOUND: 'السؤال غير موجود',
+    },
+    specialization: {
+      NOT_FOUND: 'التخصص غير موجود',
     },
     common: {
       SUCCESS: 'تم بنجاح',

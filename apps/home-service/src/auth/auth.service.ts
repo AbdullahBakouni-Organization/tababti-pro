@@ -17,6 +17,7 @@ import { Response } from 'express';
 import { Doctor } from '@app/common/database/schemas/doctor.schema';
 import { Hospital } from '@app/common/database/schemas/hospital.schema';
 import { Center } from '@app/common/database/schemas/center.schema';
+import { WhatsappService } from '../whatsapp/whatsapp.service';
 
 @Injectable()
 export class AuthService {
@@ -30,6 +31,7 @@ export class AuthService {
     @InjectConnection() private readonly connection: Connection,
     private readonly smsService: SmsService,
     private readonly jwtService: JwtService,
+    private readonly whatsappService: WhatsappService,
   ) {}
 
   //---------------------------------------------------------
@@ -104,8 +106,8 @@ export class AuthService {
       await session.commitTransaction();
       await session.endSession();
 
-      await this.smsService.sendOTP(phone, otp);
-
+      //await this.smsService.sendOTP(phone, otp);
+      await this.whatsappService.sendOtp(phone, otp); //test whatsapp-web api
       return {
         success: true,
         message: 'OTP sent',
@@ -250,6 +252,7 @@ export class AuthService {
             city: city,
             DataofBirth,
             image: imagePath || '',
+            status: 'active',
           },
         ],
         { session },
