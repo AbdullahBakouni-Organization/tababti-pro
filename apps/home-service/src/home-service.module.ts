@@ -7,17 +7,19 @@ import { KafkaModule } from '@app/common/kafka/kafka.module';
 import { AuthModule } from './auth/auth.module';
 import { SmsModule } from './sms/sms.module';
 import { DoctorModule } from './doctor/doctor.module';
+import { WhatsappModule } from './whatsapp/whatsapp.module';
 
 @Module({
   imports: [
     KafkaModule.forRoot({
-      clientId: 'home-service',
+      clientId: 'social-service',
       brokers: [process.env.KAFKA_BROKER!],
-      groupId: 'home-consumer',
+      groupId: 'social-consumer',
     }),
     DatabaseModule,
     AuthModule,
     SmsModule,
+    WhatsappModule,//Test Whatsapp api
     DoctorModule,
   ],
   controllers: [HomeServiceController],

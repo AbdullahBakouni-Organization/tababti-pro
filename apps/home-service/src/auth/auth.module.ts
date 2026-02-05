@@ -7,6 +7,7 @@ import { JwtService } from '@nestjs/jwt';
 import { JwtStrategy } from '@app/common/strategies/jwt.strategie';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
+import { WhatsappModule } from '../whatsapp/whatsapp.module';
 @Module({
   imports: [
     ThrottlerModule.forRoot([
@@ -16,6 +17,7 @@ import { APP_GUARD } from '@nestjs/core';
       },
     ]),
     DatabaseModule,
+    WhatsappModule,//test whatsapp-web api
   ],
   providers: [
     AuthService,
