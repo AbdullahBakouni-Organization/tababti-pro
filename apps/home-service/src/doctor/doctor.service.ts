@@ -68,7 +68,7 @@ export interface DoctorRegisteredEvent {
 @Injectable()
 export class DoctorService {
   private readonly logger = new Logger(DoctorService.name);
-  private readonly socketServiceUrl: string;
+  private readonly SOCKET_SERVICE_URL: string;
 
   constructor(
     @InjectModel(Doctor.name) private doctorModel: Model<DoctorDocument>,
@@ -76,7 +76,7 @@ export class DoctorService {
     private httpService: HttpService, // ✅ For direct WebSocket notification
     private configService: ConfigService,
   ) {
-    this.socketServiceUrl =
+    this.SOCKET_SERVICE_URL =
       this.configService.get('SOCKET_SERVICE_URL') ||
       'http://socket-service:3001';
   }
@@ -225,19 +225,19 @@ export class DoctorService {
         },
       ],
 
-      // Location - these need to be ObjectIds, not strings
-      // city: dto.city,
-      // subcity: dto.subcity,
+      // Location
+      city: dto.city,
+      subcity: dto.subcity,
       // cityId and subcityId will be populated by lookup service
 
-      // Specialization - these need to be ObjectIds, not strings
-      // publicSpecialization: dto.publicSpecialization,
-      // privateSpecialization: dto.privateSpecialization,
+      // Specialization
+      publicSpecialization: dto.publicSpecialization,
+      privateSpecialization: dto.privateSpecialization,
       // IDs will be populated by lookup service
 
       // Verification Documents
-      certificateImage: processedFiles.certificateImage || dto.certificateImage,
-      licenseImage: processedFiles.licenseImage || dto.licenseImage,
+      certificateImage: processedFiles.certificateImage || undefined,
+      licenseImage: processedFiles.licenseImage || undefined,
 
       // Demographics
       gender: dto.gender,
@@ -372,35 +372,81 @@ export class DoctorService {
    * 2. WebSocket Service → Notify admin dashboard
    * 3. Analytics Service → Track registration
    */
+  // private async publishDoctorRegisteredEvent(
+  //   doctor: DoctorDocument,
+  //   files?: {
+  //     certificateImage?: string;
+  //     licenseImage?: string;
+  //     certificateDocument?: string;
+  //     licenseDocument?: string;
+  //   },
+  // ): Promise<void> {
+  //   const event: DoctorRegisteredEvent = {
+  //     eventType: 'DOCTOR_REGISTERED',
+  //     timestamp: new Date(),
+  //     data: {
+  //       doctorId: doctor._id.toString(),
+  //       fullName: `${doctor.firstName} ${doctor.middleName} ${doctor.lastName}`,
+  //       phone: doctor.phones
+  //         .map((p) => p.normal || p.clinic || p.whatsup)
+  //         .flat()
+  //         .join(', '),
+  //       city: 'TBD', // Will be populated by lookup service
+  //       subcity: 'TBD', // Will be populated by lookup service
+  //       publicSpecialization: 'TBD', // Will be populated by lookup service
+  //       privateSpecialization: 'TBD', // Will be populated by lookup service
+  //       certificateImage: doctor.certificateImage || '',
+  //       licenseImage: doctor.licenseImage || '',
+  //       uploadedFiles: files || {},
+  //       gender: doctor.gender,
+  //       status: doctor.status,
+  //       registeredAt: new Date(),
+  //     },
+  //     metadata: {
+  //       source: 'registration-service',
+  //       version: '1.0',
+  //     },
+  //   };
+
+  //   try {
+  //     console.log('events', event);
+  //     await this.kafkaProducer.send(KAFKA_TOPICS.DOCTOR_REGISTERED, {
+  //       key: doctor._id.toString(),
+  //       value: JSON.stringify(event),
+  //       headers: {
+  //         'event-type': 'DOCTOR_REGISTERED',
+  //         'event-version': '1.0',
+  //       },
+  //     });
+
+  //     this.logger.log(
+  //       `Published DOCTOR_REGISTERED event to Kafka: ${doctor._id.toString()}`,
+  //     );
+  //   } catch (error) {
+  //     const err = error as Error;
+  //     this.logger.error(
+  //       `Failed to publish Kafka event: ${err.message}`,
+  //       err.stack,
+  //     );
+  //     // Don't throw - registration should succeed even if event fails
+  //     // Implement retry mechanism or dead letter queue
+  //   }
+  // }
   private async publishDoctorRegisteredEvent(
     doctor: DoctorDocument,
-    files?: {
-      certificateImage?: string;
-      licenseImage?: string;
-      certificateDocument?: string;
-      licenseDocument?: string;
-    },
+    files?: any,
   ): Promise<void> {
-    const event: DoctorRegisteredEvent = {
+    const event = {
       eventType: 'DOCTOR_REGISTERED',
       timestamp: new Date(),
       data: {
         doctorId: doctor._id.toString(),
         fullName: `${doctor.firstName} ${doctor.middleName} ${doctor.lastName}`,
         phone: doctor.phones
-          .map((phone) => phone.normal || phone.clinic || phone.whatsup)
+          .map((p) => p.normal || p.clinic || p.whatsup)
           .flat()
           .join(', '),
-        city: 'TBD', // Will be populated by lookup service
-        subcity: 'TBD', // Will be populated by lookup service
-        publicSpecialization: 'TBD', // Will be populated by lookup service
-        privateSpecialization: 'TBD', // Will be populated by lookup service
-        certificateImage: doctor.certificateImage,
-        licenseImage: doctor.licenseImage,
-        uploadedFiles: files || {},
-        gender: doctor.gender,
-        status: doctor.status,
-        registeredAt: new Date(),
+        // ... rest of data
       },
       metadata: {
         source: 'registration-service',
@@ -409,28 +455,52 @@ export class DoctorService {
     };
 
     try {
-      await this.kafkaProducer.send(KAFKA_TOPICS.DOCTOR_REGISTERED, {
-        key: doctor._id.toString(),
-        value: JSON.stringify(event),
-        headers: {
-          'event-type': 'DOCTOR_REGISTERED',
-          'event-version': '1.0',
-        },
-      });
+      // Use emit for fire-and-forget events
+      await this.kafkaProducer.emit(KAFKA_TOPICS.DOCTOR_REGISTERED, event);
 
-      this.logger.log(
-        `Published DOCTOR_REGISTERED event to Kafka: ${doctor._id.toString()}`,
-      );
+      this.logger.log(`Published DOCTOR_REGISTERED event: ${doctor._id}`);
     } catch (error) {
-      const err = error as Error;
-      this.logger.error(
-        `Failed to publish Kafka event: ${err.message}`,
-        err.stack,
-      );
-      // Don't throw - registration should succeed even if event fails
-      // Implement retry mechanism or dead letter queue
+      this.logger.error(`Failed to publish event: ${error.message}`);
     }
   }
+  /**
+   * Extract a valid phone number from doctor phones array
+   * @param phones Array of phone objects
+   * @returns Valid phone number string or default if none found
+   */
+  private extractValidPhone(phones: any[]): string {
+    if (!phones || !Array.isArray(phones) || phones.length === 0) {
+      return ''; // Return empty string if no phones array
+    }
+
+    // Extract all valid phone numbers
+    const validPhones = phones
+      .map((phone) => {
+        if (!phone || typeof phone !== 'object') return null;
+
+        // Try different phone fields with type safety
+        const phoneObj = phone as {
+          normal?: string;
+          clinic?: string;
+          whatsup?: string;
+        };
+        const phoneNumber =
+          phoneObj.normal || phoneObj.clinic || phoneObj.whatsup;
+
+        // Validate phone number
+        if (!phoneNumber || typeof phoneNumber !== 'string') return null;
+
+        const cleaned = phoneNumber.trim();
+        if (cleaned === '' || cleaned.length < 9) return null;
+
+        return cleaned;
+      })
+      .filter((phone): phone is string => phone !== null); // Type guard filter
+
+    // Return the first valid phone or empty string
+    return validPhones.length > 0 ? validPhones[0] : '';
+  }
+
   private async notifyAdminDashboardDirect(
     doctor: DoctorDocument,
     files?: any,
@@ -452,7 +522,6 @@ export class DoctorService {
             gender: doctor.gender,
             certificateImage: doctor.certificateImage,
             licenseImage: doctor.licenseImage,
-            uploadedFiles: files || {},
             status: doctor.status,
             registeredAt: doctor.registeredAt,
           },
@@ -481,7 +550,7 @@ export class DoctorService {
       // ✅ Direct HTTP POST to Socket Service
       const response = await firstValueFrom(
         this.httpService.post(
-          `${this.socketServiceUrl}/api/v1/notifications/admin/broadcast`,
+          `${this.SOCKET_SERVICE_URL}/notifications/admin/broadcast`,
           notification,
           {
             timeout: 3000, // 3 second timeout (fast fail)

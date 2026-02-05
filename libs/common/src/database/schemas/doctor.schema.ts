@@ -57,11 +57,11 @@ export class Doctor extends Document {
   @Prop({ required: false, type: String }) // Image is optional
   image?: string;
 
-  @Prop({ required: true, type: String })
-  certificateImage: string;
+  @Prop({ required: false, type: String })
+  certificateImage?: string;
 
-  @Prop({ required: true, type: String })
-  licenseImage: string;
+  @Prop({ required: false, type: String })
+  licenseImage?: string;
 
   @Prop({
     type: [{ type: Object }],
@@ -304,15 +304,13 @@ DoctorSchema.virtual('isAccountLocked').get(function () {
 // Pre-save Middleware
 // ============================================
 
-DoctorSchema.pre('save', async function (next: (err?: Error) => void) {
+DoctorSchema.pre('save', async function () {
   // Hash password if modified
   if (this.isModified('password')) {
     const salt = randomBytes(16).toString('hex');
     const derivedKey = (await scryptAsync(this.password, salt, 64)) as Buffer;
     this.password = `${salt}.${derivedKey.toString('hex')}`;
   }
-
-  next();
 });
 
 // ============================================

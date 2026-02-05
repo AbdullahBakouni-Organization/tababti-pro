@@ -1,14 +1,8 @@
-import { Controller, Get } from '@nestjs/common';
-import { NotificationServiceService } from './notification-service.service';
+import { Controller, Logger } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 
-@Controller()
+@ApiTags('Admin Notifications')
+@Controller('notifications')
 export class NotificationServiceController {
-  constructor(
-    private readonly notificationServiceService: NotificationServiceService,
-  ) {}
-
-  @Get()
-  getHello(): string {
-    return this.notificationServiceService.getHello();
-  }
+  private readonly logger = new Logger(NotificationServiceController.name);
 }

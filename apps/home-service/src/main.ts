@@ -42,8 +42,8 @@ async function bootstrap() {
   });
 
   await app.startAllMicroservices();
-  await app.listen(process.env.HOME_PORT || 3001);
+  await app.listen(process.env.PORT_HOME!);
 
-  console.log(`home Service running on port ${process.env.HOME_PORT || 3001}`);
+  console.log(`home Service running on port ${process.env.PORT_HOME}`);
 }
 bootstrap();
