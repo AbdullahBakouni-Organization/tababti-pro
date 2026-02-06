@@ -1,6 +1,13 @@
 // dto/admin-signin.dto.ts
-import { IsNotEmpty, IsString, Matches, MaxLength } from 'class-validator';
-import { Transform } from 'class-transformer';
+import {
+  IsNotEmpty,
+  IsString,
+  Matches,
+  MaxLength,
+  ValidateNested,
+} from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import { DeviceInfoDto } from './device-info.dto';
 
 export class AdminSignInDto {
   @IsString()
@@ -40,4 +47,9 @@ export class AdminSignInDto {
     return phone;
   })
   phone: string;
+
+  @IsNotEmpty()
+  @ValidateNested()
+  @Type(() => DeviceInfoDto)
+  deviceInfo: DeviceInfoDto;
 }

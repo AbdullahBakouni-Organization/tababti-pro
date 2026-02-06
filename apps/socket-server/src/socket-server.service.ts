@@ -5,28 +5,33 @@
 //   OnGatewayConnection,
 //   OnGatewayDisconnect,
 //   ConnectedSocket,
-//   MessageBody,
 // } from '@nestjs/websockets';
 // import { Server, Socket } from 'socket.io';
 // import { Logger } from '@nestjs/common';
 // import { JwtService } from '@nestjs/jwt';
 
+// interface JwtPayload {
+//   sub: string;
+//   role: string;
+//   [key: string]: any;
+// }
+
+// interface SocketData {
+//   adminId: string;
+//   role: string;
+// }
+
+// interface TypedSocket extends Socket {
+//   data: SocketData;
+// }
+
 // @WebSocketGateway({
-//   // ✅ CRITICAL: Proper CORS configuration
+//   namespace: '/admin',
 //   cors: {
-//     origin: '*', // Allow all origins
-//     methods: ['GET', 'POST'],
+//     origin: '*',
 //     credentials: true,
 //   },
-
-//   // ✅ Namespace
-//   namespace: '/admin',
-
-//   // ✅ Transport options
-//   transports: ['websocket', 'polling'], // Support both
-
-//   // ✅ Allow upgrades
-//   allowEIO3: true,
+//   transports: ['websocket'], // clean & fast
 // })
 // export class SocketServerService
 //   implements OnGatewayConnection, OnGatewayDisconnect
@@ -36,269 +41,140 @@
 
 //   private readonly logger = new Logger(SocketServerService.name);
 
-//   // Store connected admin clients: Map<adminId, Socket>
-//   private connectedAdmins: Map<string, Socket> = new Map();
+//   // adminId -> socket
+//   private connectedAdmins = new Map<string, Socket>();
 
-//   constructor(private jwtService: JwtService) {}
+//   constructor(private readonly jwtService: JwtService) {}
 
-//   // ============================================
-//   // Connection Lifecycle
-//   // ============================================
+//   // ==============================
+//   // CONNECTION (HANDSHAKE AUTH)
+//   // ==============================
 
-//   /**
-//    * Called when admin connects to WebSocket
-//    */
-//   handleConnection(client: Socket) {
-//     this.logger.log(`Client attempting to connect: ${client.id}`);
-
-//     // Safe check for server initialization
-//     const connectionCount = this.server?.sockets?.sockets?.size || 0;
-//     this.logger.log(`Current connections: ${connectionCount}`);
-//   }
-
-//   /**
-//    * Called when admin disconnects
-//    */
-//   handleDisconnect(client: Socket) {
-//     const adminId = client.data.adminId;
-
-//     if (adminId) {
-//       this.connectedAdmins.delete(adminId);
-//       this.logger.log(`Admin disconnected: ${adminId} (ID: ${client.id})`);
-//       this.logger.log(`Connected admins: ${this.connectedAdmins.size}`);
-//     } else {
-//       this.logger.log(`Client disconnected: ${client.id}`);
-//     }
-//   }
-
-//   // ============================================
-//   // Client -> Server Events
-//   // ============================================
-
-//   /**
-//    * Admin subscribes to notifications
-//    *
-//    * Client code (React/Vue/Angular):
-//    * socket.emit('subscribe-admin', { adminId: '123', token: 'jwt...' })
-//    */
-//   @SubscribeMessage('subscribe-admin')
-//   async handleAdminSubscribe(
-//     @ConnectedSocket() client: Socket,
-//     @MessageBody() payload: { adminId: string; token: string },
-//   ) {
+//   async handleConnection(client: TypedSocket) {
 //     try {
-//       this.logger.log(`Admin subscribe attempt: ${payload.adminId}`);
-//       this.logger.log(`Token received: ${payload.token?.substring(0, 50)}...`);
+//       const handshakeAuth = client.handshake.auth as
+//         | { token?: string }
+//         | undefined;
+//       const token: string | undefined = handshakeAuth?.token;
 
-//       // TEMPORARY: Skip JWT verification for testing
-//       // TODO: Remove this bypass in production
-//       const SKIP_JWT_VERIFICATION = true;
-
-//       let decoded: any = null;
-
-//       if (SKIP_JWT_VERIFICATION) {
-//         // Temporary bypass for testing
-//         this.logger.warn(
-//           '⚠️ BYPASSING JWT VERIFICATION FOR TESTING - REMOVE IN PRODUCTION!',
-//         );
-//         decoded = {
-//           sub: payload.adminId,
-//           role: 'admin',
-//           adminId: payload.adminId,
-//         };
-//       } else {
-//         try {
-//           // Verify JWT token
-//           decoded = await this.jwtService.verifyAsync(payload.token);
-//         } catch (jwtError) {
-//           const error = jwtError as Error;
-//           this.logger.error(`JWT verification failed: ${error.message}`);
-//           this.logger.error(`Token: ${payload.token}`);
-//           client.emit('error', {
-//             message: `JWT verification failed: ${error.message}`,
-//             code: 'JWT_INVALID',
-//           });
-//           client.disconnect();
-//           return;
-//         }
-//       }
-
-//       this.logger.log(`Decoded token: ${JSON.stringify(decoded)}`);
-
-//       // Check if user is admin
-//       if (decoded.role !== 'admin') {
-//         this.logger.warn(
-//           `Non-admin tried to subscribe: ${payload.adminId} (role: ${decoded.role})`,
-//         );
-//         client.emit('error', {
-//           message: 'Access denied. Admin role required.',
-//           code: 'ROLE_DENIED',
-//         });
+//       if (!token || typeof token !== 'string') {
+//         this.logger.warn('❌ Missing or invalid token');
 //         client.disconnect();
 //         return;
 //       }
 
-//       // Store admin connection
-//       this.connectedAdmins.set(payload.adminId, client);
-//       client.data.adminId = payload.adminId;
-//       client.data.role = 'admin';
-//       client.data.subscribedAt = new Date();
+//       const decoded: JwtPayload = await this.jwtService.verifyAsync(token);
+
+//       if (!decoded || !decoded.sub || !decoded.role) {
+//         this.logger.warn('❌ Invalid token payload');
+//         client.disconnect();
+//         return;
+//       }
+
+//       if (decoded.role !== 'admin') {
+//         this.logger.warn('❌ Non-admin connection rejected');
+//         client.disconnect();
+//         return;
+//       }
+
+//       const adminId = decoded.sub;
+
+//       client.data = {
+//         adminId: adminId,
+//         role: decoded.role,
+//       };
+
+//       this.connectedAdmins.set(adminId, client);
 
 //       this.logger.log(
-//         `✅ Admin subscribed: ${payload.adminId} (Total: ${this.connectedAdmins.size})`,
+//         `✅ Admin connected: ${adminId} (Total: ${this.connectedAdmins.size})`,
 //       );
 
-//       // Send confirmation to client
-//       client.emit('subscribed', {
-//         success: true,
-//         message: 'Successfully subscribed to admin notifications',
-//         adminId: payload.adminId,
-//         subscribedAt: new Date(),
+//       client.emit('connected', {
+//         adminId,
+//         timestamp: new Date(),
 //       });
-
-//       // Send current stats
-//       client.emit('stats', this.getStats());
-//     } catch (error) {
-//       const err = error as Error;
-//       this.logger.error(`Failed to subscribe admin: ${err.message}`, err.stack);
-//       this.logger.error(`Admin ID: ${payload?.adminId}`);
-//       this.logger.error(`Token present: ${!!payload?.token}`);
-//       client.emit('error', {
-//         message: `Authentication failed: ${err.message}`,
-//         code: 'AUTH_FAILED',
-//         details: err.message,
-//       });
+//     } catch (err) {
+//       const error = err as Error;
+//       this.logger.error('❌ Auth failed', error.message);
 //       client.disconnect();
 //     }
 //   }
 
-//   /**
-//    * Admin unsubscribes
-//    */
-//   @SubscribeMessage('unsubscribe-admin')
-//   handleAdminUnsubscribe(@ConnectedSocket() client: Socket) {
-//     const adminId = client.data.adminId;
+//   handleDisconnect(client: TypedSocket) {
+//     const adminId: string = client.data?.adminId;
 
 //     if (adminId) {
 //       this.connectedAdmins.delete(adminId);
-//       this.logger.log(`Admin unsubscribed: ${adminId}`);
+//       this.logger.log(
+//         `❌ Admin disconnected: ${adminId} (Remaining: ${this.connectedAdmins.size})`,
+//       );
 //     }
-
-//     client.emit('unsubscribed', {
-//       message: 'Unsubscribed from admin notifications',
-//     });
 //   }
 
-//   /**
-//    * Admin requests current stats
-//    */
+//   // ==============================
+//   // CLIENT → SERVER
+//   // ==============================
+
 //   @SubscribeMessage('get-stats')
-//   handleGetStats(@ConnectedSocket() client: Socket) {
+//   handleGetStats(@ConnectedSocket() client: TypedSocket) {
 //     client.emit('stats', this.getStats());
 //   }
 
-//   // ============================================
-//   // Server -> Client Events (Called by HTTP controller)
-//   // ============================================
+//   // ==============================
+//   // SERVER → CLIENT
+//   // ==============================
 
-//   /**
-//    * Send notification to ALL connected admins
-//    *
-//    * Called by: HTTP controller when doctor registers
-//    */
-//   sendToAllAdmins(event: string, data: any) {
-//     let sentCount = 0;
+//   sendToAllAdmins(event: string, payload: any) {
+//     let sent = 0;
 
-//     this.connectedAdmins.forEach((socket, adminId) => {
+//     for (const [adminId, socket] of this.connectedAdmins.entries()) {
 //       socket.emit(event, {
-//         ...data,
-//         timestamp: new Date(),
-//         notificationId: `notif_${Date.now()}_${adminId}`,
-//       });
-//       sentCount++;
-//     });
-
-//     this.logger.log(`📡 Sent "${event}" to ${sentCount} admin(s)`);
-
-//     return {
-//       sent: true,
-//       event,
-//       recipientCount: sentCount,
-//       timestamp: new Date(),
-//     };
-//   }
-
-//   /**
-//    * Send to specific admin
-//    */
-//   sendToAdmin(adminId: string, event: string, data: any) {
-//     const socket = this.connectedAdmins.get(adminId);
-
-//     if (socket) {
-//       socket.emit(event, {
-//         ...data,
-//         timestamp: new Date(),
-//         notificationId: `notif_${Date.now()}_${adminId}`,
-//       });
-
-//       this.logger.log(`📡 Sent "${event}" to admin: ${adminId}`);
-
-//       return {
-//         sent: true,
-//         event,
+//         ...payload,
 //         adminId,
 //         timestamp: new Date(),
-//       };
+//       });
+//       sent++;
 //     }
 
-//     this.logger.warn(`Admin not connected: ${adminId}`);
+//     this.logger.log(`📡 Event "${event}" sent to ${sent} admins`);
 
-//     return {
-//       sent: false,
-//       event,
-//       adminId,
-//       reason: 'Admin not connected',
-//     };
+//     return { sent, event };
 //   }
 
-//   /**
-//    * Broadcast to all clients (including non-admins if any)
-//    */
-//   broadcast(event: string, data: any) {
-//     this.server.emit(event, {
-//       ...data,
+//   sendToAdmin(adminId: string, event: string, payload: any) {
+//     const socket = this.connectedAdmins.get(adminId);
+
+//     if (!socket) {
+//       this.logger.warn(`⚠️ Admin not connected: ${adminId}`);
+//       return { sent: false };
+//     }
+
+//     socket.emit(event, {
+//       ...payload,
 //       timestamp: new Date(),
 //     });
 
-//     const totalClients = this.server?.sockets?.sockets?.size || 0;
-//     this.logger.log(`📡 Broadcasted "${event}" to all ${totalClients} clients`);
+//     return { sent: true };
 //   }
 
-//   /**
-//    * Get connection statistics
-//    */
+//   // ==============================
+//   // UTILS
+//   // ==============================
+
 //   getStats() {
-//     const totalConnections = this.server?.sockets?.sockets?.size || 0;
+//     const socketCount = this.server?.sockets?.sockets?.size ?? 0;
+
 //     return {
-//       totalConnections,
+//       totalConnections: socketCount,
 //       connectedAdmins: this.connectedAdmins.size,
 //       adminIds: Array.from(this.connectedAdmins.keys()),
 //       timestamp: new Date(),
 //     };
 //   }
 
-//   /**
-//    * Check if admin is connected
-//    */
-//   isAdminConnected(adminId: string): boolean {
+//   isAdminConnected(adminId: string) {
 //     return this.connectedAdmins.has(adminId);
-//   }
-
-//   /**
-//    * Get all connected admin IDs
-//    */
-//   getConnectedAdminIds(): string[] {
-//     return Array.from(this.connectedAdmins.keys());
 //   }
 // }
 
@@ -312,17 +188,23 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { Logger } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
+import { AuthValidateService } from '@app/common/auth-validate'; // Your auth service
+import { UserRole } from '@app/common/database/schemas/common.enums';
 
 interface JwtPayload {
   sub: string;
   role: string;
+  sessionId: string;
+  tv: number; // token version
+  exp?: number; // expiration timestamp
   [key: string]: any;
 }
 
 interface SocketData {
   adminId: string;
   role: string;
+  sessionId: string;
+  tokenVersion: number;
 }
 
 interface TypedSocket extends Socket {
@@ -348,7 +230,12 @@ export class SocketServerService
   // adminId -> socket
   private connectedAdmins = new Map<string, Socket>();
 
-  constructor(private readonly jwtService: JwtService) {}
+  // ✅ NEW: Track token expiration timers
+  private expirationTimers = new Map<string, NodeJS.Timeout>();
+
+  constructor(
+    private readonly authValidateService: AuthValidateService, // ✅ NEW: Inject auth service
+  ) {}
 
   // ==============================
   // CONNECTION (HANDSHAKE AUTH)
@@ -367,7 +254,9 @@ export class SocketServerService
         return;
       }
 
-      const decoded: JwtPayload = await this.jwtService.verifyAsync(token);
+      // ✅ NEW: Verify token using AuthValidateService (checks expiration, token version, session)
+      const decoded: JwtPayload =
+        await this.authValidateService.verifyAccessToken(token);
 
       if (!decoded || !decoded.sub || !decoded.role) {
         this.logger.warn('❌ Invalid token payload');
@@ -381,21 +270,69 @@ export class SocketServerService
         return;
       }
 
+      // ✅ NEW: Validate account and session
+      const account = await this.authValidateService.getAccount(decoded.sub);
+
+      if (!account) {
+        this.logger.warn('❌ Account not found');
+        client.disconnect();
+        return;
+      }
+
+      if (!account.isActive) {
+        this.logger.warn('❌ Account is deactivated');
+        client.disconnect();
+        return;
+      }
+
+      // ✅ NEW: Check token version (global revocation)
+      if (decoded.tv !== account.tokenVersion) {
+        this.logger.warn(
+          '❌ Token revoked (password changed or global logout)',
+        );
+        client.disconnect();
+        return;
+      }
+
+      // ✅ NEW: Verify session exists and is active
+      if (decoded.sessionId) {
+        const sessions = await this.authValidateService.getActiveSessions(
+          decoded.sub,
+          UserRole.ADMIN,
+        );
+
+        const sessionExists = sessions.some(
+          (s) => s.sessionId === decoded.sessionId,
+        );
+
+        if (!sessionExists) {
+          this.logger.warn('❌ Session revoked or expired');
+          client.disconnect();
+          return;
+        }
+      }
+
       const adminId = decoded.sub;
 
       client.data = {
         adminId: adminId,
         role: decoded.role,
+        sessionId: decoded.sessionId,
+        tokenVersion: decoded.tv,
       };
 
       this.connectedAdmins.set(adminId, client);
 
+      // ✅ NEW: Schedule automatic disconnect when token expires
+      this.scheduleTokenExpiration(client, decoded);
+
       this.logger.log(
-        `✅ Admin connected: ${adminId} (Total: ${this.connectedAdmins.size})`,
+        `✅ Admin connected:(Total: ${this.connectedAdmins.size})`,
       );
 
       client.emit('connected', {
         adminId,
+        expiresAt: decoded.exp ? new Date(decoded.exp * 1000) : null,
         timestamp: new Date(),
       });
     } catch (err) {
@@ -410,9 +347,199 @@ export class SocketServerService
 
     if (adminId) {
       this.connectedAdmins.delete(adminId);
+
+      // ✅ NEW: Clear expiration timer
+      this.clearExpirationTimer(adminId);
+
       this.logger.log(
-        `❌ Admin disconnected: ${adminId} (Remaining: ${this.connectedAdmins.size})`,
+        `❌ Admin disconnected:(Remaining: ${this.connectedAdmins.size})`,
       );
+    }
+  }
+
+  // ==============================
+  // ✅ NEW: TOKEN EXPIRATION HANDLING
+  // ==============================
+
+  /**
+   * Schedule automatic disconnect when access token expires
+   */
+  private scheduleTokenExpiration(client: TypedSocket, decoded: JwtPayload) {
+    const adminId = client.data.adminId;
+
+    // Clear existing timer if any
+    this.clearExpirationTimer(adminId);
+
+    if (!decoded.exp) {
+      this.logger.warn(`⚠️ Token has no expiration for admin: ${adminId}`);
+      return;
+    }
+
+    // Calculate time until expiration
+    const expiresAt = decoded.exp * 1000; // Convert to milliseconds
+    const now = Date.now();
+    const timeUntilExpiration = expiresAt - now;
+
+    if (timeUntilExpiration <= 0) {
+      // Token already expired
+      this.logger.warn(`❌ Token already expired for admin`);
+      client.disconnect();
+      return;
+    }
+
+    // Schedule disconnect
+    const timer = setTimeout(() => {
+      this.logger.log(`⏰ Token expired for admin - disconnecting`);
+
+      // Emit event to client before disconnecting
+      client.emit('token-expired', {
+        message: 'Your session has expired. Please reconnect with a new token.',
+        timestamp: new Date(),
+      });
+
+      // Disconnect the client
+      client.disconnect();
+    }, timeUntilExpiration);
+
+    this.expirationTimers.set(adminId, timer);
+
+    this.logger.log(
+      `⏰ Scheduled disconnect for admin:in ${Math.round(timeUntilExpiration / 1000)}s`,
+    );
+  }
+
+  /**
+   * Clear expiration timer for an admin
+   */
+  private clearExpirationTimer(adminId: string) {
+    const timer = this.expirationTimers.get(adminId);
+    if (timer) {
+      clearTimeout(timer);
+      this.expirationTimers.delete(adminId);
+    }
+  }
+
+  // ==============================
+  // ✅ NEW: TOKEN REFRESH HANDLER
+  // ==============================
+
+  /**
+   * Allow client to refresh their token without reconnecting
+   */
+  @SubscribeMessage('refresh-token')
+  async handleRefreshToken(
+    @ConnectedSocket() client: TypedSocket,
+    payload: { token: string },
+  ) {
+    try {
+      const { token } = payload;
+
+      if (!token || typeof token !== 'string') {
+        client.emit('refresh-error', { message: 'Invalid token' });
+        return;
+      }
+
+      // Verify new token
+      const decoded: JwtPayload =
+        await this.authValidateService.verifyAccessToken(token);
+
+      if (!decoded || decoded.sub !== client.data.adminId) {
+        client.emit('refresh-error', { message: 'Token mismatch' });
+        client.disconnect();
+        return;
+      }
+
+      // Validate account and session
+      const account = await this.authValidateService.getAccount(decoded.sub);
+
+      if (!account || !account.isActive) {
+        client.emit('refresh-error', { message: 'Account invalid' });
+        client.disconnect();
+        return;
+      }
+
+      // Check token version
+      if (decoded.tv !== account.tokenVersion) {
+        client.emit('refresh-error', { message: 'Token revoked' });
+        client.disconnect();
+        return;
+      }
+
+      // Update client data
+      client.data.sessionId = decoded.sessionId;
+      client.data.tokenVersion = decoded.tv;
+
+      // Reschedule expiration
+      this.scheduleTokenExpiration(client, decoded);
+
+      this.logger.log(`🔄 Token refreshed for admin: ${client.data.adminId}`);
+
+      client.emit('token-refreshed', {
+        message: 'Token refreshed successfully',
+        expiresAt: decoded.exp ? new Date(decoded.exp * 1000) : null,
+        timestamp: new Date(),
+      });
+    } catch (err) {
+      const error = err as Error;
+      this.logger.error('❌ Token refresh failed', error.message);
+      client.emit('refresh-error', { message: 'Token refresh failed' });
+      client.disconnect();
+    }
+  }
+
+  // ==============================
+  // ✅ NEW: VALIDATE CURRENT TOKEN
+  // ==============================
+
+  /**
+   * Check if current token is still valid
+   */
+  @SubscribeMessage('validate-token')
+  async handleValidateToken(@ConnectedSocket() client: TypedSocket) {
+    try {
+      const adminId = client.data.adminId;
+      const sessionId = client.data.sessionId;
+      const tokenVersion = client.data.tokenVersion;
+
+      // Check account
+      const account = await this.authValidateService.getAccount(adminId);
+
+      if (!account || !account.isActive) {
+        client.emit('token-invalid', { reason: 'Account invalid' });
+        client.disconnect();
+        return;
+      }
+
+      // Check token version
+      if (tokenVersion !== account.tokenVersion) {
+        client.emit('token-invalid', { reason: 'Token revoked' });
+        client.disconnect();
+        return;
+      }
+
+      // Check session
+      const sessions = await this.authValidateService.getActiveSessions(
+        adminId,
+        UserRole.ADMIN,
+      );
+
+      const sessionExists = sessions.some((s) => s.sessionId === sessionId);
+
+      if (!sessionExists) {
+        client.emit('token-invalid', { reason: 'Session revoked' });
+        client.disconnect();
+        return;
+      }
+
+      client.emit('token-valid', {
+        message: 'Token is valid',
+        timestamp: new Date(),
+      });
+    } catch (err) {
+      const error = err as Error;
+      this.logger.error('❌ Token validation failed', error.message);
+      client.emit('token-invalid', { reason: 'Validation failed' });
+      client.disconnect();
     }
   }
 
@@ -463,6 +590,50 @@ export class SocketServerService
   }
 
   // ==============================
+  // ✅ NEW: FORCE DISCONNECT ADMIN
+  // ==============================
+
+  /**
+   * Force disconnect an admin (useful for logout-all, password change, etc.)
+   */
+  disconnectAdmin(adminId: string, reason: string = 'Session terminated') {
+    const socket = this.connectedAdmins.get(adminId);
+
+    if (socket) {
+      socket.emit('force-disconnect', {
+        reason,
+        timestamp: new Date(),
+      });
+
+      socket.disconnect();
+      this.logger.log(`🔌 Admin force-disconnected:- ${reason}`);
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Disconnect all admins (useful for system maintenance)
+   */
+  disconnectAllAdmins(reason: string = 'Server maintenance') {
+    let disconnected = 0;
+
+    for (const [adminId, socket] of this.connectedAdmins.entries()) {
+      socket.emit('force-disconnect', {
+        reason,
+        timestamp: new Date(),
+      });
+
+      socket.disconnect();
+      disconnected++;
+    }
+
+    this.logger.log(`🔌 All admins disconnected: ${disconnected} - ${reason}`);
+    return disconnected;
+  }
+
+  // ==============================
   // UTILS
   // ==============================
 
@@ -473,11 +644,29 @@ export class SocketServerService
       totalConnections: socketCount,
       connectedAdmins: this.connectedAdmins.size,
       adminIds: Array.from(this.connectedAdmins.keys()),
+      expirationTimers: this.expirationTimers.size,
       timestamp: new Date(),
     };
   }
 
   isAdminConnected(adminId: string) {
     return this.connectedAdmins.has(adminId);
+  }
+
+  // ✅ NEW: Get connection info for an admin
+  getAdminConnectionInfo(adminId: string) {
+    const socket = this.connectedAdmins.get(adminId) as TypedSocket | undefined;
+
+    if (!socket) {
+      return null;
+    }
+
+    return {
+      adminId,
+      sessionId: socket.data?.sessionId,
+      tokenVersion: socket.data?.tokenVersion,
+      connected: true,
+      hasExpirationTimer: this.expirationTimers.has(adminId),
+    };
   }
 }

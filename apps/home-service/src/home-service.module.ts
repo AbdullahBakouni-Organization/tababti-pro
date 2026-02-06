@@ -4,7 +4,7 @@ import { HomeServiceController } from './home-service.controller';
 import { HomeServiceService } from './home-service.service';
 import { DatabaseModule } from '@app/common/database/database.module';
 import { KafkaModule } from '@app/common/kafka/kafka.module';
-import { AuthModule } from './auth/auth.module';
+// import { AuthModule } from './auth/auth.module';
 import { SmsModule } from './sms/sms.module';
 import { DoctorModule } from './doctor/doctor.module';
 import { AdminModule } from './admin/admin.module';
@@ -17,7 +17,6 @@ import { AdminModule } from './admin/admin.module';
       groupId: 'home-consumer',
     }),
     DatabaseModule,
-    AuthModule,
     SmsModule,
     DoctorModule,
     AdminModule,

@@ -36,6 +36,10 @@ import { doctorDocumentOptions } from '../../../../libs/common/src/helpers/file-
 import { MultipleFileCleanupInterceptor } from '../../../../libs/common/src/interceptors/multiple-file-cleanup.interceptor';
 import { DocumentUrlInterceptor } from '../../../../libs/common/src/interceptors/document-url.interceptor';
 import type { Request, Response } from 'express';
+import { JwtRefreshGuard } from '@app/common/guards/jwt-refresh.guard';
+import { RolesGuard } from '@app/common/guards/role.guard';
+import { UserRole } from '@app/common/database/schemas/common.enums';
+import { Roles } from '@app/common/decorator/role.decorator';
 
 // ============================================
 // Login DTO
@@ -300,15 +304,19 @@ export class DoctorController {
    * Refresh access token
    */
   @Post('refresh')
+  @UseGuards(JwtRefreshGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Refresh access token' })
   async refreshToken(@Body('refreshToken') refreshToken: string): Promise<{
+    success: boolean;
     accessToken: string;
     refreshToken: string;
   }> {
     const tokens = await this.authService.refreshAccessToken(refreshToken);
 
     return {
+      success: true,
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
     };
@@ -333,33 +341,34 @@ export class DoctorController {
   /**
    * Get all active sessions
    */
-  @Get('sessions')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Get all active sessions for current doctor' })
-  async getActiveSessions(@Req() req: any) {
-    const doctorId: string = req.user.sub;
-    const sessions = await this.authService.getActiveSessions(doctorId);
+  // @Get('sessions')
+  // @UseGuards(JwtAuthGuard)
+  // @ApiBearerAuth()
+  // @ApiOperation({ summary: 'Get all active sessions for current doctor' })
+  // async getActiveSessions(@Req() req: any) {
+  //   const doctorId: string = req.user.sub;
+  //   const sessions = await this.authService.getActiveSessions(doctorId);
 
-    return {
-      total: sessions.length,
-      sessions,
-    };
-  }
+  //   return {
+  //     total: sessions.length,
+  //     sessions,
+  //   };
+  // }
 
   /**
    * Logout from current session
    */
   @Post('logout')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtRefreshGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
   @ApiBearerAuth()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Logout from current session' })
   async logout(@Req() req: any) {
-    const doctorId: string = req.user.sub;
+    const doctorId: string = req.user.accountId;
     const sessionId: string = req.user.sessionId;
 
-    await this.authService.logoutSession(doctorId, sessionId);
+    await this.authService.logoutSession(doctorId, UserRole.DOCTOR, sessionId);
 
     return {
       message: 'Logged out successfully',
@@ -375,9 +384,9 @@ export class DoctorController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Logout from specific device' })
   async logoutDevice(@Req() req: any, @Param('deviceId') deviceId: string) {
-    const doctorId: string = req.user.sub;
+    const doctorId: string = req.user.accountId;
 
-    await this.authService.logoutDevice(doctorId, deviceId);
+    await this.authService.logoutDevice(doctorId, UserRole.DOCTOR, deviceId);
 
     return {
       message: `Logged out from device: ${deviceId}`,
@@ -393,9 +402,9 @@ export class DoctorController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Logout from all devices' })
   async logoutAll(@Req() req: any) {
-    const doctorId: string = req.user.sub;
+    const doctorId: string = req.user.accountId;
 
-    await this.authService.logoutAllSessions(doctorId);
+    await this.authService.logoutAllSessions(doctorId, UserRole.DOCTOR);
 
     return {
       message: 'Logged out from all devices',

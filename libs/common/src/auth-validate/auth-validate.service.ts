@@ -1,5 +1,477 @@
+// // ============================================
+// // JWT & Session Service
+// // ============================================
+
+// import { Injectable, UnauthorizedException } from '@nestjs/common';
+// import { JwtService } from '@nestjs/jwt';
+// import { ConfigService } from '@nestjs/config';
+// import { InjectModel } from '@nestjs/mongoose';
+// import { Model } from 'mongoose';
+// import { scrypt, randomBytes, timingSafeEqual, randomUUID } from 'crypto';
+// import { promisify } from 'util';
+
+// const scryptAsync = promisify(scrypt);
+// import { Doctor, DoctorDocument } from '../database/schemas/doctor.schema';
+// import { Admin, AdminDocument } from '../database/schemas/admin.schema';
+
+// // ============================================
+// // JWT Payload Interfaces
+// // ============================================
+
+// export interface JwtPayload {
+//   sub: string; // Doctor ID
+//   phone: string;
+//   sessionId: string; // Unique session identifier
+//   deviceId: string;
+//   type: 'access' | 'refresh';
+//   iat?: number;
+//   exp?: number;
+// }
+
+// export interface TokenPair {
+//   accessToken: string;
+//   refreshToken: string;
+// }
+
+// export interface SessionInfo {
+//   sessionId: string;
+//   deviceId: string;
+//   deviceName: string;
+//   deviceType: string;
+//   platform: string;
+//   ipAddress: string;
+//   userAgent: string;
+// }
+
+// // ============================================
+// // Auth Service
+// // ============================================
+
+// @Injectable()
+// export class AuthValidateService {
+//   private readonly ACCESS_TOKEN_EXPIRY = '15m'; // 15 minutes
+//   private readonly REFRESH_TOKEN_EXPIRY = '30d'; // 30 days
+
+//   constructor(
+//     @InjectModel(Doctor.name) private doctorModel: Model<DoctorDocument>,
+//     @InjectModel(Admin.name) private adminModel: Model<Admin>,
+//     private jwtService: JwtService,
+//     private configService: ConfigService,
+//   ) {}
+
+//   // ============================================
+//   // JWT Token Generation
+//   // ============================================
+
+//   /**
+//    * Generate access and refresh token pair for a session
+//    */
+//   async generateTokenPair(
+//     doctorId: string,
+//     phone: string,
+//     sessionId: string,
+//     deviceId: string,
+//   ): Promise<TokenPair> {
+//     // Access Token Payload
+//     const accessPayload: JwtPayload = {
+//       sub: doctorId,
+//       phone,
+//       sessionId,
+//       deviceId,
+//       type: 'access',
+//     };
+
+//     // Refresh Token Payload
+//     const refreshPayload: JwtPayload = {
+//       sub: doctorId,
+//       phone,
+//       sessionId,
+//       deviceId,
+//       type: 'refresh',
+//     };
+
+//     const [accessToken, refreshToken] = await Promise.all([
+//       this.jwtService.signAsync(accessPayload, {
+//         expiresIn: this.ACCESS_TOKEN_EXPIRY,
+//         secret: this.configService.get('JWT_ACCESS_SECRET'),
+//       }),
+//       this.jwtService.signAsync(refreshPayload, {
+//         expiresIn: this.REFRESH_TOKEN_EXPIRY,
+//         secret: this.configService.get('JWT_REFRESH_SECRET'),
+//       }),
+//     ]);
+
+//     return { accessToken, refreshToken };
+//   }
+
+//   /**
+//    * Verify and decode access token
+//    */
+//   async verifyAccessToken(token: string): Promise<JwtPayload> {
+//     try {
+//       return await this.jwtService.verifyAsync(token, {
+//         secret: this.configService.get('JWT_ACCESS_SECRET'),
+//       });
+//     } catch {
+//       throw new UnauthorizedException('Invalid or expired access token');
+//     }
+//   }
+
+//   /**
+//    * Verify and decode refresh token
+//    */
+//   async verifyRefreshToken(token: string): Promise<JwtPayload> {
+//     try {
+//       return await this.jwtService.verifyAsync(token, {
+//         secret: this.configService.get('JWT_REFRESH_SECRET'),
+//       });
+//     } catch {
+//       throw new UnauthorizedException('Invalid or expired refresh token');
+//     }
+//   }
+
+//   // ============================================
+//   // Session Management
+//   // ============================================
+
+//   /**
+//    * Create new session for a doctor
+//    */
+//   async createDoctorSession(
+//     doctor: DoctorDocument,
+//     sessionInfo: SessionInfo,
+//   ): Promise<TokenPair> {
+//     const sessionId = randomUUID();
+
+//     // Generate token pair
+//     const tokens = await this.generateTokenPair(
+//       doctor._id.toString(),
+//       doctor.phones[0]?.normal?.[0] || doctor.phones[0]?.clinic?.[0] || '', // Use first available phone number
+//       sessionId,
+//       sessionInfo.deviceId,
+//     );
+
+//     // Hash refresh token before storing
+//     const salt = randomBytes(16).toString('hex');
+//     const derivedKey = (await scryptAsync(
+//       tokens.refreshToken,
+//       salt,
+//       64,
+//     )) as Buffer;
+//     const hashedRefreshToken = `${salt}.${derivedKey.toString('hex')}`;
+
+//     // Add session to doctor
+//     const newSession = {
+//       sessionId,
+//       deviceId: sessionInfo.deviceId,
+//       deviceName: sessionInfo.deviceName,
+//       deviceType: sessionInfo.deviceType,
+//       platform: sessionInfo.platform,
+//       ipAddress: sessionInfo.ipAddress,
+//       userAgent: sessionInfo.userAgent,
+//       refreshToken: hashedRefreshToken,
+//       createdAt: new Date(),
+//       lastActivityAt: new Date(),
+//       isActive: true,
+//     };
+
+//     // Remove oldest session if max limit reached
+//     if (doctor.sessions.length >= doctor.maxSessions) {
+//       doctor.sessions.sort(
+//         (a, b) =>
+//           new Date(a.lastActivityAt).getTime() -
+//           new Date(b.lastActivityAt).getTime(),
+//       );
+//       doctor.sessions.shift(); // Remove oldest
+//     }
+
+//     doctor.sessions.push(newSession as any);
+
+//     // Update last login
+//     doctor.lastLoginAt = new Date();
+//     doctor.lastLoginIp = sessionInfo.ipAddress;
+
+//     await doctor.save();
+
+//     return tokens;
+//   }
+
+//   async createAdminSession(
+//     admin: AdminDocument,
+//     sessionInfo: SessionInfo,
+//   ): Promise<TokenPair> {
+//     const sessionId = randomUUID();
+
+//     // Generate token pair
+//     const tokens = await this.generateTokenPair(
+//       admin._id.toString(),
+//       admin.phone || '', // Use first available phone number
+//       sessionId,
+//       sessionInfo.deviceId,
+//     );
+
+//     // Hash refresh token before storing
+//     const salt = randomBytes(16).toString('hex');
+//     const derivedKey = (await scryptAsync(
+//       tokens.refreshToken,
+//       salt,
+//       64,
+//     )) as Buffer;
+//     const hashedRefreshToken = `${salt}.${derivedKey.toString('hex')}`;
+
+//     // Add session to doctor
+//     const newSession = {
+//       sessionId,
+//       deviceId: sessionInfo.deviceId,
+//       deviceName: sessionInfo.deviceName,
+//       deviceType: sessionInfo.deviceType,
+//       platform: sessionInfo.platform,
+//       ipAddress: sessionInfo.ipAddress,
+//       userAgent: sessionInfo.userAgent,
+//       refreshToken: hashedRefreshToken,
+//       createdAt: new Date(),
+//       lastActivityAt: new Date(),
+//       isActive: true,
+//     };
+
+//     // Remove oldest session if max limit reached
+//     if (admin.sessions.length >= admin.maxSessions) {
+//       admin.sessions.sort(
+//         (a, b) =>
+//           new Date(a.lastActivityAt).getTime() -
+//           new Date(b.lastActivityAt).getTime(),
+//       );
+//       admin.sessions.shift(); // Remove oldest
+//     }
+
+//     admin.sessions.push(newSession as any);
+
+//     // Update last login
+//     admin.lastLoginAt = new Date();
+//     admin.lastLoginIp = sessionInfo.ipAddress;
+
+//     await admin.save();
+
+//     return tokens;
+//   }
+//   /**
+//    * Refresh access token using refresh token
+//    */
+//   async refreshDoctorAccessToken(refreshToken: string): Promise<TokenPair> {
+//     // Verify refresh token
+//     const payload = await this.verifyRefreshToken(refreshToken);
+
+//     // Find doctor and session
+//     const doctor = await this.doctorModel.findById(payload.sub);
+//     if (!doctor) {
+//       throw new UnauthorizedException('Doctor not found');
+//     }
+
+//     const session = doctor.sessions.find(
+//       (s) => s.sessionId === payload.sessionId,
+//     );
+//     if (!session || !session.isActive) {
+//       throw new UnauthorizedException('Session expired or invalid');
+//     }
+
+//     // Verify stored refresh token matches
+//     const [salt, storedHash] = session.refreshToken.split('.');
+//     const derivedKey = (await scryptAsync(refreshToken, salt, 64)) as Buffer;
+//     const storedHashBuffer = Buffer.from(storedHash, 'hex');
+//     const isValidRefreshToken = timingSafeEqual(derivedKey, storedHashBuffer);
+
+//     if (!isValidRefreshToken) {
+//       throw new UnauthorizedException('Invalid refresh token');
+//     }
+
+//     // Generate new token pair
+//     const tokens = await this.generateTokenPair(
+//       doctor._id.toString(),
+//       doctor.phones[0]?.normal?.[0] || doctor.phones[0]?.clinic?.[0] || '', // Use first available phone number
+//       session.sessionId,
+//       session.deviceId,
+//     );
+
+//     // Update session with new refresh token
+//     const newSalt = randomBytes(16).toString('hex');
+//     const newDerivedKey = (await scryptAsync(
+//       tokens.refreshToken,
+//       newSalt,
+//       64,
+//     )) as Buffer;
+//     const hashedRefreshToken = `${newSalt}.${newDerivedKey.toString('hex')}`;
+//     session.refreshToken = hashedRefreshToken;
+//     session.lastActivityAt = new Date();
+
+//     await doctor.save();
+
+//     return tokens;
+//   }
+
+//   async refreshAdminAccessToken(refreshToken: string): Promise<TokenPair> {
+//     // Verify refresh token
+//     const payload = await this.verifyRefreshToken(refreshToken);
+
+//     // Find doctor and session
+//     const admin = await this.adminModel.findById(payload.sub);
+//     if (!admin) {
+//       throw new UnauthorizedException('Admin not found');
+//     }
+
+//     const session = admin.sessions.find(
+//       (s) => s.sessionId === payload.sessionId,
+//     );
+//     if (!session || !session.isActive) {
+//       throw new UnauthorizedException('Session expired or invalid');
+//     }
+
+//     // Verify stored refresh token matches
+//     const [salt, storedHash] = session.refreshToken.split('.');
+//     const derivedKey = (await scryptAsync(refreshToken, salt, 64)) as Buffer;
+//     const storedHashBuffer = Buffer.from(storedHash, 'hex');
+//     const isValidRefreshToken = timingSafeEqual(derivedKey, storedHashBuffer);
+
+//     if (!isValidRefreshToken) {
+//       throw new UnauthorizedException('Invalid refresh token');
+//     }
+
+//     // Generate new token pair
+//     const tokens = await this.generateTokenPair(
+//       admin._id.toString(),
+//       admin.phone, // Use first available phone number
+//       session.sessionId,
+//       session.deviceId,
+//     );
+
+//     // Update session with new refresh token
+//     const newSalt = randomBytes(16).toString('hex');
+//     const newDerivedKey = (await scryptAsync(
+//       tokens.refreshToken,
+//       newSalt,
+//       64,
+//     )) as Buffer;
+//     const hashedRefreshToken = `${newSalt}.${newDerivedKey.toString('hex')}`;
+//     session.refreshToken = hashedRefreshToken;
+//     session.lastActivityAt = new Date();
+
+//     await admin.save();
+
+//     return tokens;
+//   }
+//   /**
+//    * Logout from specific session
+//    */
+//   async logoutSession(doctorId: string, sessionId: string): Promise<void> {
+//     const doctor = await this.doctorModel.findById(doctorId);
+//     if (!doctor) {
+//       throw new UnauthorizedException('Doctor not found');
+//     }
+
+//     doctor.sessions = doctor.sessions.filter((s) => s.sessionId !== sessionId);
+//     await doctor.save();
+//   }
+
+//   /**
+//    * Logout from specific device (removes all sessions for that device)
+//    */
+//   async logoutDevice(doctorId: string, deviceId: string): Promise<void> {
+//     const doctor = await this.doctorModel.findById(doctorId);
+//     if (!doctor) {
+//       throw new UnauthorizedException('Doctor not found');
+//     }
+
+//     doctor.sessions = doctor.sessions.filter((s) => s.deviceId !== deviceId);
+//     await doctor.save();
+//   }
+
+//   /**
+//    * Logout from all devices
+//    */
+//   async logoutDoctorAllSessions(doctorId: string): Promise<void> {
+//     const doctor = await this.doctorModel.findById(doctorId);
+//     if (!doctor) {
+//       throw new UnauthorizedException('Doctor not found');
+//     }
+
+//     doctor.sessions = [];
+//     await doctor.save();
+//   }
+
+//   async logoutAdminAllSessions(adminId: string): Promise<void> {
+//     const admin = await this.adminModel.findById(adminId);
+//     if (!admin) {
+//       throw new UnauthorizedException('Admin not found');
+//     }
+
+//     admin.sessions = [];
+//     await admin.save();
+//   }
+
+//   /**
+//    * Get all active sessions for a doctor
+//    */
+//   async getActiveSessions(doctorId: string) {
+//     const doctor = await this.doctorModel.findById(doctorId).lean();
+//     if (!doctor) {
+//       throw new UnauthorizedException('Doctor not found');
+//     }
+
+//     return doctor.sessions
+//       .filter((s) => s.isActive)
+//       .map((session) => ({
+//         sessionId: session.sessionId,
+//         deviceId: session.deviceId,
+//         deviceName: session.deviceName,
+//         deviceType: session.deviceType,
+//         platform: session.platform,
+//         ipAddress: session.ipAddress,
+//         createdAt: session.createdAt,
+//         lastActivityAt: session.lastActivityAt,
+//       }));
+//   }
+
+//   /**
+//    * Update session activity (called on each request)
+//    */
+//   async updateSessionActivity(
+//     doctorId: string,
+//     sessionId: string,
+//   ): Promise<void> {
+//     const doctor = await this.doctorModel.findById(doctorId);
+//     if (doctor) {
+//       const session = doctor.sessions.find((s) => s.sessionId === sessionId);
+//       if (session) {
+//         session.lastActivityAt = new Date();
+//       }
+//       await doctor.save();
+//     }
+//   }
+
+//   /**
+//    * Clean up expired sessions (run as cron job)
+//    */
+//   async cleanupExpiredSessions(): Promise<number> {
+//     const thirtyDaysAgo = new Date();
+//     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+//     const result = await this.doctorModel.updateMany(
+//       {},
+//       {
+//         $pull: {
+//           sessions: {
+//             lastActivityAt: { $lt: thirtyDaysAgo },
+//           },
+//         },
+//       },
+//     );
+
+//     return result.modifiedCount;
+//   }
+// }
+
 // ============================================
-// JWT & Session Service
+// GLOBAL JWT & Session Service
+// Works with unified AuthAccount model
 // ============================================
 
 import { Injectable, UnauthorizedException } from '@nestjs/common';
@@ -9,22 +481,30 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { scrypt, randomBytes, timingSafeEqual, randomUUID } from 'crypto';
 import { promisify } from 'util';
-
+import { Types } from 'mongoose';
 const scryptAsync = promisify(scrypt);
+
+import { AuthAccount } from '../database/schemas/auth.schema';
 import { Doctor, DoctorDocument } from '../database/schemas/doctor.schema';
+import { Admin, AdminDocument } from '../database/schemas/admin.schema';
+import { User, UserDocument } from '../database/schemas/user.schema';
+import { UserRole } from '../database/schemas/common.enums';
 
 // ============================================
 // JWT Payload Interfaces
 // ============================================
 
 export interface JwtPayload {
-  sub: string; // Doctor ID
+  sub: string; // AuthAccount ID
   phone: string;
+  role: UserRole; // 'doctor' | 'admin' | 'user'
   sessionId: string; // Unique session identifier
   deviceId: string;
+  tv: number; // Token version for global revocation
   type: 'access' | 'refresh';
   iat?: number;
   exp?: number;
+  scopes?: string[];
 }
 
 export interface TokenPair {
@@ -42,17 +522,35 @@ export interface SessionInfo {
   userAgent: string;
 }
 
+export interface SessionData {
+  sessionId: string;
+  deviceId: string;
+  deviceName: string;
+  deviceType: string;
+  platform: string;
+  ipAddress: string;
+  userAgent: string;
+  refreshToken: string; // Hashed
+  createdAt: Date;
+  lastActivityAt: Date;
+  isActive: boolean;
+}
+
 // ============================================
-// Auth Service
+// Global Auth Service
 // ============================================
 
 @Injectable()
 export class AuthValidateService {
   private readonly ACCESS_TOKEN_EXPIRY = '15m'; // 15 minutes
   private readonly REFRESH_TOKEN_EXPIRY = '30d'; // 30 days
+  private readonly MAX_SESSIONS = 5; // Max concurrent sessions
 
   constructor(
+    @InjectModel(AuthAccount.name) private authAccountModel: Model<AuthAccount>,
     @InjectModel(Doctor.name) private doctorModel: Model<DoctorDocument>,
+    @InjectModel(Admin.name) private adminModel: Model<AdminDocument>,
+    @InjectModel(User.name) private userModel: Model<UserDocument>,
     private jwtService: JwtService,
     private configService: ConfigService,
   ) {}
@@ -65,26 +563,33 @@ export class AuthValidateService {
    * Generate access and refresh token pair for a session
    */
   async generateTokenPair(
-    doctorId: string,
+    accountId: string,
     phone: string,
+    role: UserRole,
     sessionId: string,
     deviceId: string,
+    tokenVersion: number,
   ): Promise<TokenPair> {
     // Access Token Payload
+
     const accessPayload: JwtPayload = {
-      sub: doctorId,
+      sub: accountId,
       phone,
+      role,
       sessionId,
       deviceId,
+      tv: tokenVersion,
       type: 'access',
     };
 
     // Refresh Token Payload
     const refreshPayload: JwtPayload = {
-      sub: doctorId,
+      sub: accountId,
       phone,
+      role,
       sessionId,
       deviceId,
+      tv: tokenVersion,
       type: 'refresh',
     };
 
@@ -129,27 +634,63 @@ export class AuthValidateService {
   }
 
   // ============================================
-  // Session Management
+  // Helper: Get Entity Model by Role
+  // ============================================
+
+  private getEntityModel(role: UserRole): Model<any> {
+    switch (role) {
+      case UserRole.DOCTOR:
+        return this.doctorModel;
+      case UserRole.ADMIN:
+        return this.adminModel;
+      case UserRole.USER:
+        return this.userModel;
+      default:
+        throw new Error(`Unknown role: ${role}`);
+    }
+  }
+
+  // ============================================
+  // Session Management (GLOBAL)
   // ============================================
 
   /**
-   * Create new session for a doctor
+   * Create new session for any user type (Doctor/Admin/User)
    */
   async createSession(
-    doctor: DoctorDocument,
+    accountId: string,
+    phone: string,
+    role: UserRole,
     sessionInfo: SessionInfo,
   ): Promise<TokenPair> {
+    // 1. Get AuthAccount
+    const account = await this.authAccountModel.findById(accountId);
+    if (!account) {
+      throw new UnauthorizedException('Account not found');
+    }
+
+    // 2. Get entity (Doctor/Admin/User)
+    const entityModel = this.getEntityModel(role);
+    const entity = await entityModel.findOne({
+      authAccountId: new Types.ObjectId(accountId.toString()),
+    });
+    if (!entity) {
+      throw new UnauthorizedException(`${role} entity not found`);
+    }
+
     const sessionId = randomUUID();
 
-    // Generate token pair
+    // 3. Generate token pair
     const tokens = await this.generateTokenPair(
-      doctor._id.toString(),
-      doctor.phones[0]?.normal?.[0] || doctor.phones[0]?.clinic?.[0] || '', // Use first available phone number
+      accountId,
+      phone,
+      role,
       sessionId,
       sessionInfo.deviceId,
+      account.tokenVersion,
     );
 
-    // Hash refresh token before storing
+    // 4. Hash refresh token before storing
     const salt = randomBytes(16).toString('hex');
     const derivedKey = (await scryptAsync(
       tokens.refreshToken,
@@ -158,8 +699,8 @@ export class AuthValidateService {
     )) as Buffer;
     const hashedRefreshToken = `${salt}.${derivedKey.toString('hex')}`;
 
-    // Add session to doctor
-    const newSession = {
+    // 5. Create session object
+    const newSession: SessionData = {
       sessionId,
       deviceId: sessionInfo.deviceId,
       deviceName: sessionInfo.deviceName,
@@ -173,48 +714,68 @@ export class AuthValidateService {
       isActive: true,
     };
 
-    // Remove oldest session if max limit reached
-    if (doctor.sessions.length >= doctor.maxSessions) {
-      doctor.sessions.sort(
+    // 6. Manage session limit
+    if (!entity.sessions) entity.sessions = [];
+
+    if (entity.sessions.length >= (entity.maxSessions || this.MAX_SESSIONS)) {
+      entity.sessions.sort(
         (a, b) =>
           new Date(a.lastActivityAt).getTime() -
           new Date(b.lastActivityAt).getTime(),
       );
-      doctor.sessions.shift(); // Remove oldest
+      entity.sessions.shift(); // Remove oldest
     }
 
-    doctor.sessions.push(newSession as any);
+    entity.sessions.push(newSession);
 
-    // Update last login
-    doctor.lastLoginAt = new Date();
-    doctor.lastLoginIp = sessionInfo.ipAddress;
+    // 7. Update last login info
+    entity.lastLoginAt = new Date();
+    entity.lastLoginIp = sessionInfo.ipAddress;
+    account.lastLoginAt = new Date();
 
-    await doctor.save();
+    await Promise.all([entity.save(), account.save()]);
 
     return tokens;
   }
 
   /**
-   * Refresh access token using refresh token
+   * Refresh access token using refresh token (GLOBAL)
    */
   async refreshAccessToken(refreshToken: string): Promise<TokenPair> {
-    // Verify refresh token
+    // 1. Verify refresh token
     const payload = await this.verifyRefreshToken(refreshToken);
 
-    // Find doctor and session
-    const doctor = await this.doctorModel.findById(payload.sub);
-    if (!doctor) {
-      throw new UnauthorizedException('Doctor not found');
+    // 2. Get AuthAccount
+    const account = await this.authAccountModel.findById(payload.sub);
+    if (!account) {
+      throw new UnauthorizedException('Account not found');
     }
 
-    const session = doctor.sessions.find(
+    // 3. Check token version (global revocation)
+    if (payload.tv !== account.tokenVersion) {
+      throw new UnauthorizedException(
+        'Token revoked (password changed or logout all)',
+      );
+    }
+
+    // 4. Get entity based on role
+    const entityModel = this.getEntityModel(payload.role);
+    const entity = await entityModel.findOne({
+      authAccountId: new Types.ObjectId(account._id.toString()),
+    });
+    if (!entity) {
+      throw new UnauthorizedException(`${payload.role} entity not found`);
+    }
+
+    // 5. Find and validate session
+    const session = entity.sessions?.find(
       (s) => s.sessionId === payload.sessionId,
     );
     if (!session || !session.isActive) {
       throw new UnauthorizedException('Session expired or invalid');
     }
 
-    // Verify stored refresh token matches
+    // 6. Verify stored refresh token matches
     const [salt, storedHash] = session.refreshToken.split('.');
     const derivedKey = (await scryptAsync(refreshToken, salt, 64)) as Buffer;
     const storedHashBuffer = Buffer.from(storedHash, 'hex');
@@ -224,15 +785,17 @@ export class AuthValidateService {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
-    // Generate new token pair
+    // 7. Generate new token pair
     const tokens = await this.generateTokenPair(
-      doctor._id.toString(),
-      doctor.phones[0]?.normal?.[0] || doctor.phones[0]?.clinic?.[0] || '', // Use first available phone number
+      account._id.toString(),
+      payload.phone,
+      payload.role,
       session.sessionId,
       session.deviceId,
+      account.tokenVersion,
     );
 
-    // Update session with new refresh token
+    // 8. Update session with new refresh token
     const newSalt = randomBytes(16).toString('hex');
     const newDerivedKey = (await scryptAsync(
       tokens.refreshToken,
@@ -243,60 +806,112 @@ export class AuthValidateService {
     session.refreshToken = hashedRefreshToken;
     session.lastActivityAt = new Date();
 
-    await doctor.save();
+    await entity.save();
 
     return tokens;
   }
 
+  // ============================================
+  // Logout Operations (GLOBAL)
+  // ============================================
+
   /**
    * Logout from specific session
    */
-  async logoutSession(doctorId: string, sessionId: string): Promise<void> {
-    const doctor = await this.doctorModel.findById(doctorId);
-    if (!doctor) {
-      throw new UnauthorizedException('Doctor not found');
+  async logoutSession(
+    accountId: string,
+    role: UserRole,
+    sessionId: string,
+  ): Promise<void> {
+    const entityModel = this.getEntityModel(role);
+    const entity = await entityModel.findOne({
+      authAccountId: new Types.ObjectId(accountId.toString()),
+    });
+
+    if (!entity) {
+      throw new UnauthorizedException('Entity not found');
     }
 
-    doctor.sessions = doctor.sessions.filter((s) => s.sessionId !== sessionId);
-    await doctor.save();
+    entity.sessions = entity.sessions.filter((s) => s.sessionId !== sessionId);
+    await entity.save();
   }
 
   /**
    * Logout from specific device (removes all sessions for that device)
    */
-  async logoutDevice(doctorId: string, deviceId: string): Promise<void> {
-    const doctor = await this.doctorModel.findById(doctorId);
-    if (!doctor) {
-      throw new UnauthorizedException('Doctor not found');
+  async logoutDevice(
+    accountId: string,
+    role: UserRole,
+    deviceId: string,
+  ): Promise<void> {
+    const entityModel = this.getEntityModel(role);
+    const entity = await entityModel.findOne({
+      authAccountId: new Types.ObjectId(accountId.toString()),
+    });
+
+    if (!entity) {
+      throw new UnauthorizedException('Entity not found');
     }
 
-    doctor.sessions = doctor.sessions.filter((s) => s.deviceId !== deviceId);
-    await doctor.save();
+    entity.sessions = entity.sessions.filter((s) => s.deviceId !== deviceId);
+    await entity.save();
   }
 
   /**
-   * Logout from all devices
+   * Logout from all sessions (revokes all refresh tokens)
    */
-  async logoutAllSessions(doctorId: string): Promise<void> {
-    const doctor = await this.doctorModel.findById(doctorId);
-    if (!doctor) {
-      throw new UnauthorizedException('Doctor not found');
+  async logoutAllSessions(accountId: string, role: UserRole): Promise<void> {
+    const entityModel = this.getEntityModel(role);
+    const entity = await entityModel.findOne({
+      authAccountId: new Types.ObjectId(accountId.toString()),
+    });
+
+    if (!entity) {
+      throw new UnauthorizedException('Entity not found');
     }
 
-    doctor.sessions = [];
-    await doctor.save();
+    entity.sessions = [];
+    await entity.save();
   }
 
   /**
-   * Get all active sessions for a doctor
+   * GLOBAL TOKEN REVOCATION - Invalidate ALL tokens across ALL devices
+   * Use this for: password reset, security breach, etc.
    */
-  async getActiveSessions(doctorId: string) {
-    const doctor = await this.doctorModel.findById(doctorId).lean();
-    if (!doctor) {
-      throw new UnauthorizedException('Doctor not found');
+  async revokeAllTokens(accountId: string, role: UserRole): Promise<void> {
+    const account = await this.authAccountModel.findById(accountId);
+    if (!account) {
+      throw new UnauthorizedException('Account not found');
     }
 
-    return doctor.sessions
+    // Increment token version (invalidates all existing tokens)
+    account.tokenVersion += 1;
+    await account.save();
+
+    // Also clear all sessions
+    await this.logoutAllSessions(accountId, role);
+  }
+
+  // ============================================
+  // Session Info (GLOBAL)
+  // ============================================
+
+  /**
+   * Get all active sessions
+   */
+  async getActiveSessions(accountId: string, role: UserRole) {
+    const entityModel = this.getEntityModel(role);
+    const entity = await entityModel
+      .findOne({
+        authAccountId: new Types.ObjectId(accountId.toString()),
+      })
+      .lean();
+
+    if (!entity) {
+      throw new UnauthorizedException('Entity not found');
+    }
+
+    return (entity.sessions || [])
       .filter((s) => s.isActive)
       .map((session) => ({
         sessionId: session.sessionId,
@@ -311,128 +926,93 @@ export class AuthValidateService {
   }
 
   /**
-   * Update session activity (called on each request)
+   * Update session activity (called on each request via JWT strategy)
    */
   async updateSessionActivity(
-    doctorId: string,
+    accountId: string,
+    role: UserRole,
     sessionId: string,
   ): Promise<void> {
-    const doctor = await this.doctorModel.findById(doctorId);
-    if (doctor) {
-      const session = doctor.sessions.find((s) => s.sessionId === sessionId);
+    const entityModel = this.getEntityModel(role);
+    const entity = await entityModel.findOne({
+      authAccountId: new Types.ObjectId(accountId.toString()),
+    });
+
+    if (entity) {
+      const session = entity.sessions?.find((s) => s.sessionId === sessionId);
       if (session) {
         session.lastActivityAt = new Date();
+        await entity.save();
       }
-      await doctor.save();
     }
   }
 
+  // ============================================
+  // Account Retrieval for JWT Strategy
+  // ============================================
+
   /**
-   * Clean up expired sessions (run as cron job)
+   * Get account by ID (used in JWT strategy validation)
+   */
+  async getAccount(accountId: string): Promise<AuthAccount | null> {
+    return this.authAccountModel.findById(accountId);
+  }
+
+  /**
+   * Validate user and return full user object with role-specific data
+   */
+  async validateUser(accountId: string) {
+    const account = await this.authAccountModel.findById(accountId);
+    if (!account) {
+      throw new UnauthorizedException('Account not found');
+    }
+
+    const entityModel = this.getEntityModel(account.role);
+    const entity = await entityModel.findOne({
+      authAccountId: new Types.ObjectId(accountId.toString()),
+    });
+    if (!entity) {
+      throw new UnauthorizedException('Entity not found');
+    }
+
+    return {
+      accountId: account._id,
+      phone: account.phones[0],
+      role: account.role,
+      isActive: account.isActive,
+      tokenVersion: account.tokenVersion,
+      entity, // Full doctor/admin/user object
+    };
+  }
+
+  // ============================================
+  // Cleanup (Cron Job)
+  // ============================================
+
+  /**
+   * Clean up expired sessions across all entities
    */
   async cleanupExpiredSessions(): Promise<number> {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    const result = await this.doctorModel.updateMany(
-      {},
-      {
-        $pull: {
-          sessions: {
-            lastActivityAt: { $lt: thirtyDaysAgo },
+    let totalCleaned = 0;
+
+    for (const role of Object.values(UserRole)) {
+      const entityModel = this.getEntityModel(role);
+      const result = await entityModel.updateMany(
+        {},
+        {
+          $pull: {
+            sessions: {
+              lastActivityAt: { $lt: thirtyDaysAgo },
+            },
           },
         },
-      },
-    );
+      );
+      totalCleaned += result.modifiedCount;
+    }
 
-    return result.modifiedCount;
+    return totalCleaned;
   }
 }
-
-// ============================================
-// JWT vs Session Strategy Explanation
-// ============================================
-
-/*
-┌─────────────────────────────────────────────────────────────────┐
-│ JWT vs SESSION STRATEGY - HYBRID APPROACH                       │
-└─────────────────────────────────────────────────────────────────┘
-
-1. JWT (Stateless Authentication)
-   ✅ Access Token: Short-lived (15 minutes), validates identity
-   ✅ Refresh Token: Long-lived (30 days), renews access tokens
-   ✅ No server-side storage needed for access tokens
-   ✅ Fast validation - just verify signature
-   ✅ Contains user info (sub, phone, sessionId, deviceId)
-
-2. Session (Stateful Tracking)
-   ✅ Stored in MongoDB (doctor.sessions array)
-   ✅ Tracks ALL active devices/sessions
-   ✅ Enables multi-device management
-   ✅ Allows selective logout (specific device/session)
-   ✅ Stores refresh tokens securely (hashed)
-
-3. Why Hybrid?
-   ┌─────────────────────────────────────────────────────────────┐
-   │ JWT ALONE (Stateless)                                        │
-   ├─────────────────────────────────────────────────────────────┤
-   │ ✅ Fast validation                                           │
-   │ ❌ Cannot invalidate tokens (logout doesn't work)           │
-   │ ❌ No multi-device tracking                                 │
-   │ ❌ Cannot revoke specific device                            │
-   └─────────────────────────────────────────────────────────────┘
-
-   ┌─────────────────────────────────────────────────────────────┐
-   │ SESSION ALONE (Stateful)                                     │
-   ├─────────────────────────────────────────────────────────────┤
-   │ ✅ Full control over sessions                               │
-   │ ❌ Requires database lookup on EVERY request                │
-   │ ❌ Slower performance                                       │
-   │ ❌ Harder to scale horizontally                             │
-   └─────────────────────────────────────────────────────────────┘
-
-   ┌─────────────────────────────────────────────────────────────┐
-   │ HYBRID (Best of Both)                                        │
-   ├─────────────────────────────────────────────────────────────┤
-   │ ✅ Fast access token validation (stateless)                 │
-   │ ✅ Multi-device session tracking                            │
-   │ ✅ Logout works (remove session = invalidate refresh)       │
-   │ ✅ Can logout specific devices                              │
-   │ ✅ Refresh tokens stored securely in database               │
-   └─────────────────────────────────────────────────────────────┘
-
-4. Flow:
-   a) Login:
-      - Generate sessionId + deviceId
-      - Create access token (15min, stateless)
-      - Create refresh token (30d, stored in DB)
-      - Save session to doctor.sessions[]
-
-   b) API Request:
-      - Validate access token (JWT verify - NO DB call)
-      - If expired: Use refresh token to get new access token
-
-   c) Logout from Device:
-      - Find sessions with deviceId
-      - Remove from doctor.sessions[]
-      - Refresh tokens now invalid
-
-   d) Logout All:
-      - Clear doctor.sessions[]
-      - All refresh tokens invalid
-      - Access tokens expire in 15min max
-
-5. Security Benefits:
-   - Access tokens short-lived (15min)
-   - Refresh tokens hashed before storage
-   - Can revoke sessions immediately
-   - Max 5 concurrent sessions per doctor
-   - Failed login attempts tracking
-   - Account locking after 5 failures
-   - Session activity tracking
-
-6. Performance:
-   - 99% of requests: Fast (JWT verify only)
-   - 1% of requests: Refresh (DB lookup + update)
-   - Session management: Only on login/logout
-*/

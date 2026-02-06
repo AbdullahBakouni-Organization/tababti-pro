@@ -1,9 +1,10 @@
 import { Module } from '@nestjs/common';
-import { JwtModule } from '@nestjs/jwt';
+import { JwtModule, JwtService } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { MongooseModule } from '@nestjs/mongoose';
 import { AuthValidateService } from './auth-validate.service';
-import { Doctor, DoctorSchema } from '../database/schemas/doctor.schema';
+import { DatabaseModule } from '../database/database.module';
+import { JwtRefreshStrategy, JwtStrategy } from '../strategies/jwt.strategie';
+import { WsJwtGuard } from '../guards/ws-jwt.guard';
 
 @Module({
   imports: [
@@ -16,9 +17,22 @@ import { Doctor, DoctorSchema } from '../database/schemas/doctor.schema';
       }),
       inject: [ConfigService],
     }),
-    MongooseModule.forFeature([{ name: Doctor.name, schema: DoctorSchema }]),
+    DatabaseModule,
   ],
-  providers: [AuthValidateService],
-  exports: [AuthValidateService, JwtModule],
+  providers: [
+    AuthValidateService,
+    JwtService,
+    JwtModule,
+    JwtRefreshStrategy,
+    JwtStrategy,
+    WsJwtGuard,
+  ],
+  exports: [
+    AuthValidateService,
+    JwtService,
+    JwtRefreshStrategy,
+    JwtStrategy,
+    WsJwtGuard,
+  ],
 })
 export class AuthValidateModule {}

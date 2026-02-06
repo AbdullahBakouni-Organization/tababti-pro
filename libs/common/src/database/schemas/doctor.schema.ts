@@ -63,6 +63,12 @@ export class Doctor extends Document {
   @Prop({ required: false, type: String })
   licenseImage?: string;
 
+  @Prop({ required: false, type: String })
+  certificateDocument?: string;
+
+  @Prop({ required: false, type: String })
+  licenseDocument?: string;
+
   @Prop({
     type: [{ type: Object }],
     index: true,

@@ -8,7 +8,7 @@ import {
   BadRequestException,
   Logger,
 } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
+import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import {
   Doctor,
@@ -21,13 +21,20 @@ import {
 } from './dto/sign-up.dto';
 import { KafkaService } from '@app/common/kafka/kafka.service';
 import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
-import { ApprovalStatus } from '@app/common/database/schemas/common.enums';
+import {
+  ApprovalStatus,
+  NotificationStatus,
+  NotificationTypes,
+  UserRole,
+} from '@app/common/database/schemas/common.enums';
 import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
 import { firstValueFrom } from 'rxjs';
+import { Connection } from 'mongoose';
 // import { FreeTrialService } from './free-trial.service';
 // import { SubscriptionOwnerType } from '../schemas/subscription.schema';
-
+import { ClientSession } from 'mongoose';
+import { Notification } from '@app/common/database/schemas/notification.schema';
 // ============================================
 // Kafka Events
 // ============================================
@@ -72,13 +79,15 @@ export class DoctorService {
 
   constructor(
     @InjectModel(Doctor.name) private doctorModel: Model<DoctorDocument>,
+    @InjectModel(Notification.name)
+    private readonly notificationModel: Model<Notification>,
+    @InjectConnection() private readonly connection: Connection,
     private kafkaProducer: KafkaService,
-    private httpService: HttpService, // ✅ For direct WebSocket notification
+    private httpService: HttpService,
     private configService: ConfigService,
   ) {
     this.SOCKET_SERVICE_URL =
-      this.configService.get('SOCKET_SERVICE_URL') ||
-      'http://socket-service:3001';
+      this.configService.get('SOCKET_SERVICE_URL') || '';
   }
 
   // ============================================
@@ -119,17 +128,19 @@ export class DoctorService {
     }
   }
 
-  /**
-   * Check for duplicate registration (same identity + PENDING status)
-   */
   private async checkDuplicatePending(
     dto: DoctorRegistrationDtoValidated,
+    session?: ClientSession,
   ): Promise<void> {
-    // Check if there's a PENDING registration with same identity
-    const existingPending = await this.doctorModel.findOne({
-      'phones.normal': dto.phone,
-      status: ApprovalStatus.PENDING,
-    });
+    // Check if there's a PENDING registration with same phone
+    const existingPending = await this.doctorModel.findOne(
+      {
+        'phones.normal': dto.phone,
+        status: ApprovalStatus.PENDING,
+      },
+      null,
+      { session },
+    );
 
     if (existingPending) {
       throw new ConflictException(
@@ -141,12 +152,16 @@ export class DoctorService {
     }
 
     // Alternative check: Same name + pending
-    const existingByName = await this.doctorModel.findOne({
-      firstName: dto.firstName,
-      middleName: dto.middleName,
-      lastName: dto.lastName,
-      status: ApprovalStatus.PENDING,
-    });
+    const existingByName = await this.doctorModel.findOne(
+      {
+        firstName: dto.firstName,
+        middleName: dto.middleName,
+        lastName: dto.lastName,
+        status: ApprovalStatus.PENDING,
+      },
+      null,
+      { session },
+    );
 
     if (existingByName) {
       throw new ConflictException(
@@ -160,14 +175,18 @@ export class DoctorService {
     }
   }
 
-  /**
-   * Check if phone number is already registered (approved/rejected)
-   */
-  private async checkPhoneExists(phone: string): Promise<void> {
-    const existing = await this.doctorModel.findOne({
-      'phones.normal': phone,
-      status: { $in: [ApprovalStatus.APPROVED, ApprovalStatus.SUSPENDED] },
-    });
+  private async checkPhoneExists(
+    phone: string,
+    session?: ClientSession,
+  ): Promise<void> {
+    const existing = await this.doctorModel.findOne(
+      {
+        'phones.normal': phone,
+        status: { $in: [ApprovalStatus.APPROVED, ApprovalStatus.SUSPENDED] },
+      },
+      null,
+      { session },
+    );
 
     if (existing) {
       throw new ConflictException(
@@ -177,14 +196,10 @@ export class DoctorService {
       );
     }
   }
-
   // ============================================
   // Registration Method
   // ============================================
 
-  /**
-   * Register a new doctor
-   */
   async registerDoctor(
     dto: DoctorRegistrationDtoValidated,
     files?: {
@@ -196,100 +211,85 @@ export class DoctorService {
   ): Promise<DoctorDocument> {
     this.logger.log(`Registration attempt: ${dto.phone}`);
 
-    // 1. Validate nested enums
-    this.validateSubcity(dto.city, dto.subcity);
-    this.validateSpecialization(
-      dto.publicSpecialization,
-      dto.privateSpecialization,
-    );
+    const session = await this.connection.startSession();
 
-    // 2. Check for duplicates
-    await this.checkPhoneExists(dto.phone);
-    await this.checkDuplicatePending(dto);
-
-    // 3. Process uploaded files
-    const processedFiles = this.processUploadedFiles(files);
-
-    // 4. Create doctor entity
-    const doctor = new this.doctorModel({
-      // Identity
-      firstName: dto.firstName,
-      middleName: dto.middleName,
-      lastName: dto.lastName,
-      password: dto.password, // Will be hashed by pre-save middleware
-      phones: [
-        {
-          normal: [dto.phone],
-          clinic: [],
-          whatsup: [],
-        },
-      ],
-
-      // Location
-      city: dto.city,
-      subcity: dto.subcity,
-      // cityId and subcityId will be populated by lookup service
-
-      // Specialization
-      publicSpecialization: dto.publicSpecialization,
-      privateSpecialization: dto.privateSpecialization,
-      // IDs will be populated by lookup service
-
-      // Verification Documents
-      certificateImage: processedFiles.certificateImage || undefined,
-      licenseImage: processedFiles.licenseImage || undefined,
-
-      // Demographics
-      gender: dto.gender,
-
-      // Status
-      status: ApprovalStatus.PENDING,
-
-      // Sessions
-      sessions: [],
-      maxSessions: 5,
-
-      // Security
-      failedLoginAttempts: 0,
-    });
-
-    // 5. Save to database
-    await doctor.save();
-    this.logger.log(`Doctor registered with ID: ${doctor._id.toString()}`);
-
-    // 6. Create FREE 6-month trial subscription
-    // try {
-    //   await this.freeTrialService.createTrialOnRegistration(
-    //     doctor._id.toString(),
-    //     SubscriptionOwnerType.DOCTOR,
-    //   );
-    //   this.logger.log(
-    //     `Free trial subscription created for doctor: ${doctor._id}`,
-    //   );
-    // } catch (error) {
-    //   this.logger.error(
-    //     `Failed to create trial subscription: ${error.message}`,
-    //     error.stack,
-    //   );
-    //   // Don't fail registration if subscription creation fails
-    // }
-
-    // 7. Publish Kafka event (Event-Driven Architecture)
     try {
-      // await this.publishDoctorRegisteredEvent(doctor, processedFiles);
-      await Promise.allSettled([
-        // Fast path: Direct WebSocket (priority)
-        this.notifyAdminDashboardDirect(doctor, processedFiles),
+      let doctor: DoctorDocument;
 
-        // Reliable path: Kafka event (async, can be delayed)
-        this.publishDoctorRegisteredEvent(doctor, processedFiles),
-      ]);
+      await session.withTransaction(async () => {
+        // 1. Validate nested enums
+        this.validateSubcity(dto.city, dto.subcity);
+        this.validateSpecialization(
+          dto.publicSpecialization,
+          dto.privateSpecialization,
+        );
+
+        // 2. Check for duplicates (transaction-safe)
+        await this.checkPhoneExists(dto.phone, session);
+        await this.checkDuplicatePending(dto, session);
+
+        // 3. Process uploaded files
+        const processedFiles = this.processUploadedFiles(files);
+
+        // 4. Create doctor entity
+        doctor = new this.doctorModel({
+          firstName: dto.firstName,
+          middleName: dto.middleName,
+          lastName: dto.lastName,
+          password: dto.password,
+          phones: [
+            {
+              normal: [dto.phone],
+              clinic: [],
+              whatsup: [],
+            },
+          ],
+          city: dto.city,
+          subcity: dto.subcity,
+          publicSpecialization: dto.publicSpecialization,
+          privateSpecialization: dto.privateSpecialization,
+          certificateImage: processedFiles.certificateImage || undefined,
+          licenseImage: processedFiles.licenseImage || undefined,
+          certificateDocument: processedFiles.certificateDocument || undefined,
+          licenseDocument: processedFiles.licenseDocument || undefined,
+          gender: dto.gender,
+          status: ApprovalStatus.PENDING,
+          sessions: [],
+          maxSessions: 5,
+          failedLoginAttempts: 0,
+        });
+
+        // 5. Save doctor (inside transaction)
+        await doctor.save({ session });
+
+        // 6. OPTIONAL: transactional side-effects (kept commented as requested)
+        // await this.freeTrialService.createTrialOnRegistration(
+        //   doctor._id.toString(),
+        //   SubscriptionOwnerType.DOCTOR,
+        //   session,
+        // );
+      });
+
+      // 7. OUTSIDE transaction (never put Kafka/WebSocket inside TX)
+      try {
+        await Promise.allSettled([
+          this.notifyAdminDashboardDirect(doctor!),
+          this.publishDoctorRegisteredEvent(doctor!, files),
+        ]);
+      } catch (error) {
+        this.logger.error('Failed to publish Kafka event', error);
+      }
+
+      return doctor!;
     } catch (error) {
-      this.logger.error('Failed to publish Kafka event', error);
-      // Don't fail registration if event publishing fails
+      this.logger.error(
+        'Doctor registration failed, transaction aborted',
+        error,
+      );
+      throw error;
+    } finally {
+      await session.endSession();
     }
-
-    return doctor;
   }
 
   // ============================================
@@ -324,15 +324,9 @@ export class DoctorService {
       processedFiles.certificateImage = this.normalizeFilePath(
         files.certificateImage.path,
       );
-      this.logger.log(
-        `Certificate image uploaded: ${processedFiles.certificateImage}`,
-      );
     } else if (files.certificateDocument) {
       processedFiles.certificateImage = this.normalizeFilePath(
         files.certificateDocument.path,
-      );
-      this.logger.log(
-        `Certificate document uploaded: ${processedFiles.certificateImage}`,
       );
     }
 
@@ -341,13 +335,9 @@ export class DoctorService {
       processedFiles.licenseImage = this.normalizeFilePath(
         files.licenseImage.path,
       );
-      this.logger.log(`License image uploaded: ${processedFiles.licenseImage}`);
     } else if (files.licenseDocument) {
       processedFiles.licenseImage = this.normalizeFilePath(
         files.licenseDocument.path,
-      );
-      this.logger.log(
-        `License document uploaded: ${processedFiles.licenseImage}`,
       );
     }
 
@@ -372,66 +362,6 @@ export class DoctorService {
    * 2. WebSocket Service → Notify admin dashboard
    * 3. Analytics Service → Track registration
    */
-  // private async publishDoctorRegisteredEvent(
-  //   doctor: DoctorDocument,
-  //   files?: {
-  //     certificateImage?: string;
-  //     licenseImage?: string;
-  //     certificateDocument?: string;
-  //     licenseDocument?: string;
-  //   },
-  // ): Promise<void> {
-  //   const event: DoctorRegisteredEvent = {
-  //     eventType: 'DOCTOR_REGISTERED',
-  //     timestamp: new Date(),
-  //     data: {
-  //       doctorId: doctor._id.toString(),
-  //       fullName: `${doctor.firstName} ${doctor.middleName} ${doctor.lastName}`,
-  //       phone: doctor.phones
-  //         .map((p) => p.normal || p.clinic || p.whatsup)
-  //         .flat()
-  //         .join(', '),
-  //       city: 'TBD', // Will be populated by lookup service
-  //       subcity: 'TBD', // Will be populated by lookup service
-  //       publicSpecialization: 'TBD', // Will be populated by lookup service
-  //       privateSpecialization: 'TBD', // Will be populated by lookup service
-  //       certificateImage: doctor.certificateImage || '',
-  //       licenseImage: doctor.licenseImage || '',
-  //       uploadedFiles: files || {},
-  //       gender: doctor.gender,
-  //       status: doctor.status,
-  //       registeredAt: new Date(),
-  //     },
-  //     metadata: {
-  //       source: 'registration-service',
-  //       version: '1.0',
-  //     },
-  //   };
-
-  //   try {
-  //     console.log('events', event);
-  //     await this.kafkaProducer.send(KAFKA_TOPICS.DOCTOR_REGISTERED, {
-  //       key: doctor._id.toString(),
-  //       value: JSON.stringify(event),
-  //       headers: {
-  //         'event-type': 'DOCTOR_REGISTERED',
-  //         'event-version': '1.0',
-  //       },
-  //     });
-
-  //     this.logger.log(
-  //       `Published DOCTOR_REGISTERED event to Kafka: ${doctor._id.toString()}`,
-  //     );
-  //   } catch (error) {
-  //     const err = error as Error;
-  //     this.logger.error(
-  //       `Failed to publish Kafka event: ${err.message}`,
-  //       err.stack,
-  //     );
-  //     // Don't throw - registration should succeed even if event fails
-  //     // Implement retry mechanism or dead letter queue
-  //   }
-  // }
   private async publishDoctorRegisteredEvent(
     doctor: DoctorDocument,
     files?: any,
@@ -457,8 +387,6 @@ export class DoctorService {
     try {
       // Use emit for fire-and-forget events
       await this.kafkaProducer.emit(KAFKA_TOPICS.DOCTOR_REGISTERED, event);
-
-      this.logger.log(`Published DOCTOR_REGISTERED event: ${doctor._id}`);
     } catch (error) {
       this.logger.error(`Failed to publish event: ${error.message}`);
     }
@@ -468,92 +396,94 @@ export class DoctorService {
    * @param phones Array of phone objects
    * @returns Valid phone number string or default if none found
    */
-  private extractValidPhone(phones: any[]): string {
-    if (!phones || !Array.isArray(phones) || phones.length === 0) {
-      return ''; // Return empty string if no phones array
-    }
-
-    // Extract all valid phone numbers
-    const validPhones = phones
-      .map((phone) => {
-        if (!phone || typeof phone !== 'object') return null;
-
-        // Try different phone fields with type safety
-        const phoneObj = phone as {
-          normal?: string;
-          clinic?: string;
-          whatsup?: string;
-        };
-        const phoneNumber =
-          phoneObj.normal || phoneObj.clinic || phoneObj.whatsup;
-
-        // Validate phone number
-        if (!phoneNumber || typeof phoneNumber !== 'string') return null;
-
-        const cleaned = phoneNumber.trim();
-        if (cleaned === '' || cleaned.length < 9) return null;
-
-        return cleaned;
-      })
-      .filter((phone): phone is string => phone !== null); // Type guard filter
-
-    // Return the first valid phone or empty string
-    return validPhones.length > 0 ? validPhones[0] : '';
-  }
 
   private async notifyAdminDashboardDirect(
     doctor: DoctorDocument,
-    files?: any,
   ): Promise<void> {
-    try {
-      const notification = {
-        event: 'new-registration-pending',
-        data: {
-          type: 'NEW_DOCTOR_REGISTRATION',
-          priority: 'high',
-          timestamp: new Date(),
-          doctor: {
-            id: doctor._id.toString(),
-            fullName: `${doctor.firstName} ${doctor.middleName} ${doctor.lastName}`,
-            phone: doctor.phones
-              .map((p) => p.normal || p.clinic || p.whatsup)
-              .flat()
-              .join(', '),
-            gender: doctor.gender,
-            certificateImage: doctor.certificateImage,
-            licenseImage: doctor.licenseImage,
-            status: doctor.status,
-            registeredAt: doctor.registeredAt,
-          },
-          actions: [
-            {
-              label: 'Review Now',
-              type: 'primary',
-              url: `/admin/doctors/pending/${doctor._id.toString()}`,
-            },
-            {
-              label: 'View Certificate',
-              type: 'secondary',
-              url: doctor.certificateImage,
-              openInNewTab: true,
-            },
-            {
-              label: 'View License',
-              type: 'secondary',
-              url: doctor.licenseImage,
-              openInNewTab: true,
-            },
-          ],
-        },
-      };
+    let savedNotification: Notification | null = null;
 
-      // ✅ Direct HTTP POST to Socket Service
+    // 1️⃣ Persist notification (source of truth)
+    try {
+      savedNotification = await this.notificationModel.create({
+        recipientType: UserRole.ADMIN,
+        recipientId: undefined,
+        Notificationtype: NotificationTypes.NewDoctorRegistration,
+        title: 'New Doctor Registration Pending',
+        message: `Dr. ${doctor.firstName} ${doctor.lastName} submitted a new registration.`,
+        status: NotificationStatus.PENDING,
+        isRead: false,
+      });
+    } catch (error) {
+      this.logger.error(
+        'Failed to persist admin notification',
+        error instanceof Error ? error.stack : undefined,
+      );
+      return; // no point broadcasting without DB record
+    }
+
+    // 2️⃣ Build realtime payload
+    const payload = {
+      event: 'new-registration-pending',
+      data: {
+        notificationId: savedNotification._id.toString(),
+        type: 'NEW_DOCTOR_REGISTRATION',
+        priority: 'high',
+        timestamp: new Date(),
+        doctor: {
+          id: doctor._id.toString(),
+          fullName: `${doctor.firstName} ${doctor.middleName} ${doctor.lastName}`,
+          phone: doctor.phones
+            .map((p) => p.normal || p.clinic || p.whatsup)
+            .flat()
+            .join(', '),
+          gender: doctor.gender,
+          certificateImage: doctor.certificateImage,
+          licenseImage: doctor.licenseImage,
+          status: doctor.status,
+          registeredAt: doctor.registeredAt,
+        },
+        actions: [
+          {
+            label: 'Review Now',
+            type: 'primary',
+            url: `/admin/doctors/pending/${doctor._id.toString()}`,
+          },
+          {
+            label: 'View Certificate',
+            type: 'secondary',
+            url: doctor.certificateImage,
+            openInNewTab: true,
+          },
+          {
+            label: 'View License',
+            type: 'secondary',
+            url: doctor.licenseImage,
+            openInNewTab: true,
+          },
+          {
+            label: 'View Certificate Document',
+            type: 'secondary',
+            url: doctor.certificateDocument,
+            openInNewTab: true,
+          },
+          {
+            label: 'View License Document',
+            type: 'secondary',
+            url: doctor.licenseDocument,
+            openInNewTab: true,
+          },
+        ],
+      },
+    };
+
+    // 3️⃣ Broadcast WebSocket
+    try {
       const response = await firstValueFrom(
         this.httpService.post(
           `${this.SOCKET_SERVICE_URL}/notifications/admin/broadcast`,
-          notification,
+          payload,
           {
-            timeout: 3000, // 3 second timeout (fast fail)
+            timeout: 3000,
             headers: {
               'Content-Type': 'application/json',
               'X-Source': 'home-service',
@@ -562,56 +492,26 @@ export class DoctorService {
         ),
       );
 
-      this.logger.log(
-        `⚡ FAST: Sent real-time notification to admin dashboard (${response.data.recipientCount} admins)`,
+      this.logger.log(`⚡ FAST: Admin notification broadcasted to admins)`);
+
+      // 4️⃣ Mark as DELIVERED (only on success)
+      await this.notificationModel.updateOne(
+        { _id: savedNotification._id },
+        {
+          $set: {
+            status: NotificationStatus.DELIVERED,
+          },
+        },
       );
     } catch (error) {
-      const err = error as Error;
-      this.logger.error(
-        `Failed to send direct notification: ${err.message}`,
-        err.stack,
+      this.logger.warn(
+        'Realtime notification failed; notification remains PENDING',
+        error instanceof Error ? error.message : undefined,
       );
-      // Don't throw - registration should succeed even if notification fails
-      // Admin can still see pending registrations via polling/refresh
+      // intentionally NOT updating status → retryable
     }
   }
-  // async notifyMultiplePendingRegistrations(doctorIds: string[]): Promise<void> {
-  //   try {
-  //     const doctors = await this.doctorModel
-  //       .find({ _id: { $in: doctorIds }, status: 'pending' })
-  //       .lean();
 
-  //     const notifications = doctors.map((doctor) => ({
-  //       id: doctor._id.toString(),
-  //       fullName: `${doctor.firstName} ${doctor.middleName} ${doctor.lastName}`,
-  //       phone: doctor.phones
-  //         .map((p) => p.normal || p.clinic || p.whatsup)
-  //         .flat()[0],
-  //       registeredAt: doctor.registeredAt,
-  //     }));
-
-  //     await firstValueFrom(
-  //       this.httpService.post(
-  //         `${this.socketServiceUrl}/api/v1/notifications/admin/batch`,
-  //         {
-  //           event: 'pending-registrations-batch',
-  //           data: {
-  //             type: 'BATCH_REGISTRATIONS',
-  //             count: notifications.length,
-  //             doctors: notifications,
-  //           },
-  //         },
-  //         { timeout: 3000 },
-  //       ),
-  //     );
-
-  //     this.logger.log(
-  //       `⚡ Sent batch notification for ${notifications.length} doctors`,
-  //     );
-  //   } catch (error) {
-  //     this.logger.error(`Failed to send batch notification: ${error.message}`);
-  //   }
-  // }
   // ============================================
   // Helper Methods
   // ============================================
@@ -660,37 +560,6 @@ export class DoctorService {
   //     page,
   //     totalPages: Math.ceil(total / limit),
   //   };
-  // }
-
-  // /**
-  //  * Approve doctor registration
-  //  */
-  // async approveDoctor(
-  //   doctorId: string,
-  //   adminId: string,
-  // ): Promise<DoctorDocument> {
-  //   const doctor = await this.doctorModel.findById(doctorId);
-
-  //   if (!doctor) {
-  //     throw new BadRequestException('Doctor not found');
-  //   }
-
-  //   if (doctor.status !== DoctorStatus.PENDING) {
-  //     throw new BadRequestException(
-  //       `Doctor is not pending. Current status: ${doctor.status}`,
-  //     );
-  //   }
-
-  //   doctor.status = DoctorStatus.APPROVED;
-  //   doctor.approvedBy = adminId as any;
-  //   doctor.approvedAt = new Date();
-
-  //   await doctor.save();
-
-  //   // Publish approval event
-  //   await this.publishDoctorApprovedEvent(doctor);
-
-  //   return doctor;
   // }
 
   // /**

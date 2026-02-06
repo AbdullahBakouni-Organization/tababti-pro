@@ -155,22 +155,6 @@ export class DoctorRegistrationDto {
   })
   privateSpecialization: PrivateMedicineSpecialty;
 
-  // ==================== VERIFICATION ====================
-
-  // @ApiProperty({
-  //   example: 'https://storage.tababti.com/certificates/abc123.jpg',
-  // })
-  // @IsString()
-  // @IsNotEmpty()
-  // @IsUrl({}, { message: 'Certificate image must be a valid URL' })
-  // certificateImage: string;
-
-  // @ApiProperty({ example: 'https://storage.tababti.com/licenses/xyz789.jpg' })
-  // @IsString()
-  // @IsNotEmpty()
-  // @IsUrl({}, { message: 'License image must be a valid URL' })
-  // licenseImage: string;
-
   // ==================== DEMOGRAPHICS ====================
   @ApiProperty({ enum: Gender, example: Gender.MALE })
   @IsEnum(Gender, { message: 'Gender must be either male or female' })

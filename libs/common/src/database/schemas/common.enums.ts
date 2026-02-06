@@ -397,7 +397,7 @@ export enum NotificationTypes {
   HOSPITAL_REJECTED = 'hospital_rejected',
   CENTER_APPROVED = 'center_approved',
   CENTER_REJECTED = 'center_rejected',
-
+  NewDoctorRegistration = 'new_doctor_registration',
   SUBSCRIPTION_ACTIVATED = 'subscription_activated',
   SUBSCRIPTION_EXPIRING = 'subscription_expiring',
   SUBSCRIPTION_EXPIRED = 'subscription_expired',

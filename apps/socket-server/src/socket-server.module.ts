@@ -4,6 +4,7 @@ import { SocketServerService } from './socket-server.service';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { NotificationServiceController } from './notification.controller';
+import { AuthValidateModule } from '@app/common/auth-validate';
 
 @Module({
   imports: [
@@ -12,11 +13,12 @@ import { NotificationServiceController } from './notification.controller';
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => ({
-        secret: configService.get('JWT_SECRET'),
+        secret: configService.get('JWT_ACCESS_SECRET'),
         signOptions: { expiresIn: '15m' },
       }),
       inject: [ConfigService],
     }),
+    AuthValidateModule,
   ],
   controllers: [SocketServerController, NotificationServiceController],
   providers: [SocketServerService],

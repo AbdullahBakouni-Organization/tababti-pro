@@ -71,11 +71,11 @@ async function bootstrap() {
   });
 
   await app.startAllMicroservices();
-  await app.listen(process.env.SOCKET_PORT!);
+  await app.listen(process.env.PORT_SOCKET!);
 
-  logger.log(`🚀 Socket service running on port ${process.env.SOCKET_PORT}`);
+  logger.log(`🚀 Socket service running on port ${process.env.PORT_SOCKET}`);
   logger.log(
-    `📡 Socket.IO Admin namespace: http://localhost:${process.env.SOCKET_PORT}/admin`,
+    `📡 Socket.IO Admin namespace: http://localhost:${process.env.PORT_SOCKET}/admin`,
   );
 }
 
