@@ -7,7 +7,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
-import { DeviceInfoDto } from './device-info.dto';
+import { DeviceInfoDto } from 'libs/common/dtos/device-info.dto';
 
 export class AdminSignInDto {
   @IsString()

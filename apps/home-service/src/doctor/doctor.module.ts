@@ -6,6 +6,7 @@ import { KafkaModule } from '../../../../libs/common/src/kafka/kafka.module';
 import { DatabaseModule } from '@app/common/database/database.module';
 import { HttpModule } from '@nestjs/axios';
 import { ConfigModule } from '@nestjs/config';
+import { SmsService } from '../sms/sms.service';
 
 @Module({
   imports: [
@@ -19,7 +20,7 @@ import { ConfigModule } from '@nestjs/config';
       timeout: 3000,
     }),
   ],
-  providers: [DoctorService],
+  providers: [DoctorService, SmsService],
   controllers: [DoctorController],
 })
 export class DoctorModule {}

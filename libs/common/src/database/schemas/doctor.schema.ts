@@ -4,6 +4,14 @@ import { ApprovalStatus, Days, Gender, WorkigEntity } from './common.enums';
 import { Session, SessionSchema } from './session.schema';
 import { scrypt, randomBytes, timingSafeEqual } from 'crypto';
 import { promisify } from 'util';
+import { HydratedDocument } from 'mongoose';
+export interface DoctorMethods {
+  comparePassword?: (candidatePassword: string) => Promise<boolean>;
+  incrementFailedAttempts?: () => void;
+  resetFailedAttempts?: () => void;
+  getActiveSessionsCount?: () => number;
+  removeAllSessions?: () => Promise<void>;
+}
 
 const scryptAsync = promisify(scrypt);
 @Schema({ timestamps: true, collection: 'doctors' })
@@ -391,7 +399,7 @@ DoctorSchema.methods.isSessionActive = function (
 DoctorSchema.methods.incrementFailedAttempts = function (this: Doctor) {
   this.failedLoginAttempts += 1;
 
-  if (this.failedLoginAttempts >= 5) {
+  if (this.failedLoginAttempts >= 3) {
     this.lockedUntil = new Date(Date.now() + 30 * 60 * 1000); // Lock for 30 minutes
   }
 };
@@ -400,4 +408,4 @@ DoctorSchema.methods.resetFailedAttempts = function (this: Doctor) {
   this.failedLoginAttempts = 0;
   this.lockedUntil = undefined;
 };
-export type DoctorDocument = Doctor & Document;
+export type DoctorDocument = HydratedDocument<Doctor> & DoctorMethods;

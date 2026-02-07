@@ -128,7 +128,7 @@ export class AdminController {
     };
   }
 
-  @Patch('admin/:doctorId/approve')
+  @Patch('approve/:doctorId')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
   @ApiBearerAuth()
@@ -138,50 +138,36 @@ export class AdminController {
     @Param('doctorId') doctorId: string,
     @Req() req: any,
   ): Promise<{
-    accessToken: string;
-    doctor: any;
-    refreshToken: string;
-    session: any;
     success: boolean;
+    message: string;
   }> {
     const adminId: string = req.user.accountId;
-    const doctor = await this.adminService.approveDoctor(doctorId, adminId);
-
-    // return {
-    //   success: true,
-    //   message: 'Doctor approved successfully',
-    // };
-    //
-    const sessionInfo: SessionInfo = {
-      sessionId: '', // generated later
-      deviceId: dto.deviceInfo.deviceId,
-      deviceName: dto.deviceInfo.deviceName,
-      deviceType: dto.deviceInfo.deviceType,
-      platform: dto.deviceInfo.platform,
-      ipAddress: req.ip || req.socket.remoteAddress || 'unknown',
-      userAgent: req.headers['user-agent'] || 'unknown',
-    };
-
-    const tokens = await this.authService.createSession(
-      admin.authAccountId.toString(),
-      admin.phone,
-      UserRole.ADMIN,
-      sessionInfo,
-    );
-
+    await this.adminService.approveDoctor(doctorId, adminId);
     return {
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
-      admin: {
-        id: admin._id.toString(),
-        fullName: admin.username,
-        phone: admin.phone,
-      },
-      session: {
-        deviceName: sessionInfo.deviceName,
-        platform: sessionInfo.platform,
-        createdAt: new Date(),
-      },
+      success: true,
+      message: 'Doctor approved successfully',
+    };
+  }
+
+  @Patch('reject/:doctorId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Reject doctor registration (Admin)' })
+  async rejectDoctor(
+    @Param('doctorId') doctorId: string,
+    @Body() reason: string,
+    @Req() req: any,
+  ): Promise<{
+    success: boolean;
+    message: string;
+  }> {
+    const adminId: string = req.user.accountId;
+    await this.adminService.rejectedDoctor(doctorId, adminId, reason);
+    return {
+      success: true,
+      message: 'Doctor rejected successfully',
     };
   }
 }

@@ -2,7 +2,12 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 import { Session, SessionSchema } from './session.schema';
-
+import { HydratedDocument } from 'mongoose';
+export interface AdminMethods {
+  incrementFailedAttempts?: () => void;
+  resetFailedAttempts?: () => void;
+  getActiveSessionsCount?: () => number;
+}
 @Schema({ timestamps: true, collection: 'admins' })
 export class Admin extends Document {
   @Prop({ type: Types.ObjectId, ref: 'AuthAccount', unique: true })
@@ -49,4 +54,21 @@ export class Admin extends Document {
 
 export const AdminSchema = SchemaFactory.createForClass(Admin);
 
-export type AdminDocument = Admin & Document;
+AdminSchema.methods.getActiveSessionsCount = function (this: Admin): number {
+  return this.sessions.filter((s) => s.isActive).length;
+};
+
+AdminSchema.methods.incrementFailedAttempts = function (this: Admin) {
+  this.failedLoginAttempts += 1;
+
+  if (this.failedLoginAttempts >= 2) {
+    this.lockedUntil = new Date(Date.now() + 30 * 60 * 1000); // Lock for 30 minutes
+  }
+};
+
+AdminSchema.methods.resetFailedAttempts = function (this: Admin) {
+  this.failedLoginAttempts = 0;
+  this.lockedUntil = undefined;
+};
+
+export type AdminDocument = HydratedDocument<Admin> & AdminMethods;
