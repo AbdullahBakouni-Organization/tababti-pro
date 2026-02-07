@@ -1,11 +1,12 @@
-import 'dotenv/config';
 import { Module } from '@nestjs/common';
 import { SocialServiceController } from './social-service.controller';
 import { SocialServiceService } from './social-service.service';
 import { KafkaModule } from '@app/common/kafka/kafka.module';
 import { DatabaseModule } from '@app/common/database/database.module';
 import { QuestionsModule } from './questions/questions.module';
-import { AuthModule } from 'apps/home-service/src/auth/auth.module';
+import { JwtModule } from '@nestjs/jwt';
+
+import { JwtStrategy } from '@app/common/strategies/jwt.strategie';
 
 @Module({
   imports: [
@@ -14,12 +15,13 @@ import { AuthModule } from 'apps/home-service/src/auth/auth.module';
       brokers: [process.env.KAFKA_BROKER!],
       groupId: 'social-consumer',
     }),
-
     DatabaseModule,
-   // AuthModule,
     QuestionsModule,
+    JwtModule.register({
+      secret: process.env.JWT_SECRET,
+    }),
   ],
   controllers: [SocialServiceController],
-  providers: [SocialServiceService],
+  providers: [SocialServiceService, JwtStrategy],
 })
 export class SocialServiceModule {}

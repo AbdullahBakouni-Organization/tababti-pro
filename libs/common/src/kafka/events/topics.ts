@@ -30,4 +30,8 @@ export const KAFKA_TOPICS = {
 
   // Cache Invalidation Events
   CACHE_INVALIDATE: 'cache.invalidate',
+
+  // WhatsApp
+  WHATSAPP_SEND_MESSAGE: 'whatsapp.send.message',
+  WHATSAPP_SEND_OTP: 'whatsapp.send.otp',
 };

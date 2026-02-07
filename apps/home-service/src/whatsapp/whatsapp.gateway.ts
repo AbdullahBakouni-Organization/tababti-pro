@@ -9,11 +9,7 @@ import { Server, Socket } from 'socket.io';
 import { Logger } from '@nestjs/common';
 import { WhatsappService } from './whatsapp.service';
 
-@WebSocketGateway({
-  cors: {
-    origin: '*',
-  },
-})
+@WebSocketGateway({ cors: { origin: '*' } })
 export class WhatsappGateway implements OnGatewayInit {
   @WebSocketServer() server: Server;
   private readonly logger = new Logger(WhatsappGateway.name);

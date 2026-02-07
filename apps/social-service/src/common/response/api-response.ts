@@ -7,7 +7,6 @@ interface ApiResponseOptions<T = any> {
   lang?: Lang;
   messageKey: string;
   data?: T | null;
-  statusCode?: HttpStatus;
 }
 
 export class ApiResponse {
@@ -15,11 +14,9 @@ export class ApiResponse {
     lang = 'en',
     messageKey,
     data = null,
-    statusCode = HttpStatus.OK,
   }: ApiResponseOptions<T>) {
     return {
       success: true,
-      statusCode,
       message: ApiResponse.getMessage(lang, messageKey),
       data,
     };
@@ -28,7 +25,6 @@ export class ApiResponse {
   static error({
     lang = 'en',
     messageKey,
-    statusCode = HttpStatus.BAD_REQUEST,
   }: {
     lang?: Lang;
     messageKey: string;
@@ -36,7 +32,6 @@ export class ApiResponse {
   }) {
     return {
       success: false,
-      statusCode,
       message: ApiResponse.getMessage(lang, messageKey),
       data: null,
     };

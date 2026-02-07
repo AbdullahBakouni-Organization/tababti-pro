@@ -17,7 +17,10 @@ import { Response } from 'express';
 import { Doctor } from '@app/common/database/schemas/doctor.schema';
 import { Hospital } from '@app/common/database/schemas/hospital.schema';
 import { Center } from '@app/common/database/schemas/center.schema';
-import { WhatsappService } from '../whatsapp/whatsapp.service';
+import { Inject } from '@nestjs/common';
+import { ClientKafka } from '@nestjs/microservices';
+import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
+import { OnModuleInit } from '@nestjs/common';
 
 @Injectable()
 export class AuthService {
@@ -31,9 +34,12 @@ export class AuthService {
     @InjectConnection() private readonly connection: Connection,
     private readonly smsService: SmsService,
     private readonly jwtService: JwtService,
-    private readonly whatsappService: WhatsappService,
+    @Inject('KAFKA_SERVICE')
+    private readonly kafka: ClientKafka,
   ) {}
-
+  async onModuleInit() {
+    await this.kafka.connect();
+  }
   //---------------------------------------------------------
   // TOKEN BUILDER
   //---------------------------------------------------------
@@ -61,38 +67,26 @@ export class AuthService {
     try {
       const { phone } = dto;
 
-      // find or create auth account
       let authAccount = await this.authModel
         .findOne({ phones: phone })
         .session(session);
-
       if (!authAccount) {
         const [created] = await this.authModel.create(
-          [
-            {
-              phones: [phone],
-              role: UserRole.USER,
-              isActive: false,
-            },
-          ],
+          [{ phones: [phone], role: UserRole.USER, isActive: false }],
           { session },
         );
-
         authAccount = created;
       }
 
-      // clear existing otp
       await this.otpModel
-        .deleteMany({ authAccountId: authAccount?._id })
+        .deleteMany({ authAccountId: authAccount._id })
         .session(session);
 
-      // generate otp
       const otp = this.smsService.generateOTP();
-
       await this.otpModel.create(
         [
           {
-            authAccountId: authAccount?._id,
+            authAccountId: authAccount._id,
             phone,
             code: otp,
             expiresAt: new Date(Date.now() + 10 * 60 * 1000),
@@ -106,12 +100,17 @@ export class AuthService {
       await session.commitTransaction();
       await session.endSession();
 
-      //await this.smsService.sendOTP(phone, otp);
-      await this.whatsappService.sendOtp(phone, otp); //test whatsapp-web api
-      return {
-        success: true,
-        message: 'OTP sent',
-      };
+      console.log(
+        `📨 [AuthService] Emitting OTP to Kafka topic for phone ${phone}`,
+      );
+      this.kafka.emit(KAFKA_TOPICS.WHATSAPP_SEND_OTP, {
+        phone,
+        otp,
+        lang: dto.lang || 'ar',
+      });
+      console.log(`✅ [AuthService] Kafka event emitted`);
+
+      return { success: true, message: 'OTP sent' };
     } catch (err) {
       await session.abortTransaction();
       await session.endSession();

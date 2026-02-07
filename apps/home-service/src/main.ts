@@ -12,6 +12,7 @@ import {
 async function bootstrap() {
   const app =
     await NestFactory.create<NestExpressApplication>(HomeServiceModule);
+
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -22,17 +23,14 @@ async function bootstrap() {
 
   app.setGlobalPrefix('api/v1');
 
-  // Configure static file serving for uploaded documents
   configureStaticFiles(app);
-
-  // Add file access security middleware
   app.use('/uploads', fileAccessMiddleware);
 
   app.connectMicroservice<MicroserviceOptions>({
     transport: Transport.KAFKA,
     options: {
       client: {
-        clientId: 'home-service',
+        clientId: 'home-consumer',
         brokers: [process.env.KAFKA_BROKER!],
       },
       consumer: {

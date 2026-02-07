@@ -7,29 +7,31 @@ import { JwtService } from '@nestjs/jwt';
 import { JwtStrategy } from '@app/common/strategies/jwt.strategie';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
-import { WhatsappModule } from '../whatsapp/whatsapp.module';
+import { KafkaModule } from '@app/common/kafka/kafka.module';
+
 @Module({
   imports: [
     ThrottlerModule.forRoot([
       {
         ttl: 60,
-        limit: 5, // 5 requests per minute per IP/phone
+        limit: 5,
       },
     ]),
     DatabaseModule,
-    WhatsappModule,//test whatsapp-web api
+    KafkaModule.forRoot({
+      clientId: 'home-producer',
+      brokers: [process.env.KAFKA_BROKER!],
+      groupId: 'home-producer',
+    }),
   ],
   providers: [
     AuthService,
     JwtService,
     SmsService,
     JwtStrategy,
-    {
-      provide: APP_GUARD,
-      useClass: ThrottlerGuard,
-    },
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],
   controllers: [AuthController],
-  exports: [AuthService],
+  exports: [AuthService, JwtStrategy],
 })
 export class AuthModule {}

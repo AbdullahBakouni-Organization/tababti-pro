@@ -6,6 +6,16 @@ import { WhatsappService } from './whatsapp.service';
 export class WhatsappController {
   constructor(private readonly whatsappService: WhatsappService) {}
 
+  @Get('send-otp')
+  async sendOtp() {
+    const phone = '+963938144669';
+    const otp = '1234';
+    const lang: 'ar' | 'en' = 'ar';
+    await this.whatsappService.sendOtp(phone, otp, lang);
+
+    return { success: true, message: 'OTP should have been sent' };
+  }
+
   @Get('qr')
   async getQr(@Res() res: Response) {
     const qr = this.whatsappService.getQrCode();

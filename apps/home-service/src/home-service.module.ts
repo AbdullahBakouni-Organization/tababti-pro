@@ -1,4 +1,4 @@
-import 'dotenv/config'; // Load env first
+import 'dotenv/config';
 import { Module } from '@nestjs/common';
 import { HomeServiceController } from './home-service.controller';
 import { HomeServiceService } from './home-service.service';
@@ -11,15 +11,15 @@ import { WhatsappModule } from './whatsapp/whatsapp.module';
 
 @Module({
   imports: [
-    KafkaModule.forRoot({
-      clientId: 'social-service',
-      brokers: [process.env.KAFKA_BROKER!],
-      groupId: 'social-consumer',
-    }),
+    // KafkaModule.forRoot({
+    //   clientId: 'home-service',
+    //   brokers: [process.env.KAFKA_BROKER!],
+    //   groupId: 'home-consumer',
+    // }),
     DatabaseModule,
     AuthModule,
     SmsModule,
-    WhatsappModule,//Test Whatsapp api
+    WhatsappModule,
     DoctorModule,
   ],
   controllers: [HomeServiceController],

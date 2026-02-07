@@ -7,11 +7,12 @@ import {
   Question,
   QuestionSchema,
 } from '../../../../libs/common/src/database/schemas/question.schema';
-
+import { User, UserSchema } from '@app/common/database/schemas/user.schema';
 @Module({
   imports: [
     MongooseModule.forFeature([
       { name: Question.name, schema: QuestionSchema },
+      { name: User.name, schema: UserSchema },
     ]),
   ],
   controllers: [QuestionsController],
