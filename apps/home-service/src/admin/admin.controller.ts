@@ -53,7 +53,7 @@ export class AdminController {
   ): Promise<{
     accessToken: string;
     admin: any;
-    refreshToken: string;
+    refreshToken?: string;
     session: any;
   }> {
     // return this.adminService.signIn(dto, res);
@@ -76,10 +76,15 @@ export class AdminController {
       UserRole.ADMIN,
       sessionInfo,
     );
-
+    res.cookie('token', tokens.refreshToken, {
+      httpOnly: true,
+      secure: false,
+      sameSite: 'lax',
+      maxAge: 24 * 60 * 60 * 1000 * 30, // 30 days
+      path: '/',
+    });
     return {
       accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
       admin: {
         id: admin._id.toString(),
         fullName: admin.username,
@@ -98,17 +103,25 @@ export class AdminController {
   @Roles(UserRole.ADMIN)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Refresh access token' })
-  async refreshToken(@Body('refreshToken') refreshToken: string): Promise<{
+  async refreshToken(
+    @Body('refreshToken') refreshToken: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<{
     success: boolean;
     accessToken: string;
-    refreshToken: string;
+    refreshToken?: string;
   }> {
     const tokens = await this.authService.refreshAccessToken(refreshToken);
-
+    res.cookie('token', tokens.refreshToken, {
+      httpOnly: true,
+      secure: false,
+      sameSite: 'lax',
+      maxAge: 24 * 60 * 60 * 1000 * 30, // 30 days
+      path: '/',
+    });
     return {
       success: true,
       accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
     };
   }
 
@@ -120,7 +133,8 @@ export class AdminController {
   @ApiOperation({ summary: 'Logout from all devices' })
   async logoutAll(@Req() req: any) {
     const adminId: string = req.user.accountId;
-    await this.authService.logoutAllSessions(adminId, UserRole.ADMIN);
+    const role: UserRole.ADMIN = req.user.role;
+    await this.authService.logoutAllSessions(adminId, role);
 
     return {
       success: true,

@@ -7,7 +7,8 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { AuthValidateService, JwtPayload } from '../auth-validate';
-
+import { refreshTokenFromCookie } from './refresh-token-extracter';
+import type { Request } from 'express';
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   constructor(private readonly authValidateService: AuthValidateService) {
@@ -36,7 +37,6 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
         'Token revoked (password changed or global logout)',
       );
     }
-
     // 4️⃣ Get full user data (Doctor/Admin/User entity)
     const user = await this.authValidateService.validateUser(payload.sub);
 
@@ -84,7 +84,9 @@ export class JwtRefreshStrategy extends PassportStrategy(
 ) {
   constructor(private readonly authValidateService: AuthValidateService) {
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      jwtFromRequest: ExtractJwt.fromExtractors([
+        refreshTokenFromCookie, // 👈 cookie extractor
+      ]),
       ignoreExpiration: false,
       secretOrKey: process.env.JWT_REFRESH_SECRET || 'supersecret',
       passReqToCallback: true,
@@ -92,20 +94,19 @@ export class JwtRefreshStrategy extends PassportStrategy(
   }
 
   async validate(req: Request, payload: JwtPayload) {
-    // Extract refresh token from header
-    const refreshToken = req.headers['authorization']?.replace('Bearer ', '');
+    const refreshToken = refreshTokenFromCookie(req);
 
     if (!refreshToken) {
-      throw new UnauthorizedException('Refresh token not found');
+      throw new UnauthorizedException('Refresh token not found in cookies');
     }
 
-    // Validate account exists
+    // 1️⃣ Validate account
     const account = await this.authValidateService.getAccount(payload.sub);
     if (!account || !account.isActive) {
       throw new UnauthorizedException('Account not found or inactive');
     }
 
-    // Check token version
+    // 2️⃣ Token version check (revocation support)
     if (payload.tv !== account.tokenVersion) {
       throw new UnauthorizedException('Refresh token revoked');
     }
@@ -114,7 +115,7 @@ export class JwtRefreshStrategy extends PassportStrategy(
       accountId: payload.sub,
       role: payload.role,
       sessionId: payload.sessionId,
-      refreshToken, // Pass token for verification in controller
+      refreshToken, // optional but useful
     };
   }
 }

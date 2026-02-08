@@ -1,7 +1,6 @@
 import { Injectable, Inject, OnModuleInit } from '@nestjs/common';
 import { ClientKafka } from '@nestjs/microservices';
 import { KAFKA_TOPICS } from './events/topics';
-import { Observable } from 'rxjs';
 import { firstValueFrom } from 'rxjs';
 
 @Injectable()

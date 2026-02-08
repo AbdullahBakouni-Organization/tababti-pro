@@ -7,7 +7,6 @@ import {
   HttpStatus,
   Get,
   UseGuards,
-  Request,
   Res,
   UseInterceptors,
   UploadedFile,
@@ -40,6 +39,7 @@ import { Roles } from '@app/common/decorator/role.decorator';
 import { Throttle } from '@nestjs/throttler';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ImageUrlInterceptor } from '@app/common/interceptors/image-url.interceptor';
+import type { Request } from 'express';
 export interface RequestWithUser extends Request {
   user: User;
 }
@@ -114,9 +114,9 @@ export class AuthController {
     return this.authService.resendOtp(resendOtpDto);
   }
 
+  @Post('complete-registration')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.USER)
-  @Post('complete-registration')
   @UseInterceptors(
     FileInterceptor('image', multerOptions),
     FileCleanupInterceptor,
@@ -191,13 +191,14 @@ export class AuthController {
     description: 'Profile retrieved successfully',
   })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  getProfile(@Request() req: RequestWithUser) {
+  getProfile(@Req() req: RequestWithUser) {
     return req.user;
   }
 
   @Post('logout')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.USER)
   logout(@Req() req: any) {
-    return this.authService.logout(req.user.id);
+    return this.authService.logout(req.user.accountId);
   }
 }

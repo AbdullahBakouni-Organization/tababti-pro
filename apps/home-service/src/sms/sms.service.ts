@@ -156,9 +156,7 @@ export class SmsService {
           );
 
           this.logger.log(`SMS sent to ${formattedPhone} via httpSMS`);
-          this.logger.debug(
-            `httpSMS Response: ${JSON.stringify(response.data)}`,
-          );
+
           return true;
         } catch (apiError) {
           const axiosError = apiError as AxiosError;

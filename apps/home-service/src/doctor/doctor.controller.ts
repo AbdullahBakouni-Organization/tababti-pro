@@ -229,7 +229,7 @@ export class DoctorController {
   ): Promise<{
     accessToken: string;
     doctor: any;
-    refreshToken: string;
+    refreshToken?: string;
     session: any;
   }> {
     // return this.adminService.signIn(dto, res);
@@ -252,10 +252,15 @@ export class DoctorController {
       UserRole.DOCTOR,
       sessionInfo,
     );
-
+    res.cookie('token', tokens.refreshToken, {
+      httpOnly: true,
+      secure: false,
+      sameSite: 'lax',
+      maxAge: 24 * 60 * 60 * 1000 * 30, // 30 days
+      path: '/',
+    });
     return {
       accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
       doctor: {
         id: doctor._id.toString(),
         fullName: doctor.firstName + ' ' + doctor.lastName,
@@ -270,6 +275,8 @@ export class DoctorController {
   }
 
   @Post('forgot-password/request-otp')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'طلب رمز التحقق لإعادة تعيين كلمة المرور',
@@ -296,6 +303,8 @@ export class DoctorController {
   }
 
   @Post('forgot-password/verify-otp')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'التحقق من رمز OTP (اختياري)',
@@ -320,7 +329,8 @@ export class DoctorController {
   async verifyPasswordResetOtp(@Body() dto: VerifyOtpForPasswordResetDto) {
     return this.DoctorService.verifyPasswordResetOtp(dto);
   }
-
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
   @Post('forgot-password/reset')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -357,17 +367,25 @@ export class DoctorController {
   @Roles(UserRole.DOCTOR)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Refresh access token' })
-  async refreshToken(@Body('refreshToken') refreshToken: string): Promise<{
+  async refreshToken(
+    @Body('refreshToken') refreshToken: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<{
     success: boolean;
     accessToken: string;
-    refreshToken: string;
+    refreshToken?: string;
   }> {
     const tokens = await this.authService.refreshAccessToken(refreshToken);
-
+    res.cookie('token', tokens.refreshToken, {
+      httpOnly: true,
+      secure: false,
+      sameSite: 'lax',
+      maxAge: 24 * 60 * 60 * 1000 * 30, // 30 days
+      path: '/',
+    });
     return {
       success: true,
       accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
     };
   }
 
@@ -390,34 +408,45 @@ export class DoctorController {
   /**
    * Get all active sessions
    */
-  // @Get('sessions')
-  // @UseGuards(JwtAuthGuard)
-  // @ApiBearerAuth()
-  // @ApiOperation({ summary: 'Get all active sessions for current doctor' })
-  // async getActiveSessions(@Req() req: any) {
-  //   const doctorId: string = req.user.sub;
-  //   const sessions = await this.authService.getActiveSessions(doctorId);
+  @Get('sessions')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get all active sessions for current doctor' })
+  async getActiveSessions(@Req() req: any): Promise<{
+    doctorId?: string;
+    role?: UserRole.DOCTOR;
+    sessions?: string[];
+    total: number;
+  }> {
+    const doctorId = req.user.accountId;
+    const role = req.user.role;
+    const sessions = await this.authService.getActiveSessions(doctorId, role);
 
-  //   return {
-  //     total: sessions.length,
-  //     sessions,
-  //   };
-  // }
+    return {
+      total: sessions.length,
+      sessions,
+    };
+  }
 
   /**
    * Logout from current session
    */
   @Post('logout')
-  @UseGuards(JwtRefreshGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.DOCTOR)
   @ApiBearerAuth()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Logout from current session' })
-  async logout(@Req() req: any) {
+  async logout(@Req() req: any): Promise<{
+    doctorId?: string;
+    sessionId?: string;
+    message?: string;
+  }> {
     const doctorId: string = req.user.accountId;
     const sessionId: string = req.user.sessionId;
-
-    await this.authService.logoutSession(doctorId, UserRole.DOCTOR, sessionId);
+    const role: UserRole.DOCTOR = req.user.role;
+    await this.authService.logoutSession(doctorId, role, sessionId);
 
     return {
       message: 'Logged out successfully',
@@ -428,14 +457,21 @@ export class DoctorController {
    * Logout from specific device
    */
   @Post('logout/device/:deviceId')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
   @ApiBearerAuth()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Logout from specific device' })
-  async logoutDevice(@Req() req: any, @Param('deviceId') deviceId: string) {
+  async logoutDevice(
+    @Req() req: any,
+    @Param('deviceId') deviceId: string,
+  ): Promise<{
+    doctorId?: string;
+    message?: string;
+  }> {
     const doctorId: string = req.user.accountId;
-
-    await this.authService.logoutDevice(doctorId, UserRole.DOCTOR, deviceId);
+    const role: UserRole.DOCTOR = req.user.role;
+    await this.authService.logoutDevice(doctorId, role, deviceId);
 
     return {
       message: `Logged out from device: ${deviceId}`,
@@ -446,14 +482,15 @@ export class DoctorController {
    * Logout from all devices
    */
   @Post('logout/all')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
   @ApiBearerAuth()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Logout from all devices' })
   async logoutAll(@Req() req: any) {
     const doctorId: string = req.user.accountId;
-
-    await this.authService.logoutAllSessions(doctorId, UserRole.DOCTOR);
+    const role: UserRole.DOCTOR = req.user.role;
+    await this.authService.logoutAllSessions(doctorId, role);
 
     return {
       message: 'Logged out from all devices',

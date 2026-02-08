@@ -487,7 +487,7 @@ const scryptAsync = promisify(scrypt);
 import { AuthAccount } from '../database/schemas/auth.schema';
 import { Doctor, DoctorDocument } from '../database/schemas/doctor.schema';
 import { Admin, AdminDocument } from '../database/schemas/admin.schema';
-import { User, UserDocument } from '../database/schemas/user.schema';
+import { User } from '../database/schemas/user.schema';
 import { UserRole } from '../database/schemas/common.enums';
 
 // ============================================
@@ -500,6 +500,17 @@ export interface JwtPayload {
   role: UserRole; // 'doctor' | 'admin' | 'user'
   sessionId: string; // Unique session identifier
   deviceId: string;
+  tv: number; // Token version for global revocation
+  type: 'access' | 'refresh';
+  iat?: number;
+  exp?: number;
+  scopes?: string[];
+}
+
+export interface JwtUserPayload {
+  sub: string; // AuthAccount ID
+  phone: string;
+  role: UserRole; // 'doctor' | 'admin' | 'user'
   tv: number; // Token version for global revocation
   type: 'access' | 'refresh';
   iat?: number;
@@ -550,7 +561,7 @@ export class AuthValidateService {
     @InjectModel(AuthAccount.name) private authAccountModel: Model<AuthAccount>,
     @InjectModel(Doctor.name) private doctorModel: Model<DoctorDocument>,
     @InjectModel(Admin.name) private adminModel: Model<AdminDocument>,
-    @InjectModel(User.name) private userModel: Model<UserDocument>,
+    @InjectModel(User.name) private userModel: Model<User>,
     private jwtService: JwtService,
     private configService: ConfigService,
   ) {}
@@ -589,6 +600,45 @@ export class AuthValidateService {
       role,
       sessionId,
       deviceId,
+      tv: tokenVersion,
+      type: 'refresh',
+    };
+
+    const [accessToken, refreshToken] = await Promise.all([
+      this.jwtService.signAsync(accessPayload, {
+        expiresIn: this.ACCESS_TOKEN_EXPIRY,
+        secret: this.configService.get('JWT_ACCESS_SECRET'),
+      }),
+      this.jwtService.signAsync(refreshPayload, {
+        expiresIn: this.REFRESH_TOKEN_EXPIRY,
+        secret: this.configService.get('JWT_REFRESH_SECRET'),
+      }),
+    ]);
+
+    return { accessToken, refreshToken };
+  }
+
+  async generateTokenUserPair(
+    accountId: string,
+    phone: string,
+    role: UserRole,
+    tokenVersion: number,
+  ): Promise<TokenPair> {
+    // Access Token Payload
+
+    const accessPayload: JwtUserPayload = {
+      sub: accountId,
+      phone,
+      role,
+      tv: tokenVersion,
+      type: 'access',
+    };
+
+    // Refresh Token Payload
+    const refreshPayload: JwtUserPayload = {
+      sub: accountId,
+      phone,
+      role,
       tv: tokenVersion,
       type: 'refresh',
     };
@@ -968,6 +1018,10 @@ export class AuthValidateService {
     }
 
     const entityModel = this.getEntityModel(account.role);
+    console.log(entityModel);
+    console.log(account);
+    console.log(account.role);
+    console.log(accountId);
     const entity = await entityModel.findOne({
       authAccountId: new Types.ObjectId(accountId.toString()),
     });

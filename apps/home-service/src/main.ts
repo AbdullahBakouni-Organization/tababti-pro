@@ -4,6 +4,7 @@ import { HomeServiceModule } from './home-service.module';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import { ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import cookieParser from 'cookie-parser';
 import {
   configureStaticFiles,
   fileAccessMiddleware,
@@ -21,7 +22,7 @@ async function bootstrap() {
   );
 
   app.setGlobalPrefix('api/v1');
-
+  app.use(cookieParser());
   // Configure static file serving for uploaded documents
   configureStaticFiles(app);
 
