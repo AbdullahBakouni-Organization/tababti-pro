@@ -1018,10 +1018,6 @@ export class AuthValidateService {
     }
 
     const entityModel = this.getEntityModel(account.role);
-    console.log(entityModel);
-    console.log(account);
-    console.log(account.role);
-    console.log(accountId);
     const entity = await entityModel.findOne({
       authAccountId: new Types.ObjectId(accountId.toString()),
     });
@@ -1036,6 +1032,27 @@ export class AuthValidateService {
       isActive: account.isActive,
       tokenVersion: account.tokenVersion,
       entity, // Full doctor/admin/user object
+    };
+  }
+
+  async validateUserRole(accountId: string) {
+    const account = await this.authAccountModel.findById(accountId);
+    if (!account) {
+      throw new UnauthorizedException('Account not found');
+    }
+
+    const entityModel = this.getEntityModel(account.role);
+
+    if (!entityModel) {
+      throw new UnauthorizedException('Entity not found');
+    }
+
+    return {
+      accountId: account._id,
+      phone: account.phones[0],
+      role: account.role,
+      isActive: account.isActive,
+      tokenVersion: account.tokenVersion,
     };
   }
 

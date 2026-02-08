@@ -40,6 +40,7 @@ import { Throttle } from '@nestjs/throttler';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ImageUrlInterceptor } from '@app/common/interceptors/image-url.interceptor';
 import type { Request } from 'express';
+import { JwtUserGuard } from '@app/common/guards/jwt-user.guard';
 export interface RequestWithUser extends Request {
   user: User;
 }
@@ -115,7 +116,7 @@ export class AuthController {
   }
 
   @Post('complete-registration')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtUserGuard, RolesGuard)
   @Roles(UserRole.USER)
   @UseInterceptors(
     FileInterceptor('image', multerOptions),

@@ -3,7 +3,11 @@ import { JwtModule, JwtService } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthValidateService } from './auth-validate.service';
 import { DatabaseModule } from '../database/database.module';
-import { JwtRefreshStrategy, JwtStrategy } from '../strategies/jwt.strategie';
+import {
+  JwtRefreshStrategy,
+  JwtStrategy,
+  JwtUserStrategy,
+} from '../strategies/jwt.strategie';
 
 @Module({
   imports: [
@@ -24,7 +28,14 @@ import { JwtRefreshStrategy, JwtStrategy } from '../strategies/jwt.strategie';
     JwtModule,
     JwtRefreshStrategy,
     JwtStrategy,
+    JwtUserStrategy,
   ],
-  exports: [AuthValidateService, JwtService, JwtRefreshStrategy, JwtStrategy],
+  exports: [
+    AuthValidateService,
+    JwtService,
+    JwtRefreshStrategy,
+    JwtStrategy,
+    JwtUserStrategy,
+  ],
 })
 export class AuthValidateModule {}

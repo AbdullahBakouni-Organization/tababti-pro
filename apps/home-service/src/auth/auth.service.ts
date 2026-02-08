@@ -11,7 +11,11 @@ import { Otp, OtpDocument } from '@app/common/database/schemas/otp.schema';
 import { User } from '@app/common/database/schemas/user.schema';
 import { SmsService } from '../sms/sms.service';
 import { RequestOtpDto, ResendOtpDto, VerifyOtpDto } from './dto/auth.dto';
-import { Gender, UserRole } from '@app/common/database/schemas/common.enums';
+import {
+  ApprovalStatus,
+  Gender,
+  UserRole,
+} from '@app/common/database/schemas/common.enums';
 import type { Response } from 'express';
 import { AuthValidateService } from '@app/common/auth-validate';
 @Injectable()
@@ -244,6 +248,7 @@ export class AuthService {
             city: city,
             DataofBirth,
             image: imagePath || '',
+            status: ApprovalStatus.ACTIVE,
           },
         ],
         { session },

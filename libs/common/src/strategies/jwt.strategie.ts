@@ -119,3 +119,66 @@ export class JwtRefreshStrategy extends PassportStrategy(
     };
   }
 }
+
+@Injectable()
+export class JwtUserStrategy extends PassportStrategy(Strategy, 'jwt-user') {
+  constructor(private readonly authValidateService: AuthValidateService) {
+    super({
+      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      ignoreExpiration: false,
+      secretOrKey: process.env.JWT_ACCESS_SECRET || 'supersecret',
+    });
+  }
+
+  async validate(payload: JwtPayload) {
+    // 1️⃣ Load account (single source of truth)
+    const account = await this.authValidateService.getAccount(payload.sub);
+    if (!account) {
+      throw new UnauthorizedException('Account not found');
+    }
+
+    // 2️⃣ Check if account is active
+    if (!account.isActive) {
+      throw new UnauthorizedException('Account is deactivated');
+    }
+
+    // 3️⃣ Global revocation check (logout-all, password reset, etc.)
+    if (payload.tv !== account.tokenVersion) {
+      throw new UnauthorizedException(
+        'Token revoked (password changed or global logout)',
+      );
+    }
+    // 4️⃣ Get full user data (Doctor/Admin/User entity)
+    const user = await this.authValidateService.validateUserRole(payload.sub);
+
+    // 5️⃣ OPTIONAL: Session-based validation (recommended for security)
+    if (payload.sessionId) {
+      const sessions = await this.authValidateService.getActiveSessions(
+        payload.sub,
+        payload.role,
+      );
+
+      const sessionExists = sessions.some(
+        (s) => s.sessionId === payload.sessionId,
+      );
+
+      if (!sessionExists) {
+        throw new UnauthorizedException('Session revoked or expired');
+      }
+
+      // Update session activity (background task - don't await)
+      this.authValidateService
+        .updateSessionActivity(payload.sub, payload.role, payload.sessionId)
+        .catch(() => {}); // Silent fail
+    }
+
+    // 6️⃣ Return user object for request context
+    return {
+      accountId: payload.sub,
+      phone: payload.phone,
+      role: payload.role,
+      sessionId: payload.sessionId,
+      deviceId: payload.deviceId,
+    };
+  }
+}
