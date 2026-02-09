@@ -14,6 +14,7 @@ export const KAFKA_TOPICS = {
   DOCTOR_INSPECTION_TIME_UPDATED: 'doctor.inspection.time.updated',
   DOCTOR_HOLIDAY_ADDED: 'doctor.holiday.added',
   DOCTOR_APPROVED: 'doctor.approved',
+  DOCTOR_REJECTED: 'doctor.rejected',
   DOCTOR_ADS_CREATED: 'doctor.ads.created',
   DOCTOR_OFFERS_CREATED: 'doctor.offers.created',
   DOCTOR_REGISTERED: 'doctor.registered',

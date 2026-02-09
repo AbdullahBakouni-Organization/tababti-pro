@@ -9,6 +9,9 @@ export function configureStaticFiles(app: NestExpressApplication): void {
   // Ensure upload directories exist
   const uploadDirs = [
     './uploads',
+    './uploads/users',
+    './uploads/users/images',
+
     './uploads/doctors',
     './uploads/doctors/images',
     './uploads/doctors/documents',

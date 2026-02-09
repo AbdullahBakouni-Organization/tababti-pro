@@ -4,6 +4,14 @@ import { ApprovalStatus, Days, Gender, WorkigEntity } from './common.enums';
 import { Session, SessionSchema } from './session.schema';
 import { scrypt, randomBytes, timingSafeEqual } from 'crypto';
 import { promisify } from 'util';
+import { HydratedDocument } from 'mongoose';
+export interface DoctorMethods {
+  comparePassword?: (candidatePassword: string) => Promise<boolean>;
+  incrementFailedAttempts?: () => void;
+  resetFailedAttempts?: () => void;
+  getActiveSessionsCount?: () => number;
+  removeAllSessions?: () => Promise<void>;
+}
 
 const scryptAsync = promisify(scrypt);
 @Schema({ timestamps: true, collection: 'doctors' })
@@ -57,11 +65,17 @@ export class Doctor extends Document {
   @Prop({ required: false, type: String }) // Image is optional
   image?: string;
 
-  @Prop({ required: true, type: String })
-  certificateImage: string;
+  @Prop({ required: false, type: String })
+  certificateImage?: string;
 
-  @Prop({ required: true, type: String })
-  licenseImage: string;
+  @Prop({ required: false, type: String })
+  licenseImage?: string;
+
+  @Prop({ required: false, type: String })
+  certificateDocument?: string;
+
+  @Prop({ required: false, type: String })
+  licenseDocument?: string;
 
   @Prop({
     type: [{ type: Object }],
@@ -304,15 +318,13 @@ DoctorSchema.virtual('isAccountLocked').get(function () {
 // Pre-save Middleware
 // ============================================
 
-DoctorSchema.pre('save', async function (next: (err?: Error) => void) {
+DoctorSchema.pre('save', async function () {
   // Hash password if modified
   if (this.isModified('password')) {
     const salt = randomBytes(16).toString('hex');
     const derivedKey = (await scryptAsync(this.password, salt, 64)) as Buffer;
     this.password = `${salt}.${derivedKey.toString('hex')}`;
   }
-
-  next();
 });
 
 // ============================================
@@ -387,7 +399,7 @@ DoctorSchema.methods.isSessionActive = function (
 DoctorSchema.methods.incrementFailedAttempts = function (this: Doctor) {
   this.failedLoginAttempts += 1;
 
-  if (this.failedLoginAttempts >= 5) {
+  if (this.failedLoginAttempts >= 3) {
     this.lockedUntil = new Date(Date.now() + 30 * 60 * 1000); // Lock for 30 minutes
   }
 };
@@ -396,4 +408,4 @@ DoctorSchema.methods.resetFailedAttempts = function (this: Doctor) {
   this.failedLoginAttempts = 0;
   this.lockedUntil = undefined;
 };
-export type DoctorDocument = Doctor & Document;
+export type DoctorDocument = HydratedDocument<Doctor> & DoctorMethods;

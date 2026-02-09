@@ -4,10 +4,10 @@ import { HomeServiceController } from './home-service.controller';
 import { HomeServiceService } from './home-service.service';
 import { DatabaseModule } from '@app/common/database/database.module';
 import { KafkaModule } from '@app/common/kafka/kafka.module';
-import { AuthModule } from './auth/auth.module';
+// import { AuthModule } from './auth/auth.module';
 import { SmsModule } from './sms/sms.module';
 import { DoctorModule } from './doctor/doctor.module';
-import { WhatsappModule } from './whatsapp/whatsapp.module';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
@@ -17,10 +17,10 @@ import { WhatsappModule } from './whatsapp/whatsapp.module';
       groupId: 'social-consumer',
     }),
     DatabaseModule,
-    AuthModule,
     SmsModule,
     WhatsappModule,//Test Whatsapp api
     DoctorModule,
+    AdminModule,
   ],
   controllers: [HomeServiceController],
   providers: [HomeServiceService],

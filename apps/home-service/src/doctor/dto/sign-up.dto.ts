@@ -9,7 +9,6 @@ import {
   MinLength,
   MaxLength,
   Matches,
-  IsUrl,
   registerDecorator,
   ValidationOptions,
   ValidationArguments,
@@ -34,7 +33,6 @@ import {
   QuneitraAreas,
   RaqqaAreas,
   RuralDamascusAreas,
-  SubCity,
   SweidaAreas,
   TartousAreas,
 } from '@app/common/database/schemas/common.enums';
@@ -121,9 +119,23 @@ export class DoctorRegistrationDto {
   city: City;
 
   @ApiProperty({ example: 'al_mazzeh' })
-  @IsEnum(SubCity, { message: 'Invalid city selection' })
+  @IsString()
   @IsNotEmpty()
-  subcity: SubCity;
+  subcity:
+    | DamascusAreas
+    | AleppoAreas
+    | LatakiaAreas
+    | HassakehAreas
+    | RuralDamascusAreas
+    | HomsAreas
+    | HamaAreas
+    | TartousAreas
+    | IdlibAreas
+    | DaraaAreas
+    | RaqqaAreas
+    | DeirEzzorAreas
+    | QuneitraAreas
+    | SweidaAreas;
 
   // ==================== SPECIALIZATION ====================
 
@@ -143,24 +155,7 @@ export class DoctorRegistrationDto {
   })
   privateSpecialization: PrivateMedicineSpecialty;
 
-  // ==================== VERIFICATION ====================
-
-  @ApiProperty({
-    example: 'https://storage.tababti.com/certificates/abc123.jpg',
-  })
-  @IsString()
-  @IsNotEmpty()
-  @IsUrl({}, { message: 'Certificate image must be a valid URL' })
-  certificateImage: string;
-
-  @ApiProperty({ example: 'https://storage.tababti.com/licenses/xyz789.jpg' })
-  @IsString()
-  @IsNotEmpty()
-  @IsUrl({}, { message: 'License image must be a valid URL' })
-  licenseImage: string;
-
   // ==================== DEMOGRAPHICS ====================
-
   @ApiProperty({ enum: Gender, example: Gender.MALE })
   @IsEnum(Gender, { message: 'Gender must be either male or female' })
   gender: Gender;
@@ -171,10 +166,8 @@ export class DoctorRegistrationDto {
 // ============================================
 
 // Mapping: Which private specializations belong to which public category
-export const SpecialtyMapping: Record<
-  GeneralSpecialty,
-  PrivateMedicineSpecialty[]
-> = {
+// Using enum VALUES as keys to match the validation logic
+export const SpecialtyMapping: Record<string, string[]> = {
   [GeneralSpecialty.HumanMedicine]: [
     PrivateMedicineSpecialty.GeneralPractitioner,
     PrivateMedicineSpecialty.InternalMedicine,
@@ -232,7 +225,8 @@ export const SpecialtyMapping: Record<
 };
 
 // Subcities for each city
-export const CityMapping: Record<City, any[]> = {
+// Using enum VALUES as keys to match the validation logic
+export const CityMapping: Record<string, string[]> = {
   [City.Damascus]: Object.values(DamascusAreas),
   [City.RifDimashq]: Object.values(RuralDamascusAreas),
   [City.Aleppo]: Object.values(AleppoAreas),
@@ -319,7 +313,21 @@ export function IsValidPrivateSpecialization(
 
 export class DoctorRegistrationDtoValidated extends DoctorRegistrationDto {
   @IsValidSubcity()
-  declare subcity: SubCity; // 'declare' tells TS we are just adding metadata/types
+  declare subcity:
+    | DamascusAreas
+    | AleppoAreas
+    | LatakiaAreas
+    | HassakehAreas
+    | RuralDamascusAreas
+    | HomsAreas
+    | HamaAreas
+    | TartousAreas
+    | IdlibAreas
+    | RaqqaAreas
+    | DeirEzzorAreas
+    | DaraaAreas
+    | SweidaAreas
+    | QuneitraAreas; // 'declare' tells TS we are just adding metadata/types
 
   @IsValidPrivateSpecialization()
   declare privateSpecialization: PrivateMedicineSpecialty;
