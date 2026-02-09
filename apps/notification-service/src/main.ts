@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import { NotificationServiceModule } from './notification-service.module';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';

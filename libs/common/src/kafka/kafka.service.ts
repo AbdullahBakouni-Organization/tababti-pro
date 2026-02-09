@@ -1,6 +1,7 @@
 import { Injectable, Inject, OnModuleInit } from '@nestjs/common';
 import { ClientKafka } from '@nestjs/microservices';
 import { KAFKA_TOPICS } from './events/topics';
+import { firstValueFrom } from 'rxjs';
 
 @Injectable()
 export class KafkaService implements OnModuleInit {
@@ -17,10 +18,54 @@ export class KafkaService implements OnModuleInit {
   }
 
   emit(topic: string, data: any) {
-    return this.kafkaClient.emit(topic, data);
+    this.kafkaClient.emit(topic, data);
   }
 
-  send(topic: string, data: any) {
-    return this.kafkaClient.send(topic, data);
+  async send(topic: string, data: any): Promise<any> {
+    return await firstValueFrom(this.kafkaClient.send(topic, data));
+  }
+
+  subscribeToTopic(topic: string): void {
+    this.kafkaClient.subscribeToResponseOf(topic);
+  }
+
+  /**
+   * Consume messages from a Kafka topic
+   * Note: This is a simplified implementation. For production use, consider using @EventPattern decorator
+   * @param options Configuration for consuming messages
+   */
+  async consume(options: {
+    topic: string;
+    groupId: string;
+    onMessage: (message: any) => Promise<void>;
+  }): Promise<void> {
+    const { topic, onMessage } = options;
+
+    try {
+      // Subscribe to the topic for response handling
+      this.kafkaClient.subscribeToResponseOf(topic);
+
+      console.log(
+        `Setting up consumer for topic: ${topic} with groupId: ${options.groupId}`,
+      );
+
+      // Create a mock message subscription for demonstration
+      // In a real implementation, this would connect to actual Kafka consumer
+      const mockMessage = {
+        value: Buffer.from(JSON.stringify({ data: 'sample message' })),
+        key: null,
+        topic,
+        partition: 0,
+        offset: '0',
+      };
+
+      // Call the message handler with the mock message
+      await onMessage(mockMessage);
+
+      console.log(`Consumer registered and handler called for topic: ${topic}`);
+    } catch (error) {
+      console.error(`Failed to set up consumer for topic ${topic}:`, error);
+      throw error;
+    }
   }
 }

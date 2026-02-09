@@ -42,3 +42,5 @@ export class User extends Document {
   deviceTokens?: string[];
 }
 export const UserSchema = SchemaFactory.createForClass(User);
+
+// export type UserDocument = User & Document;
