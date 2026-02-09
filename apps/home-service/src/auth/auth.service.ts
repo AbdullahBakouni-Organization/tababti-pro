@@ -84,8 +84,8 @@ export class AuthService {
       await session.commitTransaction();
       await session.endSession();
 
-      await this.smsService.sendOTP(phone, otp);
-
+      //await this.smsService.sendOTP(phone, otp);
+      await this.whatsappService.sendOtp(phone, otp); //test whatsapp-web api
       return {
         success: true,
         message: 'OTP sent',

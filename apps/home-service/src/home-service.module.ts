@@ -12,12 +12,13 @@ import { AdminModule } from './admin/admin.module';
 @Module({
   imports: [
     KafkaModule.forRoot({
-      clientId: 'home-service',
+      clientId: 'social-service',
       brokers: [process.env.KAFKA_BROKER!],
-      groupId: 'home-consumer',
+      groupId: 'social-consumer',
     }),
     DatabaseModule,
     SmsModule,
+    WhatsappModule,//Test Whatsapp api
     DoctorModule,
     AdminModule,
   ],

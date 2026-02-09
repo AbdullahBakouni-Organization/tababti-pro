@@ -1,4 +1,5 @@
 // auth.dto.ts
+/*
 import {
   City,
   Gender,
@@ -98,6 +99,99 @@ export class RequestOtpDto {
   image?: string;
 }
 
+*/
+//test whatsapp-web api
+import {
+  City,
+  Gender,
+  UserRole,
+} from '@app/common/database/schemas/common.enums';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  IsDate,
+  IsEnum,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  Length,
+  Matches,
+  MaxLength,
+} from 'class-validator';
+import { Transform } from 'class-transformer';
+import { BadRequestException } from '@nestjs/common';
+
+export class RequestOtpDto {
+  @ApiProperty({
+    example: '+963912345678',
+    description: 'Phone number with country code',
+  })
+  @IsNotEmpty()
+  @IsString()
+  @Matches(/^(0|\+963)?9\d{8}$/, {
+    message: 'Phone number must be a valid Syrian phone number',
+  })
+  @Transform(({ value }: { value: string }) => {
+    let phone = value.replace(/[\s-]/g, '');
+    if (phone.startsWith('0')) phone = '+963' + phone.substring(1);
+    else if (phone.startsWith('963')) phone = '+' + phone;
+    else if (!phone.startsWith('+')) phone = '+963' + phone;
+    return phone;
+  })
+  phone: string;
+
+  @ApiPropertyOptional({ enum: UserRole, example: UserRole.USER })
+  @IsOptional()
+  @IsEnum(UserRole)
+  role?: UserRole;
+
+  @ApiPropertyOptional({ example: 'JohnDoe' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  @Matches(/^[a-zA-Z0-9._-]+$/, {
+    message: 'Username contains invalid characters',
+  })
+  @Transform(({ value }) => value?.trim())
+  username?: string;
+
+  @ApiPropertyOptional({ enum: Gender, example: Gender.MALE })
+  @IsOptional()
+  @IsEnum(Gender)
+  gender?: Gender;
+
+  @ApiPropertyOptional({ enum: City, example: City.Damascus })
+  @IsOptional()
+  @IsEnum(City)
+  city?: City;
+
+  @ApiPropertyOptional({
+    example: '1990-01-01',
+    description: 'Date of birth (YYYY-MM-DD)',
+  })
+  @IsOptional()
+  @IsDate()
+  @Transform(({ value }) => {
+    const d = new Date(value);
+    if (isNaN(d.getTime())) throw new BadRequestException('Invalid date');
+    return d;
+  })
+  DataofBirth?: Date;
+
+  @ApiPropertyOptional({ example: 'https://example.com/image.jpg' })
+  @IsOptional()
+  @IsString()
+  image?: string;
+
+  @ApiPropertyOptional({
+    enum: ['en', 'ar'],
+    example: 'ar',
+    description: 'Language for OTP messages',
+  })
+  @IsOptional()
+  @IsEnum(['en', 'ar'])
+  lang?: 'en' | 'ar';
+}
+
 export class VerifyOtpDto {
   @ApiProperty({ example: '+963912345678' })
   @IsNotEmpty()
@@ -153,6 +247,7 @@ export class UserDataDto {
 
   @ApiPropertyOptional()
   imageUrl?: string;
+  
 }
 export class AuthResponseDto {
   @ApiProperty()
