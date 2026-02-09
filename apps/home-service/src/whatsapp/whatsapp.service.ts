@@ -1,6 +1,8 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Client, LocalAuth, Message } from 'whatsapp-web.js';
 import * as qrcode from 'qrcode';
+import * as qrcodeTerminal from 'qrcode-terminal';
+
 import open from 'open';
 
 type Lang = 'en' | 'ar';
@@ -30,8 +32,13 @@ export class WhatsappService implements OnModuleInit {
 
     this.client.on('qr', async (qr: string) => {
       this.logger.log('📱 New WhatsApp QR generated');
+
       this.currentQrCode = await qrcode.toDataURL(qr);
-      console.log(await qrcode.toString(qr, { type: 'terminal' }));
+
+      console.clear();
+      console.log('\nScan this QR with WhatsApp:\n');
+      qrcodeTerminal.generate(qr, { small: true  });
+
       open('http://localhost:3001/api/v1/whatsapp/qr').catch(() => {});
     });
 

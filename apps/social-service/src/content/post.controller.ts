@@ -10,6 +10,8 @@ import {
   UseInterceptors,
   UseGuards,
   Headers,
+  BadRequestException,
+  NotFoundException,
 } from '@nestjs/common';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { PostService } from './post.service';
@@ -60,7 +62,6 @@ export class PostController {
         data: post,
       });
     } catch (error) {
-      // حذف الملفات عند فشل العملية
       if (files.images?.length) {
         files.images.forEach((file) => {
           if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
@@ -141,8 +142,41 @@ export class PostController {
   async remove(
     @Param('id') id: string,
     @CurrentUser('id') authAccountId: string,
+    @Headers('accept-language') lang: 'en' | 'ar' = 'en',
   ) {
     const result = await this.postService.remove(id, authAccountId);
-    return ApiResponse.success({ messageKey: 'post.DELETED', data: result });
+    return ApiResponse.success({
+      lang,
+      messageKey: 'post.DELETED',
+      data: null,
+    });
+  }
+
+  @Get('author/:authorId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.USER, UserRole.DOCTOR, UserRole.HOSPITAL, UserRole.CENTER)
+  @ApiBearerAuth()
+  async getPostsByAuthor(
+    @Param('authorId') authorId: string,
+    @Headers('accept-language') lang: 'en' | 'ar' = 'en',
+  ) {
+    try {
+      const posts = await this.postService.getPostsByAuthor(authorId);
+
+      return ApiResponse.success({
+        lang,
+        messageKey: 'post.FETCHED',
+        data: posts.length ? posts : [],
+      });
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        return ApiResponse.error({ lang, messageKey: 'user.INVALID_ID' });
+      }
+      if (error instanceof NotFoundException) {
+        return ApiResponse.error({ lang, messageKey: 'user.NOT_FOUND' });
+      }
+
+      return ApiResponse.error({ lang, messageKey: 'common.ERROR' });
+    }
   }
 }

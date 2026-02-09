@@ -8,12 +8,14 @@ import {
   QuestionSchema,
 } from '../../../../libs/common/src/database/schemas/question.schema';
 import { User, UserSchema } from '@app/common/database/schemas/user.schema';
+import { SpecializationsModule } from '../specializations/specializations.module';
 @Module({
   imports: [
     MongooseModule.forFeature([
       { name: Question.name, schema: QuestionSchema },
       { name: User.name, schema: UserSchema },
     ]),
+    SpecializationsModule,
   ],
   controllers: [QuestionsController],
   providers: [QuestionsService, QuestionsRepository],

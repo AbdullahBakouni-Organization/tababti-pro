@@ -1,4 +1,3 @@
-import { HttpStatus } from '@nestjs/common';
 import { messages } from '../i18n/messages';
 
 type Lang = 'en' | 'ar';
@@ -28,7 +27,6 @@ export class ApiResponse {
   }: {
     lang?: Lang;
     messageKey: string;
-    statusCode?: HttpStatus;
   }) {
     return {
       success: false,
@@ -37,7 +35,7 @@ export class ApiResponse {
     };
   }
 
-  private static getMessage(lang: Lang, key: string): string {
+  static getMessage(lang: Lang, key: string): string {
     const keys = key.split('.');
     let result: any = messages[lang];
     for (const k of keys) {

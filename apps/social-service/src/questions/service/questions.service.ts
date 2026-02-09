@@ -2,109 +2,95 @@ import {
   Injectable,
   NotFoundException,
   InternalServerErrorException,
+  BadRequestException,
 } from '@nestjs/common';
 import { Types, Model } from 'mongoose';
 import { InjectModel } from '@nestjs/mongoose';
 import { QuestionsRepository } from '../repository/questions.repository';
 import { CreateQuestionDto } from '../dto/create-question.dto';
+import { Question } from '@app/common/database/schemas/question.schema';
+import { Answer } from '@app/common/database/schemas/answer.schema';
+import { User } from '@app/common/database/schemas/user.schema';
+import { Doctor } from '@app/common/database/schemas/doctor.schema';
 import {
-  AnswerStatus,
   QuestionStatus,
   UserRole,
 } from '@app/common/database/schemas/common.enums';
-import { PrivateSpecialization } from '@app/common/database/schemas/privatespecializations.schema';
-import { User } from '@app/common/database/schemas/user.schema';
-import { Answer } from '@app/common/database/schemas/answer.schema';
-import { AnswerQuestionDto } from '../dto/answer-question.dto';
-import { Question } from '@app/common/database/schemas/question.schema';
+import { SpecializationsService } from '../../specializations/specializations.service';
 
 @Injectable()
 export class QuestionsService {
   constructor(
     private readonly repo: QuestionsRepository,
-    @InjectModel(PrivateSpecialization.name)
-    private readonly specializationModel: Model<PrivateSpecialization>,
-    @InjectModel(User.name)
-    private readonly userModel: Model<User>,
+    private readonly specializationsService: SpecializationsService,
+    @InjectModel(User.name) private readonly userModel: Model<User>,
     @InjectModel(Answer.name) private readonly answerModel: Model<Answer>,
-    @InjectModel(Question.name)
-    private readonly questionModel: Model<Question>,
+    @InjectModel(Question.name) private readonly questionModel: Model<Question>,
+    @InjectModel(Doctor.name) private readonly doctorModel: Model<Doctor>,
   ) {}
 
-  async create(dto: CreateQuestionDto, authAccountId: string) {
+  async create(
+    dto: CreateQuestionDto,
+    authAccountId: string,
+    lang: 'en' | 'ar',
+  ) {
     const user = await this.userModel.findOne({
       authAccountId: new Types.ObjectId(authAccountId),
     });
+    if (!user) throw new NotFoundException('user.NOT_FOUND');
 
-    if (!user) {
-      throw new NotFoundException('user.NOT_FOUND');
-    }
+    const specializationIds =
+      await this.specializationsService.validateAndGetIds(dto.specializationId);
 
-    try {
-      const specializationObjectIds = dto.specializationId.map(
-        (id) => new Types.ObjectId(id),
-      );
-
-      const count = await this.specializationModel.countDocuments({
-        _id: { $in: specializationObjectIds },
-      });
-
-      if (count !== specializationObjectIds.length) {
-        throw new NotFoundException('specialization.NOT_FOUND');
-      }
-
-      return this.repo.create({
-        userId: user._id,
-        content: dto.content,
-        specializationId: specializationObjectIds,
-        status: QuestionStatus.PENDING,
-      });
-    } catch (error) {
-      console.error('❌ Error in create Question:', error);
-      throw error instanceof NotFoundException
-        ? error
-        : new InternalServerErrorException('common.ERROR');
-    }
+    return this.repo.create({
+      userId: user._id,
+      content: dto.content,
+      specializationId: specializationIds,
+      status: QuestionStatus.PENDING,
+    });
   }
 
   async getQuestions(
     authAccountId: string,
-    filter: 'allQuestions' | 'answered' | 'pending',
+    filter: 'allQuestions' | 'answered' | 'pending' | 'public',
     publicSpecializationId?: string,
     privateSpecializationIds?: string[],
   ) {
     try {
-      let match: any = {};
+      const match: any = {};
 
-      if (filter === 'answered' || filter === 'pending') {
-        const user = await this.userModel.findOne({
-          authAccountId: new Types.ObjectId(authAccountId),
-        });
-        if (!user) throw new NotFoundException('user.NOT_FOUND');
+      if (filter === 'answered') match.status = QuestionStatus.ANSWERED;
+      if (filter === 'pending') match.status = QuestionStatus.PENDING;
 
-        match.userId = user._id;
-        if (filter === 'answered') match.status = QuestionStatus.ANSWERED;
-        if (filter === 'pending') match.status = QuestionStatus.PENDING;
-      }
-
-      if (privateSpecializationIds && privateSpecializationIds.length > 0) {
+      if (privateSpecializationIds?.length) {
         match.specializationId = {
-          $in: privateSpecializationIds.map((id) => new Types.ObjectId(id)),
+          $in: privateSpecializationIds.map((id) => {
+            if (!Types.ObjectId.isValid(id))
+              throw new BadRequestException('specialization.INVALID_ID');
+            return new Types.ObjectId(id);
+          }),
         };
       }
 
-      if (publicSpecializationId) {
-        const privateSpecs = await this.specializationModel.find({
-          publicSpecializationId: new Types.ObjectId(publicSpecializationId),
-        });
+      if (filter === 'public') {
+        const privateSpecs =
+          await this.specializationsService.getPrivateIdsByPublicName(
+            'طب_بشري',
+          );
 
-        if (privateSpecs.length > 0) {
-          match.specializationId = {
-            $in: privateSpecs.map((p) => p._id),
-          };
-        } else {
-          return [];
-        }
+        match.specializationId = { $in: privateSpecs };
+      }
+
+      if (publicSpecializationId) {
+        if (!Types.ObjectId.isValid(publicSpecializationId))
+          throw new BadRequestException('specialization.INVALID_ID');
+
+        const privateSpecs =
+          await this.specializationsService.getPrivateIdsByPublic(
+            publicSpecializationId,
+          );
+
+        match.specializationId = { $in: privateSpecs };
       }
 
       const questions = await this.repo.findQuestionsWithAnswers(match);
@@ -118,16 +104,27 @@ export class QuestionsService {
         answers: q.answers.map((a) => ({
           _id: a._id,
           content: a.content,
-          responderName: a.responder?.name || 'Unknown',
-          responderImage: a.responder?.avatar || null,
+          responderName:
+            a.responder?.firstName +
+              ' ' +
+              a.responder?.middleName +
+              ' ' +
+              a.responder?.lastName || 'Unknown',
+          responderImage: a.responder?.image || null,
           answeredAgo: a.createdAt ? this.timeAgo(a.createdAt) : null,
         })),
         createdAt: q.createdAt,
         updatedAt: q.updatedAt,
       }));
     } catch (error) {
-      console.error('❌ Error in getQuestions:', error);
-      throw new InternalServerErrorException(error.message || 'common.ERROR');
+      if (
+        error instanceof NotFoundException ||
+        error instanceof BadRequestException
+      )
+        throw error;
+
+      console.error('❌ Unexpected error in getQuestions:', error);
+      throw new InternalServerErrorException('common.ERROR');
     }
   }
 
@@ -139,13 +136,21 @@ export class QuestionsService {
   }) {
     const { questionId, responderType, responderId, content } = dto;
 
-    const question = await this.repo.findById(questionId);
-    if (!question) {
-      throw new NotFoundException('question.NOT_FOUND');
-    }
+    if (!Types.ObjectId.isValid(questionId))
+      throw new BadRequestException('question.INVALID_ID');
+    if (!Types.ObjectId.isValid(responderId))
+      throw new BadRequestException('user.INVALID_ID');
 
-    if (question.status === QuestionStatus.ANSWERED) {
-      throw new InternalServerErrorException('question.ALREADY_ANSWERED');
+    const question = await this.repo.findById(questionId);
+    if (!question) throw new NotFoundException('question.NOT_FOUND');
+
+    const existingAnswer = await this.answerModel.findOne({
+      questionId: new Types.ObjectId(questionId),
+      responderId: new Types.ObjectId(responderId),
+    });
+
+    if (existingAnswer) {
+      throw new BadRequestException('question.ALREADY_ANSWERED_BY_YOU');
     }
 
     const answer = new this.answerModel({
@@ -157,8 +162,10 @@ export class QuestionsService {
 
     await answer.save();
 
-    question.status = QuestionStatus.ANSWERED;
-    await question.save();
+    if (question.status !== QuestionStatus.ANSWERED) {
+      question.status = QuestionStatus.ANSWERED;
+      await question.save();
+    }
 
     return answer;
   }
