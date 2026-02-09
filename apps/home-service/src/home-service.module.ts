@@ -8,19 +8,23 @@ import { KafkaModule } from '@app/common/kafka/kafka.module';
 import { SmsModule } from './sms/sms.module';
 import { DoctorModule } from './doctor/doctor.module';
 import { AdminModule } from './admin/admin.module';
+import { AuthModule } from './auth/auth.module';
+import { WorkingHoursModule } from './working-hours/working-hours.module';
 
 @Module({
   imports: [
     KafkaModule.forRoot({
-      clientId: 'social-service',
+      clientId: 'home-service',
       brokers: [process.env.KAFKA_BROKER!],
-      groupId: 'social-consumer',
+      groupId: 'home-consumer',
     }),
     DatabaseModule,
     SmsModule,
-    WhatsappModule,//Test Whatsapp api
+    // WhatsappModule,//Test Whatsapp api
     DoctorModule,
     AdminModule,
+    AuthModule,
+    WorkingHoursModule,
   ],
   controllers: [HomeServiceController],
   providers: [HomeServiceService],

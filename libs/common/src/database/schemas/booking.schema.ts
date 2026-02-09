@@ -14,6 +14,13 @@ export class Booking {
   doctorId: Types.ObjectId;
 
   @Prop({
+    type: Types.ObjectId,
+    ref: 'AppointmentSlot',
+    required: true,
+    index: true,
+  })
+  slotId: Types.ObjectId;
+  @Prop({
     type: String,
     enum: Object.values(BookingStatus),
     default: BookingStatus.PENDING,

@@ -31,4 +31,7 @@ export const KAFKA_TOPICS = {
 
   // Cache Invalidation Events
   CACHE_INVALIDATE: 'cache.invalidate',
+
+  SLOTS_GENERATE: 'slots.generate',
+  WORKING_HOURS_ADDED: 'working.hours.added',
 };
