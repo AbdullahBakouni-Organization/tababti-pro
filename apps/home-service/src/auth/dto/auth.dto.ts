@@ -18,6 +18,7 @@ import {
 } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { BadRequestException } from '@nestjs/common';
+
 export class RequestOtpDto {
   @ApiProperty({
     example: '+963912345678',

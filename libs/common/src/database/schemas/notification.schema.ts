@@ -13,7 +13,7 @@ export class Notification extends Document {
   @Prop({ type: String, enum: UserRole, required: true, index: true })
   recipientType: UserRole;
 
-  @Prop({ type: Types.ObjectId, index: true })
+  @Prop({ type: Types.ObjectId })
   recipientId: Types.ObjectId;
 
   @Prop({
@@ -46,12 +46,9 @@ export const NotificationSchema = SchemaFactory.createForClass(Notification);
 NotificationSchema.index(
   {
     recipientType: 1,
-    recipientId: 1,
+    Notificationtype: 1,
     status: 1,
     createdAt: 1,
-    Notificationtype: 1,
   },
-  {
-    unique: true,
-  },
+  { unique: true },
 );

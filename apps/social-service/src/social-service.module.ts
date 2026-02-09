@@ -5,8 +5,7 @@ import { KafkaModule } from '@app/common/kafka/kafka.module';
 import { DatabaseModule } from '@app/common/database/database.module';
 import { QuestionsModule } from './questions/questions.module';
 import { JwtModule } from '@nestjs/jwt';
-
-import { JwtStrategy } from '@app/common/strategies/jwt.strategie';
+import { AuthValidateModule } from '@app/common/auth-validate';
 
 @Module({
   imports: [
@@ -16,12 +15,13 @@ import { JwtStrategy } from '@app/common/strategies/jwt.strategie';
       groupId: 'social-consumer',
     }),
     DatabaseModule,
+    AuthValidateModule,
     QuestionsModule,
     JwtModule.register({
-      secret: process.env.JWT_SECRET,
+      secret: process.env.JWT_ACCESS_SECRET,
     }),
   ],
   controllers: [SocialServiceController],
-  providers: [SocialServiceService, JwtStrategy],
+  providers: [SocialServiceService], 
 })
 export class SocialServiceModule {}

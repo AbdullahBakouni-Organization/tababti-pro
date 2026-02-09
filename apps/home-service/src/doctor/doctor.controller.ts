@@ -22,10 +22,16 @@ import {
   ApiResponse,
   ApiBearerAuth,
   ApiConsumes,
+  ApiNotFoundResponse,
+  ApiBadRequestResponse,
+  ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { DoctorService } from './doctor.service';
-import { AuthValidateService } from '../../../../libs/common/src/auth-validate/auth-validate.service';
+import {
+  AuthValidateService,
+  SessionInfo,
+} from '../../../../libs/common/src/auth-validate/auth-validate.service';
 import {
   DoctorRegistrationDtoValidated,
   RegistrationResponseDto,
@@ -36,6 +42,16 @@ import { doctorDocumentOptions } from '../../../../libs/common/src/helpers/file-
 import { MultipleFileCleanupInterceptor } from '../../../../libs/common/src/interceptors/multiple-file-cleanup.interceptor';
 import { DocumentUrlInterceptor } from '../../../../libs/common/src/interceptors/document-url.interceptor';
 import type { Request, Response } from 'express';
+import { JwtRefreshGuard } from '@app/common/guards/jwt-refresh.guard';
+import { RolesGuard } from '@app/common/guards/role.guard';
+import { UserRole } from '@app/common/database/schemas/common.enums';
+import { Roles } from '@app/common/decorator/role.decorator';
+import { DoctorLoginDto } from './dto/login.dto';
+import {
+  RequestDoctorPasswordResetDto,
+  ResetDoctorPasswordDto,
+  VerifyOtpForPasswordResetDto,
+} from './dto/doctor-forgot-password.dto';
 
 // ============================================
 // Login DTO
@@ -60,7 +76,7 @@ export class LoginDto {
 @Controller('doctors')
 export class DoctorController {
   constructor(
-    private registrationService: DoctorService,
+    private DoctorService: DoctorService,
     private authService: AuthValidateService,
   ) {}
 
@@ -128,10 +144,7 @@ export class DoctorController {
     // Process uploaded files
     const processedFiles = this.processUploadedFiles(files);
 
-    const result = await this.registrationService.registerDoctor(
-      dto,
-      processedFiles,
-    );
+    const result = await this.DoctorService.registerDoctor(dto, processedFiles);
 
     return {
       success: true,
@@ -198,119 +211,181 @@ export class DoctorController {
   /**
    * Login
    */
-  // @Post('login')
-  // @HttpCode(HttpStatus.OK)
-  // @ApiOperation({ summary: 'Doctor login' })
-  // @ApiResponse({
-  //   status: 200,
-  //   description: 'Login successful',
-  // })
-  // @ApiResponse({
-  //   status: 401,
-  //   description: 'Invalid credentials or account not approved',
-  // })
-  // async login(
-  //   @Body() loginDto: LoginDto,
-  //   @Req() req: Request,
-  // ): Promise<{
-  //   accessToken: string;
-  //   refreshToken: string;
-  //   doctor: any;
-  //   session: any;
-  // }> {
-  //   // 1. Find doctor
-  //   const doctor = await this.registrationService.findByPhone(loginDto.phone);
+  @Post('login')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Doctor login' })
+  @ApiResponse({
+    status: 200,
+    description: 'Login successful',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Invalid credentials or account not approved',
+  })
+  async signIn(
+    @Body() dto: DoctorLoginDto,
+    @Res({ passthrough: true }) res: Response,
+    @Req() req: Request,
+  ): Promise<{
+    accessToken: string;
+    doctor: any;
+    refreshToken?: string;
+    session: any;
+  }> {
+    // return this.adminService.signIn(dto, res);
+    const doctor = await this.DoctorService.loginDoctor(dto);
 
-  //   if (!doctor) {
-  //     throw new UnauthorizedException('Invalid phone or password');
-  //   }
+    // 6. Create session
+    const sessionInfo: SessionInfo = {
+      sessionId: '', // generated later
+      deviceId: dto.deviceInfo.deviceId,
+      deviceName: dto.deviceInfo.deviceName,
+      deviceType: dto.deviceInfo.deviceType,
+      platform: dto.deviceInfo.platform,
+      ipAddress: req.ip || req.socket.remoteAddress || 'unknown',
+      userAgent: req.headers['user-agent'] || 'unknown',
+    };
 
-  //   // 2. Check status
-  //   if (doctor.status === 'pending') {
-  //     throw new UnauthorizedException(
-  //       'Your account is pending approval. Please wait for admin review.',
-  //     );
-  //   }
+    const tokens = await this.authService.createSession(
+      doctor.authAccountId.toString(),
+      doctor.phones?.[0]?.normal?.[0] ?? '',
+      UserRole.DOCTOR,
+      sessionInfo,
+    );
+    res.cookie('token', tokens.refreshToken, {
+      httpOnly: true,
+      secure: false,
+      sameSite: 'lax',
+      maxAge: 24 * 60 * 60 * 1000 * 30, // 30 days
+      path: '/',
+    });
+    return {
+      accessToken: tokens.accessToken,
+      doctor: {
+        id: doctor._id.toString(),
+        fullName: doctor.firstName + ' ' + doctor.lastName,
+        phone: doctor.phones?.[0]?.normal?.[0] ?? '',
+      },
+      session: {
+        deviceName: sessionInfo.deviceName,
+        platform: sessionInfo.platform,
+        createdAt: new Date(),
+      },
+    };
+  }
 
-  //   if (doctor.status === 'rejected') {
-  //     throw new UnauthorizedException(
-  //       `Your account was rejected. Reason: ${doctor.rejectionReason || 'Not specified'}`,
-  //     );
-  //   }
+  @Post('forgot-password/request-otp')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'طلب رمز التحقق لإعادة تعيين كلمة المرور',
+    description: 'يرسل رمز تحقق OTP إلى رقم الهاتف المسجل للطبيب',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'تم إرسال رمز التحقق بنجاح',
+    schema: {
+      example: {
+        success: true,
+        message: 'تم إرسال رمز التحقق إلى رقم هاتفك',
+      },
+    },
+  })
+  @ApiNotFoundResponse({
+    description: 'لا يوجد حساب طبيب مسجل بهذا الرقم',
+  })
+  @ApiBadRequestResponse({
+    description: 'رقم الهاتف غير صحيح أو الحساب غير مفعل',
+  })
+  async requestPasswordResetOtp(@Body() dto: RequestDoctorPasswordResetDto) {
+    return this.DoctorService.requestPasswordResetOtp(dto);
+  }
 
-  //   if (doctor.status === 'suspended') {
-  //     throw new UnauthorizedException('Your account has been suspended.');
-  //   }
-
-  //   // 3. Check if account is locked
-  //   if (doctor.isAccountLocked) {
-  //     throw new UnauthorizedException(
-  //       `Account locked due to too many failed login attempts. ` +
-  //         `Please try again after ${doctor.lockedUntil?.toLocaleTimeString()}`,
-  //     );
-  //   }
-
-  //   // 4. Verify password
-  //   const isValidPassword = await doctor.comparePassword(loginDto.password);
-
-  //   if (!isValidPassword) {
-  //     await doctor.incrementFailedAttempts();
-  //     await doctor.save();
-
-  //     throw new UnauthorizedException('Invalid phone or password');
-  //   }
-
-  //   // 5. Reset failed attempts on successful login
-  //   doctor.resetFailedAttempts();
-
-  //   // 6. Create session
-  //   const sessionInfo: SessionInfo = {
-  //     sessionId: '', // Will be generated by AuthService
-  //     deviceId: loginDto.deviceInfo.deviceId,
-  //     deviceName: loginDto.deviceInfo.deviceName,
-  //     deviceType: loginDto.deviceInfo.deviceType,
-  //     platform: loginDto.deviceInfo.platform,
-  //     ipAddress: req.ip || req.socket.remoteAddress || 'unknown',
-  //     userAgent: req.headers['user-agent'] || 'unknown',
-  //   };
-
-  //   const tokens = await this.authService.createSession(doctor, sessionInfo);
-
-  //   // 7. Return response
-  //   return {
-  //     accessToken: tokens.accessToken,
-  //     refreshToken: tokens.refreshToken,
-  //     doctor: {
-  //       id: doctor._id,
-  //       fullName: doctor.fullName,
-  //       phone: doctor.phone,
-  //       city: doctor.city,
-  //       specialization: doctor.privateSpecialization,
-  //       status: doctor.status,
-  //     },
-  //     session: {
-  //       deviceName: sessionInfo.deviceName,
-  //       platform: sessionInfo.platform,
-  //       createdAt: new Date(),
-  //     },
-  //   };
-  // }
-
+  @Post('forgot-password/verify-otp')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'التحقق من رمز OTP (اختياري)',
+    description: 'يتحقق من صحة رمز OTP قبل إعادة تعيين كلمة المرور',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'تم التحقق من الرمز بنجاح',
+    schema: {
+      example: {
+        success: true,
+        message: 'تم التحقق من الرمز بنجاح',
+      },
+    },
+  })
+  @ApiUnauthorizedResponse({
+    description: 'رمز التحقق غير صحيح أو منتهي الصلاحية',
+  })
+  @ApiNotFoundResponse({
+    description: 'لا يوجد حساب طبيب مسجل بهذا الرقم',
+  })
+  async verifyPasswordResetOtp(@Body() dto: VerifyOtpForPasswordResetDto) {
+    return this.DoctorService.verifyPasswordResetOtp(dto);
+  }
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
+  @Post('forgot-password/reset')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'إعادة تعيين كلمة المرور',
+    description: 'يعيد تعيين كلمة المرور باستخدام رمز التحقق OTP',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'تم إعادة تعيين كلمة المرور بنجاح',
+    schema: {
+      example: {
+        success: true,
+        message: 'تم إعادة تعيين كلمة المرور بنجاح',
+      },
+    },
+  })
+  @ApiUnauthorizedResponse({
+    description: 'رمز التحقق غير صحيح أو منتهي الصلاحية',
+  })
+  @ApiNotFoundResponse({
+    description: 'لا يوجد حساب طبيب مسجل بهذا الرقم',
+  })
+  @ApiBadRequestResponse({
+    description: 'كلمة المرور الجديدة غير صالحة',
+  })
+  async resetPassword(@Body() dto: ResetDoctorPasswordDto) {
+    return this.DoctorService.resetPassword(dto);
+  }
   /**
    * Refresh access token
    */
   @Post('refresh')
+  @UseGuards(JwtRefreshGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Refresh access token' })
-  async refreshToken(@Body('refreshToken') refreshToken: string): Promise<{
+  async refreshToken(
+    @Body('refreshToken') refreshToken: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<{
+    success: boolean;
     accessToken: string;
-    refreshToken: string;
+    refreshToken?: string;
   }> {
     const tokens = await this.authService.refreshAccessToken(refreshToken);
-
+    res.cookie('token', tokens.refreshToken, {
+      httpOnly: true,
+      secure: false,
+      sameSite: 'lax',
+      maxAge: 24 * 60 * 60 * 1000 * 30, // 30 days
+      path: '/',
+    });
     return {
+      success: true,
       accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
     };
   }
 
@@ -334,12 +409,19 @@ export class DoctorController {
    * Get all active sessions
    */
   @Get('sessions')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get all active sessions for current doctor' })
-  async getActiveSessions(@Req() req: any) {
-    const doctorId: string = req.user.sub;
-    const sessions = await this.authService.getActiveSessions(doctorId);
+  async getActiveSessions(@Req() req: any): Promise<{
+    doctorId?: string;
+    role?: UserRole.DOCTOR;
+    sessions?: string[];
+    total: number;
+  }> {
+    const doctorId = req.user.accountId;
+    const role = req.user.role;
+    const sessions = await this.authService.getActiveSessions(doctorId, role);
 
     return {
       total: sessions.length,
@@ -351,15 +433,20 @@ export class DoctorController {
    * Logout from current session
    */
   @Post('logout')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
   @ApiBearerAuth()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Logout from current session' })
-  async logout(@Req() req: any) {
-    const doctorId: string = req.user.sub;
+  async logout(@Req() req: any): Promise<{
+    doctorId?: string;
+    sessionId?: string;
+    message?: string;
+  }> {
+    const doctorId: string = req.user.accountId;
     const sessionId: string = req.user.sessionId;
-
-    await this.authService.logoutSession(doctorId, sessionId);
+    const role: UserRole.DOCTOR = req.user.role;
+    await this.authService.logoutSession(doctorId, role, sessionId);
 
     return {
       message: 'Logged out successfully',
@@ -370,14 +457,21 @@ export class DoctorController {
    * Logout from specific device
    */
   @Post('logout/device/:deviceId')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
   @ApiBearerAuth()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Logout from specific device' })
-  async logoutDevice(@Req() req: any, @Param('deviceId') deviceId: string) {
-    const doctorId: string = req.user.sub;
-
-    await this.authService.logoutDevice(doctorId, deviceId);
+  async logoutDevice(
+    @Req() req: any,
+    @Param('deviceId') deviceId: string,
+  ): Promise<{
+    doctorId?: string;
+    message?: string;
+  }> {
+    const doctorId: string = req.user.accountId;
+    const role: UserRole.DOCTOR = req.user.role;
+    await this.authService.logoutDevice(doctorId, role, deviceId);
 
     return {
       message: `Logged out from device: ${deviceId}`,
@@ -388,14 +482,15 @@ export class DoctorController {
    * Logout from all devices
    */
   @Post('logout/all')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
   @ApiBearerAuth()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Logout from all devices' })
   async logoutAll(@Req() req: any) {
-    const doctorId: string = req.user.sub;
-
-    await this.authService.logoutAllSessions(doctorId);
+    const doctorId: string = req.user.accountId;
+    const role: UserRole.DOCTOR = req.user.role;
+    await this.authService.logoutAllSessions(doctorId, role);
 
     return {
       message: 'Logged out from all devices',

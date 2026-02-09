@@ -29,10 +29,8 @@ async function bootstrap() {
   });
 
   await app.startAllMicroservices();
-  await app.listen(process.env.BOOKING_PORT || 3003);
+  await app.listen(process.env.BOOKING_PORT!);
 
-  console.log(
-    `Booking Service running on port ${process.env.BOOKING_PORT || 3003}`,
-  );
+  console.log(`Booking Service running on port ${process.env.BOOKING_PORT}`);
 }
 bootstrap();
