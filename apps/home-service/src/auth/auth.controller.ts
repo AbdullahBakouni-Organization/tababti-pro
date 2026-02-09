@@ -30,17 +30,17 @@ import {
 import { JwtAuthGuard } from '@app/common/guards/jwt.guard';
 import { User } from '@app/common/database/schemas/user.schema';
 import type { Response } from 'express';
-import * as fs from 'fs';
-import { FileCleanupInterceptor } from '@app/common/interceptors/file-cleanup.interceptor';
-import { multerOptions } from '@app/common/helpers/file-upload.helper';
+
+import { userImageOptions } from '@app/common/helpers/file-upload.helper';
 import { RolesGuard } from '@app/common/guards/role.guard';
 import { UserRole } from '@app/common/database/schemas/common.enums';
 import { Roles } from '@app/common/decorator/role.decorator';
 import { Throttle } from '@nestjs/throttler';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ImageUrlInterceptor } from '@app/common/interceptors/image-url.interceptor';
+
 import type { Request } from 'express';
 import { JwtUserGuard } from '@app/common/guards/jwt-user.guard';
+import { DocumentUrlInterceptor } from '@app/common/interceptors';
 export interface RequestWithUser extends Request {
   user: User;
 }
@@ -115,13 +115,12 @@ export class AuthController {
     return this.authService.resendOtp(resendOtpDto);
   }
 
-  @Post('complete-registration')
   @UseGuards(JwtUserGuard, RolesGuard)
   @Roles(UserRole.USER)
+  @Post('complete-registration')
   @UseInterceptors(
-    FileInterceptor('image', multerOptions),
-    FileCleanupInterceptor,
-    ImageUrlInterceptor,
+    FileInterceptor('image', userImageOptions),
+    DocumentUrlInterceptor,
   )
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Step 3: Complete registration with user details' })
@@ -164,23 +163,14 @@ export class AuthController {
   @ApiResponse({ status: 409, description: 'Username already exists' })
   async completeRegistration(
     @Body() completeRegistrationDto: RequestOtpDto,
-    @Res({ passthrough: true }) res: Response,
     @UploadedFile() file?: Express.Multer.File,
   ) {
-    try {
-      const imagePath = file ? file.path.replace(/\\/g, '/') : '';
-      const result = await this.authService.completeRegistration(
-        completeRegistrationDto,
-        imagePath,
-      );
+    const imagePath = file?.path.replace(/\\/g, '/');
 
-      return result;
-    } catch (error) {
-      if (file?.path && fs.existsSync(file.path)) {
-        fs.unlinkSync(file.path);
-      }
-      throw error;
-    }
+    return this.authService.completeRegistration(
+      completeRegistrationDto,
+      imagePath,
+    );
   }
 
   @Get('profile')
@@ -201,5 +191,24 @@ export class AuthController {
   @Roles(UserRole.USER)
   logout(@Req() req: any) {
     return this.authService.logout(req.user.accountId);
+  }
+
+  private processUploadedFiles(files?: { image?: Express.Multer.File[] }):
+    | {
+        image?: Express.Multer.File;
+      }
+    | undefined {
+    if (!files) return undefined;
+
+    const result: {
+      image?: Express.Multer.File;
+    } = {};
+
+    // Extract single files from arrays
+    if (files.image?.[0]) {
+      result.image = files.image[0];
+    }
+
+    return Object.keys(result).length > 0 ? result : undefined;
   }
 }

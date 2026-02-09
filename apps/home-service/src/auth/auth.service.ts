@@ -236,7 +236,7 @@ export class AuthService {
       if (existingUser) {
         throw new BadRequestException('User profile already completed');
       }
-
+      // const processedFiles = this.processUploadedFiles(files);
       // Create new user
       const [user] = await this.userModel.create(
         [
@@ -336,5 +336,26 @@ export class AuthService {
       success: true,
       message: 'Logged out successfully',
     };
+  }
+
+  private processUploadedFiles(files?: { image?: Express.Multer.File }): {
+    image?: string;
+  } {
+    if (!files) return {};
+
+    const processedFiles: {
+      image?: string;
+    } = {};
+
+    // Process certificate files (prefer image over document if both provided)
+    if (files.image) {
+      processedFiles.image = this.normalizeFilePath(files.image.path);
+    }
+
+    return processedFiles;
+  }
+
+  private normalizeFilePath(filePath: string): string {
+    return filePath.replace(/\\/g, '/');
   }
 }

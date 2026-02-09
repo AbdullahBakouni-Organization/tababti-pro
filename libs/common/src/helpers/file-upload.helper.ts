@@ -100,6 +100,18 @@ export const doctorPdfStorage = diskStorage({
   },
 });
 
+export const userImageStorage = diskStorage({
+  destination: (req, file, callback) => {
+    const uploadPath = './uploads/users/images';
+    createDirectory(uploadPath);
+    callback(null, uploadPath);
+  },
+  filename: (req, file, callback) => {
+    const filename = `${randomUUID()}_${Date.now()}${extname(file.originalname)}`;
+    callback(null, filename);
+  },
+});
+
 // Combined storage for both images and PDFs
 export const doctorDocumentStorage = diskStorage({
   destination: (req, file, callback) => {
@@ -150,6 +162,13 @@ export const doctorDocumentOptions = {
   },
 };
 
+export const userImageOptions = {
+  storage: userImageStorage,
+  fileFilter: imageFileFilter,
+  limits: {
+    fileSize: IMAGE_SIZE_LIMIT,
+  },
+};
 // ============================================
 // Legacy Support (for backward compatibility)
 // ============================================
