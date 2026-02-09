@@ -13,10 +13,9 @@ import { WorkingHoursModule } from './working-hours/working-hours.module';
 
 @Module({
   imports: [
-    KafkaModule.forRoot({
+    KafkaModule.forProducer({
       clientId: 'home-service',
       brokers: [process.env.KAFKA_BROKER!],
-      groupId: 'home-consumer',
     }),
     DatabaseModule,
     SmsModule,

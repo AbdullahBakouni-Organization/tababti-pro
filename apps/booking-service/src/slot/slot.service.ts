@@ -27,9 +27,7 @@ export class SlotGenerationService {
    * Listen to slot generation events from Kafka
    */
   @EventPattern(KAFKA_TOPICS.SLOTS_GENERATE)
-  async handleSlotGenerationEvent(
-    @Payload() event: SlotGenerationEvent,
-  ): Promise<void> {
+  async processSlotGeneration(event: SlotGenerationEvent): Promise<void> {
     this.logger.log(
       `Received slot generation event for doctor ${event.data.doctorId}`,
     );
