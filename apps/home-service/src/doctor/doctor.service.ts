@@ -95,6 +95,7 @@ export class DoctorService {
     @InjectModel(Otp.name) private otpModel: Model<OtpDocument>,
     @InjectModel(AuthAccount.name) private authModel: Model<AuthAccount>,
     @InjectConnection() private readonly connection: Connection,
+
     private kafkaProducer: KafkaService,
     private httpService: HttpService,
     private configService: ConfigService,
@@ -272,7 +273,48 @@ export class DoctorService {
           maxSessions: 5,
           failedLoginAttempts: 0,
         });
+        if (doctor.authAccountId) {
+          throw new BadRequestException('Doctor already has auth account');
+        }
 
+        // 2️⃣ Extract normalized phones
+        const normalizedPhones = [
+          ...new Set(
+            (doctor.phones ?? [])
+              .flatMap((p) => p.normal ?? [])
+              .map((p) => p.trim())
+              .filter(Boolean),
+          ),
+        ];
+
+        if (normalizedPhones.length === 0) {
+          throw new BadRequestException(
+            'Doctor has no normalized phone numbers',
+          );
+        }
+        const existing = await this.authModel
+          .findOne({ phones: { $in: normalizedPhones } })
+          .session(session);
+
+        if (existing) {
+          throw new BadRequestException(
+            'One or more phone numbers already belong to another account',
+          );
+        }
+
+        // 3️⃣ Create AuthAccount (phones copied from doctor)
+        const [authAccount] = await this.authModel.create(
+          [
+            {
+              role: UserRole.DOCTOR,
+              phones: normalizedPhones,
+              isActive: false,
+              tokenVersion: 0,
+            },
+          ],
+          { session },
+        );
+        doctor.authAccountId = authAccount._id;
         // 5. Save doctor (inside transaction)
         await doctor.save({ session });
 

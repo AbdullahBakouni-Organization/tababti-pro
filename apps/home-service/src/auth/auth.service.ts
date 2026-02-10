@@ -72,6 +72,12 @@ export class AuthService {
       await session.commitTransaction();
       await session.endSession();
 
+      await this.smsService.sendOTP(phone, otp);
+      // await this.whatsappService.sendOtp(phone, otp); //test whatsapp-web api
+      return {
+        success: true,
+        message: 'OTP sent',
+      };
       // console.log(
       //   `📨 [AuthService] Emitting OTP to Kafka topic for phone ${phone}`,
       // );
@@ -81,8 +87,6 @@ export class AuthService {
       //   lang: dto.lang || 'ar',
       // });
       // console.log(`✅ [AuthService] Kafka event emitted`);
-
-      return { success: true, message: 'OTP sent' };
     } catch (err) {
       await session.abortTransaction();
       await session.endSession();
@@ -329,26 +333,5 @@ export class AuthService {
       success: true,
       message: 'Logged out successfully',
     };
-  }
-
-  private processUploadedFiles(files?: { image?: Express.Multer.File }): {
-    image?: string;
-  } {
-    if (!files) return {};
-
-    const processedFiles: {
-      image?: string;
-    } = {};
-
-    // Process certificate files (prefer image over document if both provided)
-    if (files.image) {
-      processedFiles.image = this.normalizeFilePath(files.image.path);
-    }
-
-    return processedFiles;
-  }
-
-  private normalizeFilePath(filePath: string): string {
-    return filePath.replace(/\\/g, '/');
   }
 }

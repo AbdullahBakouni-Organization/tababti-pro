@@ -247,7 +247,6 @@ export class UserDataDto {
 
   @ApiPropertyOptional()
   imageUrl?: string;
-  
 }
 export class AuthResponseDto {
   @ApiProperty()

@@ -88,4 +88,12 @@ export class CacheService {
     const regex = new RegExp('^' + pattern.replace(/\*/g, '.*') + '$');
     return regex.test(key);
   }
+
+  async del(key: string): Promise<void> {
+    // Layer 1: Memory cache
+    this.memoryCache.delete(key);
+
+    // Layer 2: Redis cache
+    await this.redisService.del(key);
+  }
 }

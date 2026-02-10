@@ -1,11 +1,17 @@
 import { Module, DynamicModule, Global } from '@nestjs/common';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { KafkaService } from './kafka.service';
+import { Kafka } from 'kafkajs';
 
 export interface KafkaModuleOptions {
   clientId: string;
   brokers: string[];
   groupId: string;
+}
+
+export interface KafkaModuleproducerOptions {
+  clientId: string;
+  brokers: string[];
 }
 
 export interface KafkaModuleAsyncOptions {
@@ -74,6 +80,49 @@ export class KafkaModule {
       ],
       providers: [KafkaService],
       exports: [KafkaService, ClientsModule],
+    };
+  }
+  static forProducer(options: KafkaModuleproducerOptions): DynamicModule {
+    return {
+      module: KafkaModule,
+      imports: [
+        ClientsModule.register([
+          {
+            name: 'KAFKA_SERVICE',
+            transport: Transport.KAFKA,
+            options: {
+              client: {
+                clientId: options.clientId,
+                brokers: options.brokers,
+              },
+            },
+          },
+        ]),
+      ],
+      providers: [KafkaService],
+      exports: [KafkaService],
+    };
+  }
+  static forConsumer(options: {
+    clientId: string;
+    brokers: string[];
+    groupId: string;
+  }): DynamicModule {
+    return {
+      module: KafkaModule,
+      providers: [
+        {
+          provide: 'KAFKA_CONSUMER',
+          useFactory: () => {
+            return new Kafka({
+              clientId: options.clientId,
+              brokers: options.brokers,
+            }).consumer({ groupId: options.groupId });
+          },
+        },
+      ],
+      exports: ['KAFKA_CONSUMER'],
+      global: true,
     };
   }
 }

@@ -1,36 +1,54 @@
 import { NestFactory } from '@nestjs/core';
-import { BookingServiceModule } from './booking-service.module';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
-import { ValidationPipe } from '@nestjs/common';
+import { BookingServiceModule } from './booking-service.module';
+import { Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 async function bootstrap() {
+  const logger = new Logger('BookingServiceBootstrap');
+
+  // Create the main HTTP application
   const app = await NestFactory.create(BookingServiceModule);
 
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-    }),
-  );
-  app.setGlobalPrefix('api/v1');
+  // Get config service
+  const configService = app.get(ConfigService);
+  const kafkaBroker = configService.get<string>('KAFKA_BROKER', '');
 
+  // ✅ CRITICAL: Connect Kafka microservice to listen for events
   app.connectMicroservice<MicroserviceOptions>({
     transport: Transport.KAFKA,
     options: {
       client: {
-        clientId: 'booking-service',
-        brokers: [process.env.KAFKA_BROKER!],
+        clientId: 'booking-service-consumer',
+        brokers: [kafkaBroker],
+        retry: {
+          initialRetryTime: 100,
+          retries: 8,
+        },
       },
       consumer: {
-        groupId: 'booking-consumer',
+        groupId: 'booking-service-group', // Must match module config
+        allowAutoTopicCreation: true,
+        sessionTimeout: 30000,
+        heartbeatInterval: 3000,
+      },
+      subscribe: {
+        fromBeginning: false, // Only process new messages
       },
     },
   });
 
+  // ✅ CRITICAL: Start all microservices (this enables Kafka consumer)
   await app.startAllMicroservices();
-  await app.listen(process.env.BOOKING_PORT!);
+  logger.log('✅ Kafka consumer connected and listening for events');
 
-  console.log(`Booking Service running on port ${process.env.BOOKING_PORT}`);
+  // Start HTTP server (optional, for REST endpoints)
+  const port = configService.get<number>('BOOKING_PORT', 3001);
+  await app.listen(port);
+  logger.log(`✅ HTTP server running on port ${port}`);
 }
-bootstrap();
+
+bootstrap().catch((error) => {
+  console.error('❌ Failed to start booking service:', error);
+  process.exit(1);
+});
