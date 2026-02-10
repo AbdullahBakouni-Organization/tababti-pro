@@ -695,6 +695,34 @@ export class DoctorService {
   // ============================================
 
   /**
+   * Check if a doctor exists by NORMAL phone number
+   * and is APPROVED
+   */
+  async isApprovedDoctorByPhone(
+    phone: string,
+  ): Promise<{ exists: boolean; approved: boolean }> {
+    const doctor = await this.doctorModel
+      .findOne({
+        'phones.normal': phone,
+      })
+      .select({ approvalStatus: 1 })
+      .lean()
+      .exec();
+
+    if (!doctor) {
+      return {
+        exists: false,
+        approved: false,
+      };
+    }
+
+    return {
+      exists: true,
+      approved: true,
+    };
+  }
+
+  /**
    * Process uploaded files and return file paths
    */
   private processUploadedFiles(files?: {

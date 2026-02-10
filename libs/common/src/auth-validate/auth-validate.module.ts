@@ -6,6 +6,7 @@ import { DatabaseModule } from '../database/database.module';
 import {
   JwtRefreshStrategy,
   JwtStrategy,
+  JwtUserRefreshStrategy,
   JwtUserStrategy,
 } from '../strategies/jwt.strategie';
 
@@ -27,13 +28,14 @@ import {
     JwtRefreshStrategy,
     JwtStrategy,
     JwtUserStrategy,
+    JwtUserRefreshStrategy,
   ],
   exports: [
     AuthValidateService,
     JwtRefreshStrategy,
     JwtStrategy,
     JwtUserStrategy,
-    JwtModule,
+    JwtUserRefreshStrategy,
   ],
 })
 export class AuthValidateModule {}
