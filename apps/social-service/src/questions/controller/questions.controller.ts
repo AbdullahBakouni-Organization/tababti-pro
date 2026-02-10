@@ -24,7 +24,7 @@ import { UserRole } from '@app/common/database/schemas/common.enums';
 @ApiTags('Questions')
 @Controller('questions')
 export class QuestionsController {
-  constructor(private readonly service: QuestionsService) {}
+  constructor(private readonly service: QuestionsService) { }
 
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)

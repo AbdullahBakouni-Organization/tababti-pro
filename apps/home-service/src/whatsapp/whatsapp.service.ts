@@ -29,7 +29,6 @@ export class WhatsappService implements OnModuleInit {
         args: ['--no-sandbox', '--disable-setuid-sandbox'],
       },
     });
-
     this.client.on('qr', async (qr: string) => {
       this.logger.log('📱 New WhatsApp QR generated');
 

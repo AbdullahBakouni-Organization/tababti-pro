@@ -1,3 +1,4 @@
+import { PrivateMedicineSpecialty } from '@app/common/database/schemas/common.enums';
 import { IsString, IsMongoId, IsArray, ArrayNotEmpty } from 'class-validator';
 
 export class CreateQuestionDto {
@@ -7,5 +8,5 @@ export class CreateQuestionDto {
   @IsArray()
   @ArrayNotEmpty()
   @IsMongoId({ each: true })
-  specializationId: string[];
+  specializationId: (string | PrivateMedicineSpecialty)[];
 }

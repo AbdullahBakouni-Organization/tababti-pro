@@ -13,6 +13,8 @@ import { Answer } from '@app/common/database/schemas/answer.schema';
 import { User } from '@app/common/database/schemas/user.schema';
 import { Doctor } from '@app/common/database/schemas/doctor.schema';
 import {
+  AnswerStatus,
+  PrivateMedicineSpecialty,
   QuestionStatus,
   UserRole,
 } from '@app/common/database/schemas/common.enums';
