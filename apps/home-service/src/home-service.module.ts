@@ -13,25 +13,13 @@ import { WorkingHoursModule } from './working-hours/working-hours.module';
 
 @Module({
   imports: [
-    KafkaModule.forProducer({
+    KafkaModule.forRoot({
       clientId: 'home-service',
       brokers: [process.env.KAFKA_BROKER!],
+      groupId: 'home-consumer',
     }),
     DatabaseModule,
     SmsModule,
-    // WhatsappModule,//Test Whatsapp api
-import { WhatsappModule } from './whatsapp/whatsapp.module';
-
-@Module({
-  imports: [
-    // KafkaModule.forRoot({
-    //   clientId: 'home-service',
-    //   brokers: [process.env.KAFKA_BROKER!],
-    //   groupId: 'home-consumer',
-    // }),
-    DatabaseModule,
-    SmsModule,
-    WhatsappModule,
     DoctorModule,
     AdminModule,
     AuthModule,

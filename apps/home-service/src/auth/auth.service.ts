@@ -87,8 +87,6 @@ export class AuthService {
       //   lang: dto.lang || 'ar',
       // });
       // console.log(`✅ [AuthService] Kafka event emitted`);
-
-      return { success: true, message: 'OTP sent' };
     } catch (err) {
       await session.abortTransaction();
       await session.endSession();
