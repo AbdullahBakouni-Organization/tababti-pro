@@ -861,6 +861,40 @@ export class AuthValidateService {
     return tokens;
   }
 
+  async refreshUserAccessToken(refreshToken: string): Promise<TokenPair> {
+    // 1. Verify refresh token
+    const payload = await this.verifyRefreshToken(refreshToken);
+
+    // 2. Get AuthAccount
+    const account = await this.authAccountModel.findById(payload.sub);
+    if (!account) {
+      throw new UnauthorizedException('Account not found');
+    }
+
+    // 3. Check token version (global revocation)
+    if (payload.tv !== account.tokenVersion) {
+      throw new UnauthorizedException(
+        'Token revoked (password changed or logout all)',
+      );
+    }
+
+    // 4. Get entity based on role
+    const entityModel = this.getEntityModel(payload.role);
+
+    if (!entityModel) {
+      throw new UnauthorizedException('Entity not found');
+    }
+
+    // 7. Generate new token pair
+    const tokens = await this.generateTokenUserPair(
+      account._id.toString(),
+      payload.phone,
+      payload.role,
+      account.tokenVersion,
+    );
+
+    return tokens;
+  }
   // ============================================
   // Logout Operations (GLOBAL)
   // ============================================

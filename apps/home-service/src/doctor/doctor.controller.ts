@@ -52,6 +52,7 @@ import {
   ResetDoctorPasswordDto,
   VerifyOtpForPasswordResetDto,
 } from './dto/doctor-forgot-password.dto';
+import { CheckDoctorByPhoneDto } from './dto/check-doctor-by-phone.dto';
 
 // ============================================
 // Login DTO
@@ -572,4 +573,13 @@ export class DoctorController {
   //     },
   //   };
   // }
+  //
+  @Post('check-by-phone')
+  async checkDoctorByPhone(
+    @Body() dto: CheckDoctorByPhoneDto,
+  ): Promise<{ exists: boolean; approved: boolean }> {
+    const exists = await this.DoctorService.isApprovedDoctorByPhone(dto.phone);
+
+    return exists;
+  }
 }
