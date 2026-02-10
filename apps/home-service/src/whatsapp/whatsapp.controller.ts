@@ -9,6 +9,19 @@
 //   @Get('qr')
 //   async getQr(@Res() res: Response) {
 //     const qr = this.whatsappService.getQrCode();
+  @Get('send-otp')
+  async sendOtp() {
+    const phone = '+963938144669';
+    const otp = '1234';
+    const lang: 'ar' | 'en' = 'ar';
+    await this.whatsappService.sendOtp(phone, otp, lang);
+
+    return { success: true, message: 'OTP should have been sent' };
+  }
+
+  @Get('qr')
+  async getQr(@Res() res: Response) {
+    const qr = this.whatsappService.getQrCode();
 
 //     if (!qr) {
 //       return res.send('<h2>✅ WhatsApp client is ready, no QR required</h2>');

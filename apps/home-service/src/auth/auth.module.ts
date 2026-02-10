@@ -12,7 +12,7 @@ import { AuthValidateModule } from '@app/common/auth-validate';
     ThrottlerModule.forRoot([
       {
         ttl: 60,
-        limit: 5, // 5 requests per minute per IP/phone
+        limit: 5,
       },
     ]),
     DatabaseModule,

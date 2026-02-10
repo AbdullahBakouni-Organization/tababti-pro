@@ -17,6 +17,10 @@
 // export class WhatsappGateway implements OnGatewayInit {
 //   @WebSocketServer() server: Server;
 //   private readonly logger = new Logger(WhatsappGateway.name);
+@WebSocketGateway({ cors: { origin: '*' } })
+export class WhatsappGateway implements OnGatewayInit {
+  @WebSocketServer() server: Server;
+  private readonly logger = new Logger(WhatsappGateway.name);
 
 //   constructor(private readonly whatsappService: WhatsappService) {}
 

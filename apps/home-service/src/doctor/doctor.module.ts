@@ -15,7 +15,11 @@ import { SmsService } from '../sms/sms.service';
     }),
     DatabaseModule,
     AuthValidateModule,
-    KafkaModule,
+    KafkaModule.forRoot({
+      clientId: 'home-consumer-server',
+      brokers: [process.env.KAFKA_BROKER || 'localhost:29092'],
+      groupId: 'home-consumer-group',
+    }),
     HttpModule.register({
       timeout: 3000,
     }),

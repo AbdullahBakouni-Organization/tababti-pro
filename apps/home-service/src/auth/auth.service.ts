@@ -39,38 +39,26 @@ export class AuthService {
     try {
       const { phone } = dto;
 
-      // find or create auth account
       let authAccount = await this.authModel
         .findOne({ phones: phone })
         .session(session);
-
       if (!authAccount) {
         const [created] = await this.authModel.create(
-          [
-            {
-              phones: [phone],
-              role: UserRole.USER,
-              isActive: false,
-            },
-          ],
+          [{ phones: [phone], role: UserRole.USER, isActive: false }],
           { session },
         );
-
         authAccount = created;
       }
 
-      // clear existing otp
       await this.otpModel
-        .deleteMany({ authAccountId: authAccount?._id })
+        .deleteMany({ authAccountId: authAccount._id })
         .session(session);
 
-      // generate otp
       const otp = this.smsService.generateOTP();
-
       await this.otpModel.create(
         [
           {
-            authAccountId: authAccount?._id,
+            authAccountId: authAccount._id,
             phone,
             code: otp,
             expiresAt: new Date(Date.now() + 10 * 60 * 1000),
@@ -90,6 +78,17 @@ export class AuthService {
         success: true,
         message: 'OTP sent',
       };
+      // console.log(
+      //   `📨 [AuthService] Emitting OTP to Kafka topic for phone ${phone}`,
+      // );
+      // this.kafka.emit(KAFKA_TOPICS.WHATSAPP_SEND_OTP, {
+      //   phone,
+      //   otp,
+      //   lang: dto.lang || 'ar',
+      // });
+      // console.log(`✅ [AuthService] Kafka event emitted`);
+
+      return { success: true, message: 'OTP sent' };
     } catch (err) {
       await session.abortTransaction();
       await session.endSession();
