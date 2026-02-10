@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-import { EventPattern, MessagePattern, Payload } from '@nestjs/microservices';
+import { EventPattern } from '@nestjs/microservices';
 import { Days, SlotStatus } from '@app/common/database/schemas/common.enums';
 import { CacheService } from '@app/common/cache/cache.service';
 import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
@@ -16,7 +16,6 @@ export class SlotGenerationService {
   private readonly logger = new Logger(SlotGenerationService.name);
   private readonly CACHE_TTL = 3600; // 1 hour
   private readonly SLOT_GENERATION_WEEKS = 12; // Generate slots for next 12 weeks
-
   constructor(
     @InjectModel(AppointmentSlot.name)
     private slotModel: Model<AppointmentSlotDocument>,
@@ -56,6 +55,27 @@ export class SlotGenerationService {
   }
 
   /**
+   * Get current date in Syria timezone
+   */
+  private getSyriaDate(): Date {
+    const now = new Date();
+
+    // Syria is UTC+3 (no DST)
+    const SYRIA_OFFSET_MINUTES = 3 * 60;
+
+    // Get UTC time in milliseconds
+    const utcTime = now.getTime() + now.getTimezoneOffset() * 60 * 1000;
+
+    // Convert UTC → Syria time
+    const syriaTime = new Date(utcTime + SYRIA_OFFSET_MINUTES * 60 * 1000);
+
+    // Normalize to start of day in Syria
+    syriaTime.setHours(0, 0, 0, 0);
+
+    return syriaTime;
+  }
+
+  /**
    * Generate appointment slots based on working hours
    */
   private async generateSlots(
@@ -70,52 +90,48 @@ export class SlotGenerationService {
     } = event.data;
 
     const slots: Partial<AppointmentSlot>[] = [];
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = this.getSyriaDate();
 
-    // Generate slots for the next X weeks
     for (let week = 0; week < this.SLOT_GENERATION_WEEKS; week++) {
       for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
         const currentDate = new Date(today);
         currentDate.setDate(today.getDate() + week * 7 + dayOffset);
 
-        const dayOfWeek = this.getDayName(currentDate.getDay());
+        // ✅ Always calculate day from the SAME date object
+        const dayOfWeek = this.getDayName(currentDate.getUTCDay());
 
-        // Find all working hours for this day
         const dayWorkingHours = workingHours.filter(
           (wh) => wh.day.toLowerCase() === dayOfWeek.toLowerCase(),
         );
 
         for (const wh of dayWorkingHours) {
-          const daySlots = this.generateSlotsForDay(
-            doctorId,
-            currentDate,
-            dayOfWeek as Days,
-            wh.startTime,
-            wh.endTime,
-            inspectionDuration,
-            wh.location,
-            inspectionPrice,
-            doctorInfo,
+          slots.push(
+            ...this.generateSlotsForDay(
+              doctorId,
+              currentDate,
+              dayOfWeek as Days,
+              wh.startTime,
+              wh.endTime,
+              inspectionDuration,
+              wh.location,
+              inspectionPrice,
+              doctorInfo,
+            ),
           );
-
-          slots.push(...daySlots);
         }
       }
     }
 
-    // Batch insert with error handling
     const createdSlots = await this.batchInsertSlots(slots);
-
-    // Invalidate relevant caches
     await this.invalidateSlotCaches(doctorId);
 
     return createdSlots;
   }
 
-  /**
-   * Generate slots for a specific day
-   */
+  /* -------------------------------------------------------------------------- */
+  /*                          DAILY SLOT GENERATION                              */
+  /* -------------------------------------------------------------------------- */
+
   private generateSlotsForDay(
     doctorId: string,
     date: Date,
@@ -138,31 +154,35 @@ export class SlotGenerationService {
     while (currentMinutes + duration <= endMinutes) {
       const slotStartHour = Math.floor(currentMinutes / 60);
       const slotStartMin = currentMinutes % 60;
+
       const slotEndMinutes = currentMinutes + duration;
       const slotEndHour = Math.floor(slotEndMinutes / 60);
       const slotEndMin = slotEndMinutes % 60;
 
-      const slot: Partial<AppointmentSlotDocument> = {
+      // ✅ Date is normalized and UTC-safe
+      const slotDate = new Date(date);
+      slotDate.setUTCHours(0, 0, 0, 0);
+
+      slots.push({
         doctorId: doctorId as any,
         status: SlotStatus.AVAILABLE,
-        date: new Date(date),
-        startTime: `${String(slotStartHour).padStart(2, '0')}:${String(slotStartMin).padStart(2, '0')}`,
-        endTime: `${String(slotEndHour).padStart(2, '0')}:${String(slotEndMin).padStart(2, '0')}`,
+        date: slotDate,
+        startTime: `${String(slotStartHour).padStart(2, '0')}:${String(
+          slotStartMin,
+        ).padStart(2, '0')}`,
+        endTime: `${String(slotEndHour).padStart(2, '0')}:${String(
+          slotEndMin,
+        ).padStart(2, '0')}`,
         dayOfWeek,
-        location: {
-          type: location.type,
-          entity_name: location.entity_name,
-          address: location.address,
-        },
         duration,
         price,
+        location,
         doctorInfo: {
           fullName: doctorInfo.fullName,
         },
         isRecurring: true,
-      };
+      });
 
-      slots.push(slot);
       currentMinutes += duration;
     }
 
@@ -306,6 +326,26 @@ export class SlotGenerationService {
 
     this.logger.log(
       `Deleted ${result.deletedCount} slots for doctor ${doctorId}`,
+    );
+    return result.deletedCount;
+  }
+
+  /**
+   * Delete future slots for a doctor (for regeneration)
+   */
+  async deleteFutureSlotsForDoctor(doctorId: string): Promise<number> {
+    const today = this.getSyriaDate();
+
+    const result = await this.slotModel.deleteMany({
+      doctorId,
+      status: SlotStatus.AVAILABLE,
+      date: { $gte: today },
+    });
+
+    await this.invalidateSlotCaches(doctorId);
+
+    this.logger.log(
+      `Deleted ${result.deletedCount} future slots for doctor ${doctorId}`,
     );
     return result.deletedCount;
   }

@@ -3,11 +3,9 @@ import {
   NotFoundException,
   BadRequestException,
   Logger,
-  Inject,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { ClientKafka } from '@nestjs/microservices';
 
 import { AddWorkingHoursDto } from './dto/add-working-hours.dto';
 
@@ -82,17 +80,16 @@ export class WorkingHoursService {
     );
 
     // Invalidate cached doctor data
-    // await this.invalidateDoctorCache(doctorId);
+    await this.invalidateDoctorCache(doctorId);
 
     // Publish events
-    // if (isFirstTime) {
-    //   // Publish slot generation event for booking service
-    //   await this.publishSlotGenerationEvent(doctor, addWorkingHoursDto);
-    // }
-    this.publishSlotGenerationEvent(doctor, addWorkingHoursDto);
+    if (isFirstTime) {
+      // Publish slot generation event for booking service
+      this.publishSlotGenerationEvent(doctor, addWorkingHoursDto);
+    }
 
     // Publish working hours added event
-    await this.publishWorkingHoursAddedEvent(doctor, addWorkingHoursDto);
+    this.publishWorkingHoursAddedEvent(doctor, addWorkingHoursDto);
 
     this.logger.log(
       `Working hours added for doctor ${doctorId}. Slots to be generated: ${totalSlots}`,
@@ -265,10 +262,10 @@ export class WorkingHoursService {
   /**
    * Publish working hours added event
    */
-  private async publishWorkingHoursAddedEvent(
+  private publishWorkingHoursAddedEvent(
     doctor: DoctorDocument,
     dto: AddWorkingHoursDto,
-  ): Promise<void> {
+  ): void {
     const event: WorkingHoursAddedEvent = {
       eventType: 'WORKING_HOURS_ADDED',
       timestamp: new Date(),
@@ -293,9 +290,9 @@ export class WorkingHoursService {
     };
 
     try {
-      await this.kafkaProducer.emit(KAFKA_TOPICS.WORKING_HOURS_ADDED, event);
+      this.kafkaProducer.emit(KAFKA_TOPICS.WORKING_HOURS_ADDED, event);
       this.logger.log(
-        `Working hours added event published for doctor ${doctor._id}`,
+        `Working hours added event published for doctor ${doctor.firstName} ${doctor.middleName} ${doctor.lastName}`,
       );
     } catch (error) {
       const err = error as Error;
@@ -365,7 +362,7 @@ export class WorkingHoursService {
     };
 
     // Cache the result
-    // await this.cacheManager.set(cacheKey, result, this.CACHE_TTL, 3600);
+    await this.cacheManager.set(cacheKey, result, this.CACHE_TTL, 3600);
 
     return result;
   }

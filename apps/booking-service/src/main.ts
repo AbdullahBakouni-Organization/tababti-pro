@@ -12,10 +12,7 @@ async function bootstrap() {
 
   // Get config service
   const configService = app.get(ConfigService);
-  const kafkaBroker = configService.get<string>(
-    'KAFKA_BROKER',
-    'localhost:9092',
-  );
+  const kafkaBroker = configService.get<string>('KAFKA_BROKER', '');
 
   // ✅ CRITICAL: Connect Kafka microservice to listen for events
   app.connectMicroservice<MicroserviceOptions>({
@@ -46,7 +43,7 @@ async function bootstrap() {
   logger.log('✅ Kafka consumer connected and listening for events');
 
   // Start HTTP server (optional, for REST endpoints)
-  const port = configService.get<number>('PORT_BOOKING', 3001);
+  const port = configService.get<number>('BOOKING_PORT', 3001);
   await app.listen(port);
   logger.log(`✅ HTTP server running on port ${port}`);
 }
