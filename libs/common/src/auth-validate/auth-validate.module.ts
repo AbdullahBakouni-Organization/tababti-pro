@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { JwtModule, JwtService } from '@nestjs/jwt';
+import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthValidateService } from './auth-validate.service';
 import { DatabaseModule } from '../database/database.module';
@@ -25,8 +25,6 @@ import {
   ],
   providers: [
     AuthValidateService,
-    JwtService,
-    JwtModule,
     JwtRefreshStrategy,
     JwtStrategy,
     JwtUserStrategy,
@@ -34,7 +32,6 @@ import {
   ],
   exports: [
     AuthValidateService,
-    JwtService,
     JwtRefreshStrategy,
     JwtStrategy,
     JwtUserStrategy,

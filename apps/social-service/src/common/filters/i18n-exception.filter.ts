@@ -8,8 +8,6 @@ import {
 import { Request, Response } from 'express';
 import { ApiResponse } from '../response/api-response';
 
-type Lang = 'en' | 'ar';
-
 @Catch()
 export class I18nExceptionFilter implements ExceptionFilter {
   catch(exception: any, host: ArgumentsHost) {
@@ -17,35 +15,32 @@ export class I18nExceptionFilter implements ExceptionFilter {
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
 
-    const langHeader = request.headers['accept-language'];
-    const lang: Lang = langHeader === 'ar' ? 'ar' : 'en';
-
-    let status: number;
-    let messageKey: string;
+    const lang: 'en' | 'ar' =
+      request.headers['accept-language'] === 'ar' ? 'ar' : 'en';
 
     if (exception instanceof HttpException) {
-      status = exception.getStatus();
-      const responseBody = exception.getResponse();
+      const status = exception.getStatus();
+      const res: any = exception.getResponse();
+      const message =
+        typeof res === 'string'
+          ? res
+          : Array.isArray(res['message'])
+            ? res['message'][0]
+            : res['message'] || 'common.ERROR';
 
-      if (typeof responseBody === 'string') {
-        messageKey = responseBody;
-      } else if (typeof responseBody === 'object' && responseBody['message']) {
-        messageKey = Array.isArray(responseBody['message'])
-          ? responseBody['message'][0]
-          : responseBody['message'];
-      } else {
-        messageKey = 'common.ERROR';
-      }
-    } else {
-      status = HttpStatus.INTERNAL_SERVER_ERROR;
-      messageKey = 'common.ERROR';
+      return response.status(status).json(
+        ApiResponse.error({
+          lang,
+          messageKey: message,
+        }),
+      );
     }
 
-    response.status(status).json(
+    console.error('Unexpected error:', exception);
+    return response.status(HttpStatus.INTERNAL_SERVER_ERROR).json(
       ApiResponse.error({
         lang,
-        messageKey,
-       // statusCode: status,
+        messageKey: 'common.ERROR',
       }),
     );
   }

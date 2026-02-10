@@ -12,6 +12,7 @@ export class PublicSpecialization extends Document {
   })
   name: GeneralSpecialty;
 }
+export type PublicSpecializationDocument = PublicSpecialization & Document;
 
 export const PublicSpecializationSchema =
   SchemaFactory.createForClass(PublicSpecialization);

@@ -1,4 +1,4 @@
-import 'dotenv/config'; // Load env first
+import 'dotenv/config';
 import { Module } from '@nestjs/common';
 import { HomeServiceController } from './home-service.controller';
 import { HomeServiceService } from './home-service.service';
@@ -13,13 +13,13 @@ import { WorkingHoursModule } from './working-hours/working-hours.module';
 
 @Module({
   imports: [
-    KafkaModule.forProducer({
+    KafkaModule.forRoot({
       clientId: 'home-service',
       brokers: [process.env.KAFKA_BROKER!],
+      groupId: 'home-consumer',
     }),
     DatabaseModule,
     SmsModule,
-    // WhatsappModule,//Test Whatsapp api
     DoctorModule,
     AdminModule,
     AuthModule,
