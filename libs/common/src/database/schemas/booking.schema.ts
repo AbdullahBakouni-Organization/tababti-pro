@@ -8,7 +8,7 @@ import { BookingStatus, UserRole, WorkigEntity } from './common.enums';
 })
 export class Booking {
   @Prop({ type: Types.ObjectId, required: true, index: true, ref: 'User' })
-  userId: Types.ObjectId;
+  patientId: Types.ObjectId;
 
   @Prop({ type: Types.ObjectId, required: true, index: true, ref: 'Doctor' })
   doctorId: Types.ObjectId;
@@ -96,3 +96,5 @@ BookingSchema.index(
   },
   { unique: true },
 );
+
+export type BookingDocument = Booking & Document;

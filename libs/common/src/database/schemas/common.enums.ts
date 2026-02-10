@@ -773,7 +773,9 @@ export enum SlotStatus {
   BLOCKED = 'blocked', // Blocked by doctor (break, personal time, etc.)
   EXPIRED = 'expired', // Past slot that wasn't booked
   NO_SHOW = 'no_show', // Patient didn't show up
-  COMPLETED = 'completed', // Appointment completed
+  COMPLETED = 'completed',
+  PENDING = 'pending',
+  // Appointment completed
 }
 
 export enum BlockReason {
