@@ -39,7 +39,7 @@ export class PostController {
   )
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.USER, UserRole.DOCTOR, UserRole.HOSPITAL, UserRole.CENTER)
-  @ApiBearerAuth()
+
   async create(
     @UploadedFiles() files: { images?: Express.Multer.File[] },
     @Body() dto: CreatePostDto,
@@ -74,7 +74,7 @@ export class PostController {
   @Get()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.USER, UserRole.DOCTOR, UserRole.HOSPITAL, UserRole.CENTER)
-  @ApiBearerAuth()
+
   async findAll(@Headers('accept-language') lang: 'en' | 'ar' = 'en') {
     const posts = await this.postService.findAll();
     return ApiResponse.success({ lang, messageKey: 'post.LIST', data: posts });
@@ -83,7 +83,7 @@ export class PostController {
   @Get(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.USER, UserRole.DOCTOR, UserRole.HOSPITAL, UserRole.CENTER)
-  @ApiBearerAuth()
+
   async findOne(
     @Param('id') id: string,
     @Headers('accept-language') lang: 'en' | 'ar' = 'en',
@@ -101,7 +101,7 @@ export class PostController {
   )
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.USER, UserRole.DOCTOR, UserRole.HOSPITAL, UserRole.CENTER)
-  @ApiBearerAuth()
+
   async update(
     @Param('id') id: string,
     @UploadedFiles() files: { images?: Express.Multer.File[] },
@@ -138,7 +138,7 @@ export class PostController {
   @Delete(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.USER, UserRole.DOCTOR, UserRole.HOSPITAL, UserRole.CENTER)
-  @ApiBearerAuth()
+
   async remove(
     @Param('id') id: string,
     @CurrentUser('id') authAccountId: string,
@@ -155,7 +155,7 @@ export class PostController {
   @Get('author/:authorId')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.USER, UserRole.DOCTOR, UserRole.HOSPITAL, UserRole.CENTER)
-  @ApiBearerAuth()
+
   async getPostsByAuthor(
     @Param('authorId') authorId: string,
     @Headers('accept-language') lang: 'en' | 'ar' = 'en',

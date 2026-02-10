@@ -29,7 +29,7 @@ export class QuestionsController {
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.USER)
-  @ApiBearerAuth()
+
   async create(
     @Body() dto: CreateQuestionDto,
     @CurrentUser('id') userId: string,
@@ -51,7 +51,7 @@ export class QuestionsController {
   @Get()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.USER)
-  @ApiBearerAuth()
+
   async getQuestions(
     @CurrentUser('id') userId: string,
     @Query() query: FilterQuestionDto,
@@ -74,7 +74,7 @@ export class QuestionsController {
   @Post(':questionId/answer')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.DOCTOR, UserRole.HOSPITAL, UserRole.CENTER, UserRole.USER)
-  @ApiBearerAuth()
+
   async answerQuestion(
     @Param('questionId') questionId: string,
     @Body() dto: AnswerQuestionDto,
