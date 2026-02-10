@@ -765,3 +765,24 @@ export enum SystemCategorySettings {
   FEATURES = 'features',
   NOTIFICATIONS = 'notifications',
 }
+export enum SlotStatus {
+  AVAILABLE = 'available', // Slot is available for booking
+  BOOKED = 'booked', // Slot has been booked
+  ON_HOLD = 'on_hold', // Temporarily held during booking process
+  CANCELLED = 'cancelled', // Booking was cancelled, slot now available
+  BLOCKED = 'blocked', // Blocked by doctor (break, personal time, etc.)
+  EXPIRED = 'expired', // Past slot that wasn't booked
+  NO_SHOW = 'no_show', // Patient didn't show up
+  COMPLETED = 'completed', // Appointment completed
+}
+
+export enum BlockReason {
+  BREAK = 'break',
+  LUNCH = 'lunch',
+  EMERGENCY = 'emergency',
+  PERSONAL = 'personal',
+  HOLIDAY = 'holiday',
+  MAINTENANCE = 'maintenance',
+  CONFERENCE = 'conference',
+  OTHER = 'other',
+}

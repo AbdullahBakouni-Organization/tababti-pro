@@ -140,8 +140,8 @@ export class AdminService {
         );
       }
 
-      if (doctor.authAccountId) {
-        throw new BadRequestException('Doctor already has auth account');
+      if (!doctor.authAccountId) {
+        throw new BadRequestException('Doctor does not have auth account');
       }
 
       // 2️⃣ Extract normalized phones
@@ -162,28 +162,15 @@ export class AdminService {
         .session(session);
 
       if (existing) {
-        throw new BadRequestException(
-          'One or more phone numbers already belong to another account',
-        );
-      }
+        existing.isActive = true;
 
-      // 3️⃣ Create AuthAccount (phones copied from doctor)
-      const [authAccount] = await this.authAccountModel.create(
-        [
-          {
-            role: UserRole.DOCTOR,
-            phones: normalizedPhones,
-            isActive: true,
-            tokenVersion: 0,
-          },
-        ],
-        { session },
-      );
+        // 2. Save the changes to the database (pass the session!)
+        await existing.save({ session });
+      }
 
       doctor.status = ApprovalStatus.APPROVED;
       doctor.approvedBy = adminId as any;
       doctor.approvedAt = new Date();
-      doctor.authAccountId = authAccount._id;
 
       approvedDoctor = await doctor.save({ session });
 

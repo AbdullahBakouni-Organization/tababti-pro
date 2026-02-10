@@ -28,6 +28,7 @@ import { SubCitiesSchema } from './schemas/sub-cities.schema';
 import { AdsSchema } from './schemas/ads.schema';
 import { SystemConfigSchema } from './schemas/system-config.schema';
 import { CitySchema } from './schemas/cities.schema';
+import { AppointmentSlotSchema } from './schemas/slot.schema';
 
 @Global()
 @Module({
@@ -91,6 +92,10 @@ import { CitySchema } from './schemas/cities.schema';
       {
         name: 'SystemConfig',
         schema: SystemConfigSchema,
+      },
+      {
+        name: 'AppointmentSlot',
+        schema: AppointmentSlotSchema,
       },
     ]),
   ],

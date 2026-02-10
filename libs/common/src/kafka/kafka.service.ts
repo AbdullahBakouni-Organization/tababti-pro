@@ -10,9 +10,9 @@ export class KafkaService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    Object.values(KAFKA_TOPICS).forEach((topic) => {
-      this.kafkaClient.subscribeToResponseOf(topic);
-    });
+    // Object.values(KAFKA_TOPICS).forEach((topic) => {
+    //   this.kafkaClient.subscribeToResponseOf(topic);
+    // });
 
     await this.kafkaClient.connect();
   }

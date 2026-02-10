@@ -9,6 +9,12 @@ import { AuthValidateModule } from './auth-validate/auth-validate.module';
 @Module({
   providers: [CommonService],
   exports: [CommonService],
-  imports: [KafkaModule, RedisModule, DatabaseModule, CacheModule, AuthValidateModule],
+  imports: [
+    KafkaModule,
+    RedisModule,
+    DatabaseModule,
+    CacheModule,
+    AuthValidateModule,
+  ],
 })
 export class CommonModule {}
