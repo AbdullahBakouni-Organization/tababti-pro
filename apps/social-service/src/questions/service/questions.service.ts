@@ -34,7 +34,7 @@ export class QuestionsService {
     @InjectModel(Doctor.name) private readonly doctorModel: Model<Doctor>,
     @InjectModel(Hospital.name) private readonly hospitalModel: Model<Hospital>,
     @InjectModel(Center.name) private readonly centerModel: Model<Center>,
-  ) {}
+  ) { }
 
   async create(
     dto: CreateQuestionDto,
@@ -112,17 +112,17 @@ export class QuestionsService {
         answers:
           q.status === QuestionStatus.ANSWERED
             ? q.answers.map((a) => ({
-                _id: a._id,
-                content: a.content,
-                responderName:
-                  a.responder?.firstName +
-                    ' ' +
-                    a.responder?.middleName +
-                    ' ' +
-                    a.responder?.lastName || 'Unknown',
-                responderImage: a.responder?.image || null,
-                answeredAgo: a.createdAt ? this.timeAgo(a.createdAt) : null,
-              }))
+              _id: a._id,
+              content: a.content,
+              responderName:
+                a.responder?.firstName +
+                ' ' +
+                a.responder?.middleName +
+                ' ' +
+                a.responder?.lastName || 'Unknown',
+              responderImage: a.responder?.image || null,
+              answeredAgo: a.createdAt ? this.timeAgo(a.createdAt) : null,
+            }))
             : [],
         createdAt: q.createdAt,
         updatedAt: q.updatedAt,
@@ -253,13 +253,15 @@ export class QuestionsService {
       match = {};
     }
 
-    if (filter === 'specialization') {
-      if (!doctor.privateSpecializationId) {
-        return [];
-      }
 
-      match.specializationId = doctor.privateSpecializationId;
+    if (filter === 'specialization') {
+
+      match = await this.specializationsService
+        .buildQuestionSpecializationMatch(
+          doctor.privateSpecialization,
+        ) || {};
     }
+
 
     if (filter === 'myAnswers') {
       const answers = await this.answerModel
@@ -295,16 +297,16 @@ export class QuestionsService {
       answers:
         q.status === 'answered'
           ? q.answers
-              .filter((a) => a?._id)
-              .map((a) => ({
-                _id: a._id,
-                content: a.content,
-                responderName: a.responder
-                  ? `${a.responder.firstName} ${a.responder.middleName || ''} ${a.responder.lastName}`.trim()
-                  : 'Unknown',
-                responderImage: a.responder?.image || null,
-                answeredAgo: this.timeAgo(a.createdAt),
-              }))
+            .filter((a) => a?._id)
+            .map((a) => ({
+              _id: a._id,
+              content: a.content,
+              responderName: a.responder
+                ? `${a.responder.firstName} ${a.responder.middleName || ''} ${a.responder.lastName}`.trim()
+                : 'Unknown',
+              responderImage: a.responder?.image || null,
+              answeredAgo: this.timeAgo(a.createdAt),
+            }))
           : [],
 
       createdAt: q.createdAt,
