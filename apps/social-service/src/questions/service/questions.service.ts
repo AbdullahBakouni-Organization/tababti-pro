@@ -12,6 +12,9 @@ import { Question } from '@app/common/database/schemas/question.schema';
 import { Answer } from '@app/common/database/schemas/answer.schema';
 import { User } from '@app/common/database/schemas/user.schema';
 import { Doctor } from '@app/common/database/schemas/doctor.schema';
+import { Hospital } from '@app/common/database/schemas/hospital.schema';
+import { Center } from '@app/common/database/schemas/center.schema';
+
 import {
   AnswerStatus,
   PrivateMedicineSpecialty,
@@ -29,6 +32,8 @@ export class QuestionsService {
     @InjectModel(Answer.name) private readonly answerModel: Model<Answer>,
     @InjectModel(Question.name) private readonly questionModel: Model<Question>,
     @InjectModel(Doctor.name) private readonly doctorModel: Model<Doctor>,
+    @InjectModel(Hospital.name) private readonly hospitalModel: Model<Hospital>,
+    @InjectModel(Center.name) private readonly centerModel: Model<Center>,
   ) {}
 
   async create(
@@ -102,19 +107,23 @@ export class QuestionsService {
         content: q.content,
         status: q.status,
         specializations: q.specializations,
-        answersCount: q.answers.length,
-        answers: q.answers.map((a) => ({
-          _id: a._id,
-          content: a.content,
-          responderName:
-            a.responder?.firstName +
-              ' ' +
-              a.responder?.middleName +
-              ' ' +
-              a.responder?.lastName || 'Unknown',
-          responderImage: a.responder?.image || null,
-          answeredAgo: a.createdAt ? this.timeAgo(a.createdAt) : null,
-        })),
+        answersCount:
+          q.status === QuestionStatus.ANSWERED ? q.answers.length : 0,
+        answers:
+          q.status === QuestionStatus.ANSWERED
+            ? q.answers.map((a) => ({
+                _id: a._id,
+                content: a.content,
+                responderName:
+                  a.responder?.firstName +
+                    ' ' +
+                    a.responder?.middleName +
+                    ' ' +
+                    a.responder?.lastName || 'Unknown',
+                responderImage: a.responder?.image || null,
+                answeredAgo: a.createdAt ? this.timeAgo(a.createdAt) : null,
+              }))
+            : [],
         createdAt: q.createdAt,
         updatedAt: q.updatedAt,
       }));
@@ -136,19 +145,58 @@ export class QuestionsService {
     responderId: string;
     content: string;
   }) {
-    const { questionId, responderType, responderId, content } = dto;
+    let { questionId, responderType, responderId, content } = dto;
 
     if (!Types.ObjectId.isValid(questionId))
       throw new BadRequestException('question.INVALID_ID');
+
     if (!Types.ObjectId.isValid(responderId))
       throw new BadRequestException('user.INVALID_ID');
+
+    if (responderType === UserRole.USER) {
+      throw new BadRequestException('question.ONLY_PROVIDERS_CAN_ANSWER');
+    }
+
+    let realResponderId: Types.ObjectId | null = null;
+
+    if (responderType === UserRole.DOCTOR) {
+      const doctor = await this.doctorModel.findOne({
+        authAccountId: new Types.ObjectId(responderId),
+      });
+
+      if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
+
+      realResponderId = doctor._id;
+    }
+
+    if (responderType === UserRole.HOSPITAL) {
+      const hospital = await this.hospitalModel.findOne({
+        authAccountId: new Types.ObjectId(responderId),
+      });
+
+      if (!hospital) throw new NotFoundException('hospital.NOT_FOUND');
+
+      realResponderId = hospital._id;
+    }
+
+    if (responderType === UserRole.CENTER) {
+      const center = await this.centerModel.findOne({
+        authAccountId: new Types.ObjectId(responderId),
+      });
+
+      if (!center) throw new NotFoundException('center.NOT_FOUND');
+
+      realResponderId = center._id;
+    }
+
+    if (!realResponderId) throw new BadRequestException('user.INVALID_ROLE');
 
     const question = await this.repo.findById(questionId);
     if (!question) throw new NotFoundException('question.NOT_FOUND');
 
     const existingAnswer = await this.answerModel.findOne({
       questionId: new Types.ObjectId(questionId),
-      responderId: new Types.ObjectId(responderId),
+      responderId: realResponderId,
     });
 
     if (existingAnswer) {
@@ -158,7 +206,7 @@ export class QuestionsService {
     const answer = new this.answerModel({
       questionId: new Types.ObjectId(questionId),
       responderType,
-      responderId: new Types.ObjectId(responderId),
+      responderId: realResponderId,
       content,
     });
 
@@ -181,5 +229,86 @@ export class QuestionsService {
     if (hours < 24) return `${hours} hours ago`;
     const days = Math.floor(hours / 24);
     return `${days} days ago`;
+  }
+
+  async getDoctorQuestions(
+    authAccountId: string,
+    filter: 'all' | 'specialization' | 'myAnswers' = 'all',
+  ) {
+    if (!Types.ObjectId.isValid(authAccountId)) {
+      throw new BadRequestException('doctor.INVALID_ID');
+    }
+
+    const doctor = await this.doctorModel.findOne({
+      authAccountId: new Types.ObjectId(authAccountId),
+    });
+
+    if (!doctor) {
+      throw new NotFoundException('doctor.NOT_FOUND');
+    }
+
+    let match: any = {};
+
+    if (filter === 'all') {
+      match = {};
+    }
+
+    if (filter === 'specialization') {
+      if (!doctor.privateSpecializationId) {
+        return [];
+      }
+
+      match.specializationId = doctor.privateSpecializationId;
+    }
+
+    if (filter === 'myAnswers') {
+      const answers = await this.answerModel
+        .find({ responderId: doctor._id }, { questionId: 1, _id: 0 })
+        .lean();
+
+      const questionIds = answers.map((a) => a.questionId);
+
+      if (!questionIds.length) {
+        return [];
+      }
+
+      match._id = { $in: questionIds };
+    }
+
+    const questions = await this.repo.findQuestionsWithAnswers(match);
+
+    return questions.map((q) => ({
+      _id: q._id,
+      content: q.content,
+      status: q.status,
+
+      asker: {
+        name: q.asker?.name || 'Unknown',
+        image: q.asker?.image || null,
+      },
+
+      specializations: q.specializations,
+
+      answersCount:
+        q.status === 'answered' ? q.answers.filter((a) => a?._id).length : 0,
+
+      answers:
+        q.status === 'answered'
+          ? q.answers
+              .filter((a) => a?._id)
+              .map((a) => ({
+                _id: a._id,
+                content: a.content,
+                responderName: a.responder
+                  ? `${a.responder.firstName} ${a.responder.middleName || ''} ${a.responder.lastName}`.trim()
+                  : 'Unknown',
+                responderImage: a.responder?.image || null,
+                answeredAgo: this.timeAgo(a.createdAt),
+              }))
+          : [],
+
+      createdAt: q.createdAt,
+      updatedAt: q.updatedAt,
+    }));
   }
 }
