@@ -23,9 +23,11 @@ export class PostService {
     @InjectModel(Hospital.name) private readonly hospitalModel: Model<Hospital>,
     @InjectModel(Center.name) private readonly centerModel: Model<Center>,
   ) {}
-
-  /** Get author document by authAccountId and role */
   private async getAuthor(authAccountId: string, role: UserRole) {
+    if (!Types.ObjectId.isValid(authAccountId)) {
+      throw new BadRequestException('Invalid ID');
+    }
+
     const authObjectId = new Types.ObjectId(authAccountId);
     let author: any = null;
 
@@ -35,16 +37,19 @@ export class PostService {
           .findOne({ authAccountId: authObjectId })
           .lean();
         break;
+
       case UserRole.DOCTOR:
         author = await this.doctorModel
           .findOne({ authAccountId: authObjectId })
           .lean();
         break;
+
       case UserRole.HOSPITAL:
         author = await this.hospitalModel
           .findOne({ authAccountId: authObjectId })
           .lean();
         break;
+
       case UserRole.CENTER:
         author = await this.centerModel
           .findOne({ authAccountId: authObjectId })
@@ -52,11 +57,13 @@ export class PostService {
         break;
     }
 
-    if (!author) throw new NotFoundException('user.NOT_FOUND');
+    if (!author) {
+      throw new NotFoundException('author.NOT_FOUND');
+    }
+
     return author;
   }
 
-  /** Format author name based on role */
   private formatAuthorName(author: any, role: UserRole): string {
     if (!author) return 'Unknown';
     switch (role) {
@@ -76,7 +83,6 @@ export class PostService {
     }
   }
 
-  /** Get author model by role */
   private getAuthorModel(role: UserRole): Model<any> {
     switch (role) {
       case UserRole.USER:
@@ -92,7 +98,6 @@ export class PostService {
     }
   }
 
-  /** Create a new post */
   async create(
     dto: CreatePostDto,
     images: string[],
@@ -121,25 +126,6 @@ export class PostService {
     };
   }
 
-  /** Get all posts */
-  async findAll() {
-    const posts = await this.postModel.find().sort({ createdAt: -1 }).lean();
-
-    return Promise.all(
-      posts.map(async (post) => {
-        const authorModel = this.getAuthorModel(post.authorType);
-        const author = await authorModel.findById(post.authorId).lean();
-
-        return {
-          ...post,
-          authorName: this.formatAuthorName(author, post.authorType),
-          authorImage: author?.avatar || author?.image || null,
-        };
-      }),
-    );
-  }
-
-  /** Get a single post by ID */
   async findOne(id: string) {
     if (!Types.ObjectId.isValid(id))
       throw new BadRequestException('post.INVALID_ID');
@@ -152,40 +138,6 @@ export class PostService {
 
     return {
       ...post,
-      authorName: this.formatAuthorName(author, post.authorType),
-      authorImage: author?.avatar || author?.image || null,
-    };
-  }
-
-  /** Update a post */
-  async update(
-    id: string,
-    dto: Partial<CreatePostDto>,
-    images: string[],
-    authAccountId: string,
-    role: UserRole,
-  ) {
-    if (!Types.ObjectId.isValid(id))
-      throw new BadRequestException('post.INVALID_ID');
-
-    const post = await this.postModel.findById(id);
-    if (!post) throw new NotFoundException('post.NOT_FOUND');
-
-    const author = await this.getAuthor(authAccountId, role);
-    if (post.authorId.toString() !== author._id.toString())
-      throw new ForbiddenException('post.FORBIDDEN');
-
-    const newImages = images.length ? images : post.images;
-    if (!dto.content && (!newImages || newImages.length === 0))
-      throw new BadRequestException('post.INVALID_CONTENT');
-
-    post.content = dto.content ?? post.content;
-    post.images = newImages;
-
-    await post.save();
-
-    return {
-      ...post.toObject(),
       authorName: this.formatAuthorName(author, post.authorType),
       authorImage: author?.avatar || author?.image || null,
     };
@@ -238,5 +190,13 @@ export class PostService {
         };
       }),
     );
+  }
+
+  async getMyPosts(authAccountId: string, role: UserRole) {
+    const author = await this.getAuthor(authAccountId, role);
+
+    return this.postModel
+      .find({ authorId: author._id })
+      .sort({ createdAt: -1 });
   }
 }

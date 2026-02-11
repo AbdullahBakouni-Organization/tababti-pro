@@ -24,15 +24,14 @@ import { UserRole } from '@app/common/database/schemas/common.enums';
 @ApiTags('Questions')
 @Controller('questions')
 export class QuestionsController {
-  constructor(private readonly service: QuestionsService) { }
+  constructor(private readonly service: QuestionsService) {}
 
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.USER)
-
   async create(
     @Body() dto: CreateQuestionDto,
-    @CurrentUser('id') userId: string,
+    @CurrentUser('accountId') userId: string,
     @Headers('accept-language') lang: 'en' | 'ar' = 'en',
   ) {
     if (!dto.content || !dto.specializationId?.length) {
@@ -50,8 +49,7 @@ export class QuestionsController {
 
   @Get()
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.USER)
-
+  @Roles(UserRole.DOCTOR, UserRole.HOSPITAL, UserRole.CENTER ,UserRole.USER)
   async getQuestions(
     @CurrentUser('id') userId: string,
     @Query() query: FilterQuestionDto,
@@ -73,12 +71,11 @@ export class QuestionsController {
 
   @Post(':questionId/answer')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.DOCTOR, UserRole.HOSPITAL, UserRole.CENTER, UserRole.USER)
-
+  @Roles(UserRole.DOCTOR, UserRole.HOSPITAL, UserRole.CENTER)
   async answerQuestion(
     @Param('questionId') questionId: string,
     @Body() dto: AnswerQuestionDto,
-    @CurrentUser('id') responderId: string,
+    @CurrentUser('accountId') responderId: string,
     @CurrentUser('role') role: UserRole,
     @Headers('accept-language') lang: 'en' | 'ar' = 'en',
   ) {
@@ -97,6 +94,23 @@ export class QuestionsController {
       lang,
       messageKey: 'question.ANSWERED',
       data: answer,
+    });
+  }
+
+  @Get('doctor')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
+  async getDoctorQuestions(
+    @CurrentUser('accountId') accountId: string,
+    @Query('filter') filter: 'all' | 'specialization' | 'myAnswers' = 'all',
+    @Headers('accept-language') lang: 'en' | 'ar' = 'en',
+  ) {
+    const data = await this.service.getDoctorQuestions(accountId, filter);
+
+    return ApiResponse.success({
+      lang,
+      messageKey: 'question.LIST',
+      data,
     });
   }
 }

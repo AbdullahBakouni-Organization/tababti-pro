@@ -36,12 +36,96 @@ export class QuestionsRepository {
         },
       },
 
+      { $unwind: { path: '$answers', preserveNullAndEmptyArrays: true } },
+
+      {
+        $lookup: {
+          from: 'doctors',
+          let: { rid: '$answers.responderId', type: '$answers.responderType' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ['$_id', '$$rid'] },
+                    { $eq: ['$$type', 'doctor'] },
+                  ],
+                },
+              },
+            },
+          ],
+          as: 'doctorResponder',
+        },
+      },
+
+      {
+        $lookup: {
+          from: 'hospitals',
+          let: { rid: '$answers.responderId', type: '$answers.responderType' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ['$_id', '$$rid'] },
+                    { $eq: ['$$type', 'hospital'] },
+                  ],
+                },
+              },
+            },
+          ],
+          as: 'hospitalResponder',
+        },
+      },
+
+      {
+        $lookup: {
+          from: 'centers',
+          let: { rid: '$answers.responderId', type: '$answers.responderType' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ['$_id', '$$rid'] },
+                    { $eq: ['$$type', 'center'] },
+                  ],
+                },
+              },
+            },
+          ],
+          as: 'centerResponder',
+        },
+      },
+
+      {
+        $addFields: {
+          responder: {
+            $ifNull: [
+              { $arrayElemAt: ['$doctorResponder', 0] },
+              {
+                $ifNull: [
+                  { $arrayElemAt: ['$hospitalResponder', 0] },
+                  { $arrayElemAt: ['$centerResponder', 0] },
+                ],
+              },
+            ],
+          },
+        },
+      },
+
       {
         $lookup: {
           from: 'users',
-          localField: 'answers.responderId',
+          localField: 'userId',
           foreignField: '_id',
-          as: 'responders',
+          as: 'asker',
+        },
+      },
+
+      {
+        $addFields: {
+          asker: { $arrayElemAt: ['$asker', 0] },
         },
       },
 
@@ -50,37 +134,59 @@ export class QuestionsRepository {
           content: 1,
           status: 1,
           specializations: 1,
-          answers: {
-            $map: {
-              input: { $ifNull: ['$answers', []] },
-              as: 'a',
-              in: {
-                _id: '$$a._id',
-                content: '$$a.content',
-                createdAt: '$$a.createdAt',
-                responder: {
-                  $arrayElemAt: [
-                    {
-                      $filter: {
-                        input: '$responders',
-                        as: 'r',
-                        cond: { $eq: ['$$r._id', '$$a.responderId'] },
-                      },
-                    },
-                    0,
-                  ],
-                },
+          asker: {
+            name: { $ifNull: ['$asker.username', 'Unknown'] },
+            image: '$asker.image',
+          },
+
+          answer: {
+            $cond: [
+              { $ifNull: ['$answers._id', false] },
+              {
+                _id: '$answers._id',
+                content: '$answers.content',
+                createdAt: '$answers.createdAt',
+                responder: '$responder',
               },
-            },
+              null,
+            ],
           },
           createdAt: 1,
           updatedAt: 1,
         },
       },
 
+      {
+        $group: {
+          _id: '$_id',
+          content: { $first: '$content' },
+          status: { $first: '$status' },
+          specializations: { $first: '$specializations' },
+          createdAt: { $first: '$createdAt' },
+          updatedAt: { $first: '$updatedAt' },
+          asker: { $first: '$asker' },
+          answers: {
+            $push: '$answer',
+          },
+        },
+      },
+
+      {
+        $addFields: {
+          answers: {
+            $filter: {
+              input: '$answers',
+              as: 'a',
+              cond: { $ne: ['$$a', null] },
+            },
+          },
+        },
+      },
+
       { $sort: { createdAt: -1 } },
     ]);
   }
+
   async findById(id: string) {
     return this.questionModel.findById(id);
   }
