@@ -472,10 +472,7 @@ export class DoctorService {
 
       // Clear any existing OTP for this doctor
       await this.otpModel
-        .deleteMany({
-          doctorId: doctor._id,
-          phone: phone,
-        })
+        .deleteMany({ authAccountId: doctor.authAccountId })
         .session(session);
 
       // Generate new OTP
