@@ -1,6 +1,8 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Types } from 'mongoose';
 import { BookingStatus, UserRole, WorkigEntity } from './common.enums';
+import { User } from './user.schema';
+import { AppointmentSlot } from './slot.schema';
 
 @Schema({
   timestamps: true,
@@ -97,4 +99,9 @@ BookingSchema.index(
   { unique: true },
 );
 
-export type BookingDocument = Booking & Document;
+export type BookingDocument = Booking &
+  Document & {
+    patientId: Types.ObjectId | User;
+    slotId: Types.ObjectId | AppointmentSlot;
+    _id?: Types.ObjectId;
+  };

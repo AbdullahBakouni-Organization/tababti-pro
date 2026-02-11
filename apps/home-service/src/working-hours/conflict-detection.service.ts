@@ -68,14 +68,29 @@ export class ConflictDetectionService {
       if (conflict) {
         const isToday = this.isSameDay(booking.bookingDate, today);
 
+        const patient =
+          typeof booking.patientId === 'object' &&
+          'username' in booking.patientId
+            ? booking.patientId
+            : null;
+
+        if (!patient) continue;
+
+        const slot =
+          typeof booking.slotId === 'object' && 'startTime' in booking.slotId
+            ? booking.slotId
+            : null;
+
+        if (!slot) continue;
+
         const conflictedBooking: ConflictedBooking = {
           bookingId: booking._id.toString(),
           patientId: booking.patientId._id.toString(),
-          patientName: `${booking.patientId.username}`,
-          patientContact: booking.patientId.phone,
+          patientName: patient.username,
+          patientContact: patient.phone,
           appointmentDate: booking.bookingDate,
-          appointmentTime: booking.slotId.startTime,
-          location: booking.slotId.location,
+          appointmentTime: slot.startTime,
+          location: slot.location,
           reason: conflict.reason,
           isToday,
         };
@@ -102,11 +117,16 @@ export class ConflictDetectionService {
     booking: BookingDocument,
     newWorkingHours: any[],
   ): { conflicts: boolean; reason: string } | null {
-    const slot = booking.slotId;
-    const bookingDay = slot.dayOfWeek;
-    const bookingLocation = slot.location;
-    const bookingStartTime = slot.startTime;
-    const bookingEndTime = slot.endTime;
+    const slotschema =
+      typeof booking.slotId === 'object' && 'startTime' in booking.slotId
+        ? booking.slotId
+        : null;
+
+    if (!slotschema) return null;
+    const bookingDay = slotschema.dayOfWeek;
+    const bookingLocation = slotschema.location;
+    const bookingStartTime = slotschema.startTime;
+    const bookingEndTime = slotschema.endTime;
 
     // Find matching working hours for this day and location
     const matchingWorkingHours = newWorkingHours.filter(

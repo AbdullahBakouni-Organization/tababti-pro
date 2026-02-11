@@ -1,7 +1,7 @@
 import 'dotenv/config'; // Load env first
 import { Module } from '@nestjs/common';
-import { BookingServiceController } from './booking-service.controller';
-import { BookingServiceService } from './booking-service.service';
+import { BookingController } from './booking-service.controller';
+import { BookingService } from './booking-service.service';
 import { DatabaseModule } from '@app/common/database/database.module';
 import { KafkaModule } from '@app/common/kafka/kafka.module';
 import { SlotModule } from './slot/slot.module';
@@ -33,7 +33,7 @@ import { ConfigModule } from '@nestjs/config';
     // ✅ ADD THIS: Import SlotModule which contains SlotGenerationService
     SlotModule,
   ],
-  controllers: [BookingServiceController],
-  providers: [BookingServiceService],
+  controllers: [BookingController],
+  providers: [BookingService],
 })
 export class BookingServiceModule {}

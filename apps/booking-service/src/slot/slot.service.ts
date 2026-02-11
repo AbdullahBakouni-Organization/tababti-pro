@@ -54,6 +54,113 @@ export class SlotGenerationService {
     }
   }
 
+  @EventPattern(KAFKA_TOPICS.SLOTS_GENERATE_FOR_TODAY)
+  async processSlotGenerationForToday(
+    event: SlotGenerationEvent,
+  ): Promise<void> {
+    this.logger.log(
+      `Received slot generation event for today to a doctor ${event.data.doctorId}`,
+    );
+
+    try {
+      const slots = await this.generateTodaySlots(event);
+      this.logger.log(
+        `Successfully generated ${slots.length} slots for doctor ${event.data.doctorId}`,
+      );
+
+      // Cache the generated slots count for monitoring
+      await this.cacheManager.set(
+        `slots:generated:${event.data.doctorId}`,
+        slots.length,
+        this.CACHE_TTL,
+        3600,
+      );
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `Failed to generate slots for doctor ${event.data.doctorId}: ${err.message}`,
+        err.stack,
+      );
+      // In production, you might want to publish this to a dead letter queue
+    }
+  }
+
+  @EventPattern(KAFKA_TOPICS.SLOTS_GENERATE_FOR_FUTURE)
+  async processSlotGenerationFor(event: SlotGenerationEvent): Promise<void> {
+    this.logger.log(
+      `Received slot generation event for future to a doctor ${event.data.doctorId}`,
+    );
+
+    try {
+      const slots = await this.generateFutureSlots(event);
+      this.logger.log(
+        `Successfully generated
+        slots for doctor ${event.data.doctorId}`,
+      );
+
+      // Cache the generated slots count for monitoring
+      await this.cacheManager.set(
+        `slots:generated:${event.data.doctorId}`,
+        slots.length,
+        this.CACHE_TTL,
+        3600,
+      );
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `Failed to generate slots for doctor ${event.data.doctorId}: ${err.message}`,
+        err.stack,
+      );
+      // In production, you might want to publish this to a dead letter queue
+    }
+  }
+
+  async generateTodaySlots(
+    event: SlotGenerationEvent,
+  ): Promise<AppointmentSlot[]> {
+    const {
+      doctorId,
+      workingHours,
+      inspectionDuration,
+      inspectionPrice,
+      doctorInfo,
+    } = event.data;
+
+    const slots: Partial<AppointmentSlot>[] = [];
+    const today = this.getSyriaDate();
+
+    // Generate slots only for today
+    const dayOfWeek = this.getDayName(today.getUTCDay());
+
+    const dayWorkingHours = workingHours.filter(
+      (wh) => wh.day.toLowerCase() === dayOfWeek.toLowerCase(),
+    );
+
+    for (const wh of dayWorkingHours) {
+      slots.push(
+        ...this.generateSlotsForDay(
+          doctorId,
+          today,
+          dayOfWeek as Days,
+          wh.startTime,
+          wh.endTime,
+          inspectionDuration,
+          wh.location,
+          inspectionPrice,
+          doctorInfo,
+        ),
+      );
+    }
+
+    const createdSlots = await this.batchInsertSlots(slots);
+    await this.invalidateSlotCaches(doctorId);
+
+    this.logger.log(
+      `Generated ${createdSlots.length} slots for today for doctor ${doctorId}`,
+    );
+
+    return createdSlots;
+  }
   /**
    * Get current date in Syria timezone
    */
@@ -189,6 +296,58 @@ export class SlotGenerationService {
     return slots;
   }
 
+  private async generateFutureSlots(
+    event: SlotGenerationEvent,
+  ): Promise<Partial<AppointmentSlot>[]> {
+    const {
+      doctorId,
+      workingHours,
+      inspectionDuration,
+      inspectionPrice,
+      doctorInfo,
+    } = event.data;
+    const today = this.getSyriaDate();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const slots: Partial<AppointmentSlot>[] = [];
+    const WEEKS = 12;
+
+    // Start from day 1 (tomorrow), not day 0 (today)
+    for (let week = 0; week < WEEKS; week++) {
+      for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
+        const currentDate = new Date(tomorrow);
+        currentDate.setDate(tomorrow.getDate() + week * 7 + dayOffset);
+
+        const dayOfWeek = this.getDayName(currentDate.getUTCDay());
+
+        const dayWorkingHours = workingHours.filter(
+          (wh) => wh.day.toLowerCase() === dayOfWeek.toLowerCase(),
+        );
+
+        for (const wh of dayWorkingHours) {
+          slots.push(
+            ...this.generateSlotsForDay(
+              doctorId,
+              currentDate,
+              dayOfWeek as Days,
+              wh.startTime,
+              wh.endTime,
+              inspectionDuration,
+              wh.location,
+              inspectionPrice,
+              doctorInfo,
+            ),
+          );
+        }
+      }
+    }
+
+    // Use your existing batch insert logic
+    await this.invalidateSlotCaches(doctorId);
+    const createdSlots = await this.batchInsertSlots(slots);
+    return createdSlots;
+  }
   /**
    * Batch insert slots with duplicate handling
    */

@@ -9,7 +9,7 @@ async function bootstrap() {
 
   // Create the main HTTP application
   const app = await NestFactory.create(BookingServiceModule);
-
+  app.setGlobalPrefix('api/v1');
   // Get config service
   const configService = app.get(ConfigService);
   const kafkaBroker = configService.get<string>('KAFKA_BROKER', '');

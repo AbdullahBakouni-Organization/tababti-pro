@@ -33,7 +33,11 @@ export const KAFKA_TOPICS = {
   CACHE_INVALIDATE: 'cache.invalidate',
 
   SLOTS_GENERATE: 'slots.generate',
+  SLOTS_GENERATE_FOR_TODAY: 'slots.generate.for.today',
+  SLOTS_GENERATE_FOR_FUTURE: 'slots.generate.for.future',
+  SLOTS_REFRESHED: 'slots.refreshed',
   WORKING_HOURS_ADDED: 'working.hours.added',
+  WORKING_HOURS_UPDATED: 'working.hours.updated',
   // WhatsApp
   WHATSAPP_SEND_MESSAGE: 'whatsapp.send.message',
   WHATSAPP_SEND_OTP: 'whatsapp.send.otp',

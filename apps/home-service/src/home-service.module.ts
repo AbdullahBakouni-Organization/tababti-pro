@@ -10,9 +10,29 @@ import { DoctorModule } from './doctor/doctor.module';
 import { AdminModule } from './admin/admin.module';
 import { AuthModule } from './auth/auth.module';
 import { WorkingHoursModule } from './working-hours/working-hours.module';
+import { BullModule } from '@nestjs/bull';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 
 @Module({
   imports: [
+    BullModule.forRootAsync({
+      imports: [ConfigModule],
+      useFactory: (configService: ConfigService) => ({
+        redis: {
+          host: configService.get('REDIS_HOST', 'localhost'),
+          port: configService.get('REDIS_PORT', 6379),
+          password: configService.get('REDIS_PASSWORD'),
+          db: configService.get('REDIS_DB', 0),
+          maxRetriesPerRequest: null, // Important for Bull
+          enableReadyCheck: false,
+        },
+        defaultJobOptions: {
+          removeOnComplete: true,
+          removeOnFail: false,
+        },
+      }),
+      inject: [ConfigService],
+    }),
     KafkaModule.forProducer({
       clientId: 'home-service',
       brokers: [process.env.KAFKA_BROKER!],
@@ -20,18 +40,7 @@ import { WorkingHoursModule } from './working-hours/working-hours.module';
     DatabaseModule,
     SmsModule,
     // WhatsappModule,//Test Whatsapp api
-import { WhatsappModule } from './whatsapp/whatsapp.module';
-
-@Module({
-  imports: [
-    // KafkaModule.forRoot({
-    //   clientId: 'home-service',
-    //   brokers: [process.env.KAFKA_BROKER!],
-    //   groupId: 'home-consumer',
-    // }),
-    DatabaseModule,
-    SmsModule,
-    WhatsappModule,
+    WorkingHoursModule,
     DoctorModule,
     AdminModule,
     AuthModule,

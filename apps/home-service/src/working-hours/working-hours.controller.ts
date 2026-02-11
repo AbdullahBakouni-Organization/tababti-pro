@@ -21,6 +21,10 @@ import {
   AddWorkingHoursDto,
   WorkingHoursResponseDto,
 } from './dto/add-working-hours.dto';
+import {
+  ConflictCheckResponseDto,
+  UpdateWorkingHoursDto,
+} from './dto/update-working-hours.dto';
 
 // import { JwtAuthGuard } from '../guards/jwt-auth.guard'; // Uncomment if you have auth
 
@@ -222,5 +226,49 @@ export class WorkingHoursController {
   })
   async getWorkingHours(@Param('doctorId') doctorId: string) {
     return this.workingHoursService.getWorkingHours(doctorId);
+  }
+
+  @Post(':doctorId/check-conflicts')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Check for conflicts before updating working hours (Dry Run)',
+    description:
+      'Analyzes the impact of new working hours on existing bookings without making any changes. Returns a list of bookings that would be cancelled.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Conflict check completed',
+    type: ConflictCheckResponseDto,
+  })
+  async checkConflicts(
+    @Param('doctorId') doctorId: string,
+    @Body() updateDto: UpdateWorkingHoursDto,
+  ): Promise<ConflictCheckResponseDto> {
+    return this.workingHoursService.checkWorkingHoursConflicts(
+      doctorId,
+      updateDto,
+    );
+  }
+
+  @Post('update')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Update working hours (Confirmed)',
+    description:
+      'Updates the doctor working hours and queues jobs to handle any conflicts. Requires confirmUpdate: true if conflicts exist.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Working hours updated successfully',
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'Conflicts exist but not confirmed',
+  })
+  async updateWorkingHours(
+    @Param('doctorId') doctorId: string,
+    @Body() updateDto: UpdateWorkingHoursDto,
+  ) {
+    return this.workingHoursService.updateWorkingHours(doctorId, updateDto);
   }
 }
