@@ -12,24 +12,9 @@ export class Hospital extends Document {
   @Prop({ type: Types.ObjectId, ref: 'AuthAccount', unique: true })
   authAccountId: Types.ObjectId;
 
-  @Prop({
-    type: String,
-    required: true,
-    trim: true,
-    minlength: 3,
-    maxlength: 50,
-    match: /^[\p{L}._-]+$/u,
-  })
-  name: string;
+  @Prop() name: string;
 
-  @Prop({
-    required: true,
-    trim: true,
-    minlength: 3,
-    maxlength: 50,
-    match: /^[\p{L}\p{N}._-]+$/u,
-  }) // Address is optional
-  address?: string;
+  @Prop() address?: string;
 
   @Prop({
     required: false,

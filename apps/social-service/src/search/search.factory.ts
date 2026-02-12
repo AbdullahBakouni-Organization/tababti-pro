@@ -15,21 +15,28 @@ export class SearchFactory {
     private readonly center: CenterSearchStrategy,
     private readonly insurance: InsuranceSearchStrategy,
     private readonly all: AllSearchStrategy,
-  ) {}
+  ) { }
 
-  getStrategy<T = any>(condition: ConditionEnum): SearchStrategy<T> {
+  getStrategy(condition: ConditionEnum): SearchStrategy {
     switch (condition) {
       case ConditionEnum.DOCTORS:
-        return this.doctor as SearchStrategy<T>;
+        return this.doctor;
+
       case ConditionEnum.HOSPITAL:
-        return this.hospital as SearchStrategy<T>;
+        return this.hospital;
+
       case ConditionEnum.CENTER:
-        return this.center as SearchStrategy<T>;
+        return this.center;
+
       case ConditionEnum.INSURANCE_COMPANIES:
-        return this.insurance as SearchStrategy<T>;
+        return this.insurance;
+
       case ConditionEnum.ALL:
-        return this.all as SearchStrategy<T>;
+        return this.all;
+
+      default:
+        throw new Error('Unknown condition');
     }
   }
+
 }
-//git checkout -b search-and-filter-service
