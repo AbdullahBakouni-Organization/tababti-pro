@@ -254,11 +254,11 @@ export class QuestionsService {
     }
 
     if (filter === 'specialization') {
-      if (!doctor.privateSpecializationId) {
-        return [];
-      }
-
-      match.specializationId = doctor.privateSpecializationId;
+      ((match =
+        await this.specializationsService.buildQuestionSpecializationMatch(
+          doctor.privateSpecialization,
+        )),
+        {});
     }
 
     if (filter === 'myAnswers') {

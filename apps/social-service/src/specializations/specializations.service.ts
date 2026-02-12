@@ -91,4 +91,25 @@ export class SpecializationsService {
 
     return privateSpecs.map((s) => s._id);
   }
+
+  async buildQuestionSpecializationMatch(
+    doctorPrivateSpecialization: string,
+  ): Promise<any> {
+    if (!doctorPrivateSpecialization) {
+      return null;
+    }
+
+    const privateSpec = await this.specializationModel
+      .findOne({ name: doctorPrivateSpecialization })
+      .select('_id')
+      .lean();
+
+    if (!privateSpec) {
+      return null;
+    }
+
+    return {
+      specializationId: { $in: [privateSpec._id] },
+    };
+  }
 }
