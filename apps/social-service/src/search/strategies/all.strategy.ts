@@ -3,7 +3,6 @@ import { SearchStrategy } from './search-strategy.interface';
 import { DoctorSearchStrategy } from './doctor-search.strategy';
 import { HospitalSearchStrategy } from './hospital-search.strategy';
 import { CenterSearchStrategy } from './center-search.strategy';
-import { InsuranceSearchStrategy } from './insurance.strategy';
 import { SearchFilterDto } from '../dto/search-filter.dto';
 
 @Injectable()
@@ -17,7 +16,6 @@ export class AllSearchStrategy implements SearchStrategy<{
     private readonly doctor: DoctorSearchStrategy,
     private readonly hospital: HospitalSearchStrategy,
     private readonly center: CenterSearchStrategy,
-    private readonly insurance: InsuranceSearchStrategy,
   ) {}
 
   async search(
@@ -27,15 +25,14 @@ export class AllSearchStrategy implements SearchStrategy<{
     sortBy?: string,
     order?: 'asc' | 'desc',
   ) {
-    const [doctors, hospitals, centers, insuranceCompanies] = await Promise.all(
+    const [doctors, hospitals, centers] = await Promise.all(
       [
         this.doctor.search({ ...query }, skip, limit, sortBy, order),
         this.hospital.search({ ...query }, skip, limit, sortBy, order),
-        this.center.search({ ...query }, skip, limit, sortBy, order),
-        this.insurance.search({ ...query }, skip, limit),
+        this.center.search({ ...query }, skip, limit, sortBy, order)
       ],
     );
 
-    return { doctors, hospitals, centers, insuranceCompanies };
+    return { doctors, hospitals, centers };
   }
 }

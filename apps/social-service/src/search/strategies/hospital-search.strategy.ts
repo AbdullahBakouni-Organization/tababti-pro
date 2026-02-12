@@ -12,8 +12,7 @@ export class HospitalSearchStrategy implements SearchStrategy<{
 }> {
   constructor(
     @InjectModel('Hospital') private readonly hospitalModel: Model<any>,
-    @InjectModel('InsuranceCompany')
-    private readonly insuranceModel?: Model<any>,
+
   ) {}
 
   async search(
@@ -52,14 +51,6 @@ export class HospitalSearchStrategy implements SearchStrategy<{
 
     if (query.hospitalNames?.length)
       conditions.push({ name: { $in: query.hospitalNames } });
-
-    if (query.insuranceCompanies?.length && this.insuranceModel) {
-      const regexes = query.insuranceCompanies.map(buildSmartRegex);
-      const ids = await this.insuranceModel
-        .find({ $or: regexes.map((rx) => ({ name: rx })) })
-        .distinct('_id');
-      if (ids.length) conditions.push({ insuranceCompanyIds: { $in: ids } });
-    }
 
     const finalQuery = conditions.length ? { $and: conditions } : {};
 

@@ -4,7 +4,6 @@ import { SearchStrategy } from './strategies/search-strategy.interface';
 import { DoctorSearchStrategy } from './strategies/doctor-search.strategy';
 import { HospitalSearchStrategy } from './strategies/hospital-search.strategy';
 import { CenterSearchStrategy } from './strategies/center-search.strategy';
-import { InsuranceSearchStrategy } from './strategies/insurance.strategy';
 import { AllSearchStrategy } from './strategies/all.strategy';
 
 @Injectable()
@@ -13,7 +12,6 @@ export class SearchFactory {
     private readonly doctor: DoctorSearchStrategy,
     private readonly hospital: HospitalSearchStrategy,
     private readonly center: CenterSearchStrategy,
-    private readonly insurance: InsuranceSearchStrategy,
     private readonly all: AllSearchStrategy,
   ) { }
 
@@ -27,9 +25,6 @@ export class SearchFactory {
 
       case ConditionEnum.CENTER:
         return this.center;
-
-      case ConditionEnum.INSURANCE_COMPANIES:
-        return this.insurance;
 
       case ConditionEnum.ALL:
         return this.all;
