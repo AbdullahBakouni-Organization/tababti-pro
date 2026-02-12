@@ -616,6 +616,14 @@ export enum Machines {
   ClinicalDiagnosticEquipment = 'جهاز تشخيص سريري',
 }
 
+export enum ConditionEnum {
+  ALL = 'all',
+  DOCTORS = 'doctors',
+  HOSPITAL = 'hospital',
+  INSURANCE_COMPANIES = 'insuranceCompanies',
+  CENTER = 'center',
+}
+
 export enum CommonSurgery {
   Heart_OpenSurgery = 'جراحة قلب مفتوح',
   Heart_SmallUnitSurgery = 'جراحة قلب بوحدات صغيرة',

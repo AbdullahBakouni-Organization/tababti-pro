@@ -111,5 +111,8 @@ export class SpecializationsService {
       specializationId: { $in: [privateSpec._id] },
     };
   }
+<<<<<<< HEAD
 
+=======
+>>>>>>> f02e63a2960e503ffef65201edf85ba62e35352b
 }

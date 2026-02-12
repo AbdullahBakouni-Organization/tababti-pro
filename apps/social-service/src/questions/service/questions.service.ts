@@ -253,13 +253,12 @@ export class QuestionsService {
       match = {};
     }
 
-
     if (filter === 'specialization') {
-
-      match = await this.specializationsService
-        .buildQuestionSpecializationMatch(
+      ((match =
+        await this.specializationsService.buildQuestionSpecializationMatch(
           doctor.privateSpecialization,
-        ) || {};
+        )),
+        {});
     }
 
 
