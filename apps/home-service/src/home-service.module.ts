@@ -15,6 +15,9 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 
 @Module({
   imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+    }),
     BullModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => ({
@@ -34,8 +37,15 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
       inject: [ConfigService],
     }),
     KafkaModule.forProducer({
-      clientId: 'home-service',
+      clientId: 'home-service-producer',
       brokers: [process.env.KAFKA_BROKER!],
+    }),
+
+    // ✅ ADD THIS: Consumer for receiving events
+    KafkaModule.forConsumer({
+      clientId: 'home-service-consumer',
+      brokers: [process.env.KAFKA_BROKER!],
+      groupId: 'home-service-group', // Important: Consumer group ID
     }),
     DatabaseModule,
     SmsModule,

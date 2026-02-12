@@ -11,7 +11,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, PipelineStage, Types } from 'mongoose';
 import {
   Doctor,
   DoctorDocument,
@@ -46,6 +46,12 @@ import {
 import { Otp, OtpDocument } from '@app/common/database/schemas/otp.schema';
 import { SmsService } from '../sms/sms.service';
 import { AuthAccount } from '@app/common/database/schemas/auth.schema';
+import {
+  Booking,
+  BookingDocument,
+} from '@app/common/database/schemas/booking.schema';
+import { GetDoctorBookingsByLocationDto } from './dto/booking-responce.dto';
+import { CacheService } from '@app/common/cache/cache.service';
 // ============================================
 // Kafka Events
 // ============================================
@@ -95,11 +101,12 @@ export class DoctorService {
     @InjectModel(Otp.name) private otpModel: Model<OtpDocument>,
     @InjectModel(AuthAccount.name) private authModel: Model<AuthAccount>,
     @InjectConnection() private readonly connection: Connection,
-
+    @InjectModel(Booking.name) private bookingModel: Model<BookingDocument>,
     private kafkaProducer: KafkaService,
     private httpService: HttpService,
     private configService: ConfigService,
     private readonly smsService: SmsService,
+    private readonly cacheManager: CacheService,
   ) {
     this.SOCKET_SERVICE_URL =
       this.configService.get('SOCKET_SERVICE_URL') || '';
@@ -945,4 +952,100 @@ export class DoctorService {
   //     totalPages: Math.ceil(total / limit),
   //   };
   // }
+  //
+  async getDoctorBookingsByLocation(query: GetDoctorBookingsByLocationDto) {
+    const { doctorId, locationType, bookingDate, page = 1, limit = 10 } = query;
+
+    const cacheKey = `doctor:${doctorId}:bookings:${locationType}:${bookingDate}:p${page}:l${limit}`;
+
+    const cached = await this.cacheManager.get(cacheKey);
+    if (cached) return cached;
+
+    const skip = (page - 1) * limit;
+
+    const selectedDate = new Date(bookingDate);
+    selectedDate.setHours(0, 0, 0, 0);
+
+    const nextDay = new Date(selectedDate);
+    nextDay.setDate(selectedDate.getDate() + 1);
+
+    const aggregation: PipelineStage[] = [
+      {
+        $match: {
+          doctorId: new Types.ObjectId(doctorId),
+          bookingDate: { $gte: selectedDate, $lt: nextDay },
+        },
+      },
+      {
+        $lookup: {
+          from: 'appointment_slots',
+          localField: 'slotId',
+          foreignField: '_id',
+          as: 'slot',
+        },
+      },
+      { $unwind: '$slot' },
+      {
+        $match: {
+          'slot.location.type': locationType,
+        },
+      },
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'patientId',
+          foreignField: '_id',
+          as: 'patient',
+        },
+      },
+      { $unwind: '$patient' },
+      {
+        $sort: {
+          'slot.startTime': 1,
+        },
+      },
+      {
+        $facet: {
+          data: [
+            { $skip: skip },
+            { $limit: limit },
+            {
+              $project: {
+                bookingId: '$_id',
+                bookingDate: 1,
+                bookingStatus: '$status',
+                slotStartTime: '$slot.startTime',
+                slotEndTime: '$slot.endTime',
+                dayOfWeek: '$slot.dayOfWeek',
+                patientId: '$patient._id',
+                patientName: '$patient.username',
+                patientPhone: '$patient.phone',
+                patientImage: '$patient.image',
+              },
+            },
+          ],
+          totalCount: [{ $count: 'count' }],
+        },
+      },
+    ];
+
+    const result = await this.bookingModel.aggregate(aggregation);
+
+    const data = result[0].data;
+    const total = result[0].totalCount[0]?.count || 0;
+
+    const response = {
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+
+    await this.cacheManager.set(cacheKey, response, 3600);
+
+    return response;
+  }
 }

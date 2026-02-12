@@ -508,7 +508,7 @@ export class WorkingHoursUpdateProcessor {
     try {
       this.kafkaService.emit(KAFKA_TOPICS.SLOTS_GENERATE_FOR_FUTURE, event);
       this.logger.log(
-        `Slot generation event published for doctor ${doctorInfo.fullName}`,
+        `Slot generation event future published for doctor ${doctorInfo.fullName}`,
       );
     } catch (error) {
       const err = error as Error;

@@ -77,29 +77,6 @@ export class BookingController {
   /**
    * Get doctor's bookings
    */
-  @Get('doctor/:doctorId')
-  @ApiOperation({
-    summary: 'Get all bookings for a doctor',
-    description:
-      'Retrieve all bookings for a specific doctor, optionally filtered by status',
-  })
-  @ApiQuery({
-    name: 'status',
-    required: false,
-    enum: BookingStatus,
-    description: 'Filter by booking status',
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Doctor bookings retrieved successfully',
-    type: [BookingResponseDto],
-  })
-  async getDoctorBookings(
-    @Param('doctorId') doctorId: string,
-    @Query('status') status?: BookingStatus,
-  ): Promise<BookingResponseDto[]> {
-    return this.bookingService.getDoctorBookings(doctorId, status);
-  }
 
   /**
    * Cancel a booking

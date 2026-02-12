@@ -1,7 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import { BookingServiceModule } from './booking-service.module';
-import { Logger } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 async function bootstrap() {
@@ -9,6 +9,13 @@ async function bootstrap() {
 
   // Create the main HTTP application
   const app = await NestFactory.create(BookingServiceModule);
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    }),
+  );
   app.setGlobalPrefix('api/v1');
   // Get config service
   const configService = app.get(ConfigService);

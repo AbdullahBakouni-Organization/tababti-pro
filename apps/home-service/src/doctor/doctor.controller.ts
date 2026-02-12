@@ -15,6 +15,7 @@ import {
   UseInterceptors,
   Res,
   UploadedFiles,
+  Query,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -25,6 +26,7 @@ import {
   ApiNotFoundResponse,
   ApiBadRequestResponse,
   ApiUnauthorizedResponse,
+  ApiQuery,
 } from '@nestjs/swagger';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { DoctorService } from './doctor.service';
@@ -52,6 +54,7 @@ import {
   ResetDoctorPasswordDto,
   VerifyOtpForPasswordResetDto,
 } from './dto/doctor-forgot-password.dto';
+import { GetDoctorBookingsByLocationDto } from './dto/booking-responce.dto';
 
 // ============================================
 // Login DTO
@@ -572,4 +575,37 @@ export class DoctorController {
   //     },
   //   };
   // }
+  //
+  //
+  @Get(':doctorId/bookings')
+  @ApiOperation({
+    summary:
+      'Get doctor bookings filtered by slot location and date with pagination',
+  })
+  @ApiQuery({ name: 'doctorId', required: true, type: String })
+  @ApiQuery({
+    name: 'locationType',
+    required: true,
+    enum: ['clinic', 'online'],
+  }) // replace with your WorkigEntity enum
+  @ApiQuery({
+    name: 'bookingDate',
+    required: true,
+    type: String,
+    description: 'YYYY-MM-DD',
+  })
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiResponse({ status: 200, description: 'Paginated list of bookings' })
+  async getDoctorBookingsByLocation(
+    @Param('doctorId') doctorId: string,
+    @Query() query: GetDoctorBookingsByLocationDto,
+  ) {
+    // Ensure the DTO doctorId matches the param
+    if (query.doctorId && query.doctorId !== doctorId) {
+      query.doctorId = doctorId;
+    }
+
+    return this.DoctorService.getDoctorBookingsByLocation(query);
+  }
 }

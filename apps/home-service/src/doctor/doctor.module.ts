@@ -7,6 +7,7 @@ import { DatabaseModule } from '@app/common/database/database.module';
 import { HttpModule } from '@nestjs/axios';
 import { ConfigModule } from '@nestjs/config';
 import { SmsService } from '../sms/sms.service';
+import { CacheModule } from '@app/common/cache/cache.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { SmsService } from '../sms/sms.service';
     HttpModule.register({
       timeout: 3000,
     }),
+    CacheModule,
   ],
   providers: [DoctorService, SmsService],
   controllers: [DoctorController],

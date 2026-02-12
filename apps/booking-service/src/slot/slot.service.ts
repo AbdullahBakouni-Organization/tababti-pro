@@ -5,7 +5,11 @@ import { EventPattern } from '@nestjs/microservices';
 import { Days, SlotStatus } from '@app/common/database/schemas/common.enums';
 import { CacheService } from '@app/common/cache/cache.service';
 import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
-import type { SlotGenerationEvent } from '@app/common/kafka/interfaces/kafka-event.interface';
+import type {
+  SlotGenerationEvent,
+  SlotGenerationFutureEvent,
+  SlotGenerationTodayEvent,
+} from '@app/common/kafka/interfaces/kafka-event.interface';
 import {
   AppointmentSlot,
   AppointmentSlotDocument,
@@ -56,7 +60,7 @@ export class SlotGenerationService {
 
   @EventPattern(KAFKA_TOPICS.SLOTS_GENERATE_FOR_TODAY)
   async processSlotGenerationForToday(
-    event: SlotGenerationEvent,
+    event: SlotGenerationTodayEvent,
   ): Promise<void> {
     this.logger.log(
       `Received slot generation event for today to a doctor ${event.data.doctorId}`,
@@ -86,9 +90,11 @@ export class SlotGenerationService {
   }
 
   @EventPattern(KAFKA_TOPICS.SLOTS_GENERATE_FOR_FUTURE)
-  async processSlotGenerationFor(event: SlotGenerationEvent): Promise<void> {
+  async processSlotGenerationFor(
+    event: SlotGenerationFutureEvent,
+  ): Promise<void> {
     this.logger.log(
-      `Received slot generation event for future to a doctor ${event.data.doctorId}`,
+      `Received slot generation event for future to a doctor ${event.data.doctorInfo.fullName}`,
     );
 
     try {
@@ -116,7 +122,7 @@ export class SlotGenerationService {
   }
 
   async generateTodaySlots(
-    event: SlotGenerationEvent,
+    event: SlotGenerationTodayEvent,
   ): Promise<AppointmentSlot[]> {
     const {
       doctorId,
@@ -297,7 +303,7 @@ export class SlotGenerationService {
   }
 
   private async generateFutureSlots(
-    event: SlotGenerationEvent,
+    event: SlotGenerationFutureEvent,
   ): Promise<Partial<AppointmentSlot>[]> {
     const {
       doctorId,

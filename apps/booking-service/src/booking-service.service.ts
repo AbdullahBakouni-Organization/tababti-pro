@@ -166,7 +166,7 @@ export class BookingService {
       .findOneAndUpdate(
         {
           _id: new Types.ObjectId(slotId.toString()),
-          doctorId: new Types.ObjectId(doctorId.toString()),
+          doctorId: doctorId.toString(),
           status: SlotStatus.AVAILABLE, // Critical: only update if available
         },
         {
@@ -201,6 +201,13 @@ export class BookingService {
           `Slot does not belong to doctor ${doctorId}`,
         );
       }
+      this.logger.error({
+        slotId,
+        doctorId,
+        existingStatus: existingSlot?.status,
+        existingDoctorId: existingSlot?.doctorId?.toString(),
+        expectedDoctorId: doctorId,
+      });
 
       throw new ConflictException('Unable to reserve slot. Please try again.');
     }
@@ -361,34 +368,6 @@ export class BookingService {
       .sort({ bookingDate: -1, bookingTime: -1 })
       .populate('slotId')
       .populate('doctorId', 'firstName middleName lastName')
-      .lean()
-      .exec();
-
-    return bookings.map((booking) => this.mapToResponseDto(booking as any));
-  }
-
-  /**
-   * Get doctor's bookings
-   */
-  async getDoctorBookings(
-    doctorId: string,
-    status?: BookingStatus,
-  ): Promise<BookingResponseDto[]> {
-    if (!Types.ObjectId.isValid(doctorId)) {
-      throw new BadRequestException('Invalid doctor ID');
-    }
-
-    const query: any = { doctorId: new Types.ObjectId(doctorId) };
-
-    if (status) {
-      query.status = status;
-    }
-
-    const bookings = await this.bookingModel
-      .find(query)
-      .sort({ bookingDate: 1, bookingTime: 1 })
-      .populate('slotId')
-      .populate('patientId', 'firstName lastName phoneNumber')
       .lean()
       .exec();
 

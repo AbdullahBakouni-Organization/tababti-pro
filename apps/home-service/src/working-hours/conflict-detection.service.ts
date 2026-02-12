@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { BookingStatus } from '@app/common/database/schemas/common.enums';
 import { ConflictedBooking } from './dto/update-working-hours.dto';
 import {
@@ -48,9 +48,9 @@ export class ConflictDetectionService {
     // Get all active bookings for this doctor
     const bookings = await this.appointmentModel
       .find({
-        doctorId,
+        doctorId: new Types.ObjectId(doctorId),
         status: {
-          $in: [BookingStatus.PENDING, BookingStatus.COMPLETED],
+          $in: [BookingStatus.PENDING],
         },
         bookingDate: { $gte: today, $lte: endDate },
       })
@@ -58,7 +58,6 @@ export class ConflictDetectionService {
       .populate('slotId')
       .lean()
       .exec();
-
     const todayConflicts: ConflictedBooking[] = [];
     const futureConflicts: ConflictedBooking[] = [];
 

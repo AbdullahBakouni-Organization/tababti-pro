@@ -250,7 +250,7 @@ export class WorkingHoursController {
     );
   }
 
-  @Post('update')
+  @Post(':doctorId/update-working-hours')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Update working hours (Confirmed)',
