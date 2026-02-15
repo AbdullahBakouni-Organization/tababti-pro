@@ -102,3 +102,22 @@ export interface WorkingHoursAddedEvent {
     version: '1.0';
   };
 }
+
+export interface SlotRefreshedEvent {
+  eventType: 'SLOTS_REFRESHED';
+  timestamp: Date;
+  data: {
+    doctorId: string;
+    slotId: string;
+    date: Date;
+    inspectionDuration: number;
+    startTime: string;
+    endTime: string;
+    location: string;
+    price: number;
+  };
+  metadata: {
+    source: 'slot-management-service';
+    version: '1.0';
+  };
+}

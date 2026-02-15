@@ -25,8 +25,10 @@ import { KafkaService } from '@app/common/kafka/kafka.service';
 import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
 import {
   ApprovalStatus,
+  BookingStatus,
   NotificationStatus,
   NotificationTypes,
+  SlotStatus,
   UserRole,
 } from '@app/common/database/schemas/common.enums';
 import { HttpService } from '@nestjs/axios';
@@ -52,6 +54,18 @@ import {
 } from '@app/common/database/schemas/booking.schema';
 import { GetDoctorBookingsByLocationDto } from './dto/booking-responce.dto';
 import { CacheService } from '@app/common/cache/cache.service';
+import {
+  DoctorCancelBookingDto,
+  PauseSlotConflictDto,
+  PauseSlotsDto,
+  PauseSlotsJobData,
+} from './dto/slot-management.dto';
+import {
+  AppointmentSlot,
+  AppointmentSlotDocument,
+} from '@app/common/database/schemas/slot.schema';
+import { InjectQueue } from '@nestjs/bull';
+import type { Queue } from 'bull';
 // ============================================
 // Kafka Events
 // ============================================
@@ -99,6 +113,8 @@ export class DoctorService {
     @InjectModel(Notification.name)
     private readonly notificationModel: Model<Notification>,
     @InjectModel(Otp.name) private otpModel: Model<OtpDocument>,
+    @InjectModel(AppointmentSlot.name)
+    private slotModel: Model<AppointmentSlotDocument>,
     @InjectModel(AuthAccount.name) private authModel: Model<AuthAccount>,
     @InjectConnection() private readonly connection: Connection,
     @InjectModel(Booking.name) private bookingModel: Model<BookingDocument>,
@@ -107,6 +123,7 @@ export class DoctorService {
     private configService: ConfigService,
     private readonly smsService: SmsService,
     private readonly cacheManager: CacheService,
+    @InjectQueue('pause-slots') private pauseSlotsQueue: Queue,
   ) {
     this.SOCKET_SERVICE_URL =
       this.configService.get('SOCKET_SERVICE_URL') || '';
@@ -764,12 +781,10 @@ export class DoctorService {
    * Publish DOCTOR_REGISTERED event to Kafka
    * This triggers:
    * 1. Notification Service → Send welcome email/SMS
-   * 2. WebSocket Service → Notify admin dashboard
+   * 2. fcm Service → Notify admin dashboard
    * 3. Analytics Service → Track registration
    */
-  private async publishDoctorRegisteredEvent(
-    doctor: DoctorDocument,
-  ): Promise<void> {
+  private publishDoctorRegisteredEvent(doctor: DoctorDocument): void {
     const event = {
       eventType: 'DOCTOR_REGISTERED',
       timestamp: new Date(),
@@ -790,7 +805,7 @@ export class DoctorService {
 
     try {
       // Use emit for fire-and-forget events
-      await this.kafkaProducer.emit(KAFKA_TOPICS.DOCTOR_REGISTERED, event);
+      this.kafkaProducer.emit(KAFKA_TOPICS.DOCTOR_REGISTERED, event);
     } catch (error) {
       const err = error as Error;
       this.logger.error(`Failed to publish event: ${err.message}`);
@@ -1047,5 +1062,304 @@ export class DoctorService {
     await this.cacheManager.set(cacheKey, response, 3600);
 
     return response;
+  }
+
+  /**
+   * Doctor cancels a booking
+   * Frees up the slot and publishes Kafka event to refresh available slots
+   */
+  async doctorCancelBooking(dto: DoctorCancelBookingDto): Promise<{
+    message: string;
+    bookingId: string;
+    slotId: string;
+    patientNotified?: boolean;
+  }> {
+    this.logger.log(
+      `Doctor ${dto.doctorId} canceling booking ${dto.bookingId}`,
+    );
+
+    // Validate IDs
+    if (!Types.ObjectId.isValid(dto.bookingId)) {
+      throw new BadRequestException('Invalid booking ID');
+    }
+    if (!Types.ObjectId.isValid(dto.doctorId)) {
+      throw new BadRequestException('Invalid doctor ID');
+    }
+
+    const session = await this.bookingModel.db.startSession();
+    session.startTransaction();
+
+    try {
+      // Step 1: Find and cancel the booking
+      const booking = await this.bookingModel
+        .findOne({
+          _id: new Types.ObjectId(dto.bookingId),
+          doctorId: new Types.ObjectId(dto.doctorId),
+          status: { $in: [BookingStatus.PENDING, BookingStatus.CONFIRMED] },
+        })
+        .populate('patientId', 'firstName lastName phoneNumber fcmToken')
+        .session(session)
+        .exec();
+
+      if (!booking) {
+        throw new NotFoundException('Booking not found or already cancelled');
+      }
+
+      // Update booking status
+      booking.status = BookingStatus.CANCELLED_BY_DOCTOR;
+      booking.cancellation = {
+        cancelledBy: UserRole.DOCTOR,
+        reason: dto.reason,
+        cancelledAt: new Date(),
+      };
+      await booking.save({ session });
+
+      // Step 2: Free up the slot
+      const slot = await this.slotModel
+        .findByIdAndUpdate(
+          booking.slotId,
+          { $set: { status: SlotStatus.AVAILABLE } },
+          { new: true, session },
+        )
+        .exec();
+
+      if (!slot) {
+        throw new NotFoundException('Associated slot not found');
+      }
+
+      // Commit transaction
+      await session.commitTransaction();
+
+      this.logger.log(
+        `Booking ${dto.bookingId} cancelled by doctor. Slot ${slot._id.toString()} freed.`,
+      );
+
+      // Step 3: Invalidate cache
+      await this.invalidateSlotsCache(dto.doctorId);
+
+      // Step 4: Publish Kafka event to refresh available slots
+      this.publishSlotsRefreshedEvent(dto.doctorId, slot);
+
+      // Step 5: Send FCM notification to patient
+      // const patient = booking.patientId as any;
+      // const patientNotified = await this.sendCancellationNotification(
+      //   patient,
+      //   booking,
+      //   dto.reason,
+      //   'DOCTOR_CANCELLED',
+      // );
+
+      return {
+        message: 'Booking cancelled successfully',
+        bookingId: booking._id.toString(),
+        slotId: slot._id.toString(),
+        // patientNotified,
+      };
+    } catch (error) {
+      const err = error as Error;
+      await session.abortTransaction();
+      this.logger.error(`Failed to cancel booking: ${err.message}`, err.stack);
+      throw error;
+    } finally {
+      await session.endSession();
+    }
+  }
+
+  /**
+   * Publish Kafka event to notify about refreshed available slots
+   */
+  private publishSlotsRefreshedEvent(
+    doctorId: string,
+    freedSlot: AppointmentSlotDocument,
+  ): void {
+    const event = {
+      eventType: 'SLOTS_REFRESHED',
+      timestamp: new Date(),
+      data: {
+        doctorId,
+        slotId: freedSlot._id.toString(),
+        date: freedSlot.date,
+        startTime: freedSlot.startTime,
+        endTime: freedSlot.endTime,
+        location: freedSlot.location,
+        price: freedSlot.price,
+      },
+      metadata: {
+        source: 'slot-management-service',
+        version: '1.0',
+      },
+    };
+
+    try {
+      this.kafkaProducer.emit(KAFKA_TOPICS.SLOTS_REFRESHED, event);
+      this.logger.log(`Slots refreshed event published for doctor ${doctorId}`);
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `Failed to publish slots refreshed event: ${err.message}`,
+        err.stack,
+      );
+    }
+  }
+
+  /**
+   * Check conflicts before pausing slots (dry run)
+   */
+  async checkPauseConflicts(dto: PauseSlotsDto): Promise<PauseSlotConflictDto> {
+    this.logger.log(`Checking pause conflicts for ${dto.slotIds.length} slots`);
+
+    // Validate doctor ID
+    if (!Types.ObjectId.isValid(dto.doctorId)) {
+      throw new BadRequestException('Invalid doctor ID');
+    }
+
+    // Validate slot IDs
+    for (const slotId of dto.slotIds) {
+      if (!Types.ObjectId.isValid(slotId)) {
+        throw new BadRequestException(`Invalid slot ID: ${slotId}`);
+      }
+    }
+
+    // Get slots
+    const slots = await this.slotModel
+      .find({
+        _id: { $in: dto.slotIds.map((id) => new Types.ObjectId(id)) },
+        doctorId: new Types.ObjectId(dto.doctorId),
+      })
+      .exec();
+
+    if (slots.length === 0) {
+      throw new NotFoundException('No valid slots found');
+    }
+
+    if (slots.length !== dto.slotIds.length) {
+      throw new BadRequestException(
+        `Some slots not found or don't belong to doctor ${dto.doctorId}`,
+      );
+    }
+
+    // Find bookings for these slots
+    const bookings = await this.bookingModel
+      .find({
+        slotId: { $in: dto.slotIds.map((id) => new Types.ObjectId(id)) },
+        status: { $in: [BookingStatus.PENDING] },
+      })
+      .populate('patientId', 'firstName lastName phoneNumber fcmToken')
+      .populate('slotId')
+      .exec();
+
+    const affectedBookings = bookings.map((booking) => ({
+      bookingId: booking._id.toString(),
+      patientId: booking.patientId._id.toString(),
+      patientName: `${booking.patientId.username}`,
+      patientPhone: booking.patientId.phone,
+      slotTime: `${booking.bookingTime} - ${booking.bookingEndTime}`,
+    }));
+
+    const hasConflicts = affectedBookings.length > 0;
+
+    const response: PauseSlotConflictDto = {
+      hasConflicts,
+      affectedBookings,
+      summary: {
+        totalAffected: affectedBookings.length,
+        slotsCount: slots.length,
+      },
+      warningMessage: hasConflicts
+        ? `Pausing these slots will cancel ${affectedBookings.length} booking(s). Affected patients will be notified via push notification.`
+        : undefined,
+    };
+
+    this.logger.log(
+      `Pause conflict check: ${affectedBookings.length} bookings affected`,
+    );
+
+    return response;
+  }
+
+  /**
+   * Pause slots and handle conflicts
+   */
+  async pauseSlots(dto: PauseSlotsDto): Promise<{
+    message: string;
+    slotsCount: number;
+    affectedBookings: number;
+    jobId: string;
+  }> {
+    this.logger.log(`Pausing ${dto.slotIds.length} slots`);
+
+    // Validate
+    if (!Types.ObjectId.isValid(dto.doctorId)) {
+      throw new BadRequestException('Invalid doctor ID');
+    }
+
+    // Get doctor info
+    const doctor = await this.doctorModel.findById(dto.doctorId).exec();
+    if (!doctor) {
+      throw new NotFoundException(`Doctor with ID ${dto.doctorId} not found`);
+    }
+
+    // Check conflicts
+    const conflicts = await this.checkPauseConflicts(dto);
+
+    if (conflicts.hasConflicts && !dto.confirmPause) {
+      throw new ConflictException(
+        'Conflicts detected. Set confirmPause: true to proceed.',
+      );
+    }
+
+    // Determine pause date
+    const pauseDate = dto.pauseDate
+      ? new Date(dto.pauseDate)
+      : this.getSyriaDate();
+
+    // Queue job to pause slots
+    const job = await this.pauseSlotsQueue.add(
+      'pause-slots-and-cancel-bookings',
+      {
+        doctorId: dto.doctorId,
+        slotIds: dto.slotIds,
+        reason: dto.reason,
+        pauseDate,
+        affectedBookingIds: conflicts.affectedBookings.map((b) => b.bookingId),
+        doctorInfo: {
+          fullName: `${doctor.firstName} ${doctor.middleName} ${doctor.lastName}`,
+        },
+      } as PauseSlotsJobData,
+      {
+        priority: 1, // High priority
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 2000,
+        },
+      },
+    );
+
+    this.logger.log(
+      `Pause slots job queued: ${job.id} for ${dto.slotIds.length} slots`,
+    );
+
+    return {
+      message: conflicts.hasConflicts
+        ? 'Slots are being paused. Affected patients will be notified.'
+        : 'Slots are being paused. No bookings affected.',
+      slotsCount: dto.slotIds.length,
+      affectedBookings: conflicts.affectedBookings.length,
+      jobId: job.id.toString(),
+    };
+  }
+
+  private async invalidateSlotsCache(doctorId: string): Promise<void> {
+    try {
+      // Delete all cache keys related to this doctor's slots
+      const pattern = `slots:available:${doctorId}:*`;
+      await this.cacheManager.del(pattern);
+
+      this.logger.debug(`Slots cache invalidated for doctor ${doctorId}`);
+    } catch (error) {
+      const err = error as Error;
+      this.logger.warn(`Failed to invalidate slots cache: ${err.message}`);
+    }
   }
 }

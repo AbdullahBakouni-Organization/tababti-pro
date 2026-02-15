@@ -277,9 +277,9 @@ export class DoctorController {
     };
   }
 
-  @Post('forgot-password/request-otp')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.DOCTOR)
+  @Post('forgot-password/request-otp')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'طلب رمز التحقق لإعادة تعيين كلمة المرور',
@@ -305,9 +305,9 @@ export class DoctorController {
     return this.DoctorService.requestPasswordResetOtp(dto);
   }
 
-  @Post('forgot-password/verify-otp')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.DOCTOR)
+  @Post('forgot-password/verify-otp')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'التحقق من رمز OTP (اختياري)',
@@ -365,9 +365,10 @@ export class DoctorController {
   /**
    * Refresh access token
    */
-  @Post('refresh')
+
   @UseGuards(JwtRefreshGuard, RolesGuard)
   @Roles(UserRole.DOCTOR)
+  @Post('refresh')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Refresh access token' })
   async refreshToken(

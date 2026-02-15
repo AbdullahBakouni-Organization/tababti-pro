@@ -6,7 +6,9 @@ import type {
   SlotGenerationEvent,
   SlotGenerationFutureEvent,
   SlotGenerationTodayEvent,
+  SlotRefreshedEvent,
 } from '@app/common/kafka/interfaces/kafka-event.interface';
+import { GetAvailableSlotsDto } from './dto/get-avalible-slot.dto';
 
 @Controller() // ← Must be a Controller!
 export class SlotKafkaController {
@@ -71,6 +73,33 @@ export class SlotKafkaController {
       this.logger.log(
         `✅ Successfully processed slot generation for doctor ${event.data.doctorInfo.fullName}`,
       );
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `❌ Failed to process slot generation: ${err.message}`,
+        err.stack,
+      );
+    }
+  }
+
+  @EventPattern(KAFKA_TOPICS.SLOTS_REFRESHED)
+  async handleSlotsRefreshed(@Payload() event: SlotRefreshedEvent) {
+    const doctorId = event.data.doctorId;
+    this.logger.log(
+      `🎯 Received SLOTS_REFRESHED event for doctor location ${event.data.location}`,
+    );
+    const query: GetAvailableSlotsDto = {
+      doctorId,
+    };
+
+    //   const freshSlots =
+    //     await this.slotGenerationService.getAvailableSlots(query);
+
+    //   // Now DO something with freshSlots
+    //
+    try {
+      await this.slotGenerationService.getAvailableSlots(query);
+      this.logger.log(`✅ Successfully refreshed slots for doctor`);
     } catch (error) {
       const err = error as Error;
       this.logger.error(

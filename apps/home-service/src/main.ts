@@ -53,12 +53,15 @@ import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import { HomeServiceModule } from './home-service.module';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import cookieParser from 'cookie-parser';
 
 async function bootstrap() {
   const logger = new Logger('HomeServiceBootstrap');
 
   // Create the main HTTP application
   const app = await NestFactory.create(HomeServiceModule);
+  app.use(cookieParser());
+
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
