@@ -9,6 +9,7 @@ import {
   Max,
   IsInt,
   IsIn,
+  ValidateIf,
 } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
@@ -21,6 +22,7 @@ import {
   HospitalStatus,
   CenterSpecialization,
   City,
+  ApprovalStatus,
 
 } from '@app/common/database/schemas/common.enums';
 
@@ -60,7 +62,7 @@ export class SearchFilterDto {
   @ApiPropertyOptional({ example: 'Ariha', description: 'Enum key' })
   @IsOptional()
   @IsString()
-  subCity?: string;
+  subcity?: string;
 
   /* ========== DOCTOR FILTERS ========== */
   @ApiPropertyOptional({
@@ -107,16 +109,18 @@ export class SearchFilterDto {
   inspectionPriceMin?: number;
 
   @IsOptional()
+  @ValidateIf(o => o.inspectionPriceMin !== undefined)
   @Type(() => Number)
   @IsNumber()
   @Min(0)
   inspectionPriceMax?: number;
 
+
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
   @Min(0)
-  inspectionDuration?: number; 
+  inspectionDuration?: number;
 
   @IsOptional()
   @Type(() => Number)
@@ -165,6 +169,11 @@ export class SearchFilterDto {
   @IsEnum(HospitalStatus)
   hospitalStatus?: HospitalStatus;
 
+
+  @IsOptional()
+  @IsEnum(ApprovalStatus)
+  approvalStatus?: ApprovalStatus;
+
   @IsOptional()
   @IsString()
   hospitalCity?: string;
@@ -193,6 +202,8 @@ export class SearchFilterDto {
   @IsOptional()
   @IsString()
   centerName?: string;
+
+  topSearched?: number; 
 
   /* ========== PAGINATION ========== */
   @ApiPropertyOptional({ default: 1 })

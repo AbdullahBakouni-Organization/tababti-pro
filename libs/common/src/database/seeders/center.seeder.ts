@@ -26,7 +26,6 @@ export class CenterSeeder {
     const authModel = app.get<Model<AuthAccount>>(getModelToken('AuthAccount'));
     const cityModel = app.get<Model<Cities>>(getModelToken('Cities'));
 
-    // تنظيف المراكز القديمة
     await centerModel.deleteMany({});
 
     const cities = await cityModel.find();
@@ -39,7 +38,6 @@ export class CenterSeeder {
 
     const specializationKeys = Object.keys(CenterSpecialization);
 
-    // إنشاء 20 مركزًا كمثال
     for (let i = 0; i < 20; i++) {
       const city = cities[Math.floor(Math.random() * cities.length)];
       const randomSpecKey = specializationKeys[
@@ -47,19 +45,17 @@ export class CenterSeeder {
       ] as keyof typeof CenterSpecialization;
       const specialization = CenterSpecialization[randomSpecKey];
 
-      // إنشاء AuthAccount لكل مركز
       const authAccount = await authModel.create({
         phones: [generateSyrianPhone()],
         role: UserRole.CENTER,
         isActive: true,
       });
 
-      // إنشاء المركز بالكامل
       const center = await centerModel.create({
         authAccountId: authAccount._id,
         name: `مركز ${specialization} ${faker.person.firstName()}`,
         address: faker.location.streetAddress(),
-        bio: '', // نص قصير ومتوافق مع Regex
+        bio: '',
         cityId: city._id,
         phones: [
           {
@@ -82,9 +78,9 @@ export class CenterSeeder {
         isSubscribed: false,
         searchCount: 0,
         profileViews: 0,
-        image: faker.image.url(), // حقل نصي مفرد
+        image: faker.image.url(), 
         certificateImage: faker.image.url(),
-        licenseImages: faker.image.url(), // حقل نصي مفرد
+        licenseImages: faker.image.url(), 
       });
 
       console.log(`✅ Center created: ${center.name} in city ${city.name}`);

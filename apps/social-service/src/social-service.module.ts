@@ -1,4 +1,4 @@
-import { Module, Post } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule, Post, RequestMethod } from '@nestjs/common';
 import { SocialServiceController } from './social-service.controller';
 import { SocialServiceService } from './social-service.service';
 import { KafkaModule } from '@app/common/kafka/kafka.module';
@@ -28,6 +28,12 @@ import { SearchCountMiddleware } from './search/search-count.middleware';
     }),
   ],
   controllers: [SocialServiceController],
-  providers: [SocialServiceService ,SearchCountMiddleware], 
+  providers: [SocialServiceService],
 })
-export class SocialServiceModule {}
+export class SocialServiceModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer
+      .apply(SearchCountMiddleware)
+      .forRoutes({ path: 'search', method: RequestMethod.GET });
+  }
+}

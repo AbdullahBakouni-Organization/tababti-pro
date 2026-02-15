@@ -57,7 +57,7 @@ export class SearchService implements OnModuleInit, OnModuleDestroy {
     private readonly privateSpecializationModel: Model<any>,
     private aiService: TranslationAiService,
     private eventEmitter: EventEmitter2,
-  ) {}
+  ) { }
 
   async onModuleInit() {
     // Initialize aggressive cache
@@ -395,10 +395,10 @@ export class SearchService implements OnModuleInit, OnModuleDestroy {
       conditions.push({ city: cityValue });
 
       // Subcity strict
-      if (params.subCity) {
+      if (params.subcity) {
         const subcityEnum = this.getSubcityEnum(params.city);
-        if (subcityEnum && subcityEnum.includes(params.subCity)) {
-          conditions.push({ subcity: params.subCity });
+        if (subcityEnum && subcityEnum.includes(params.subcity)) {
+          conditions.push({ subcity: params.subcity });
         }
       }
     }
@@ -442,20 +442,8 @@ export class SearchService implements OnModuleInit, OnModuleDestroy {
     if (params.minExperience !== undefined)
       conditions.push({ yearsOfExperience: { $gte: params.minExperience } });
 
-    // =============================
-    // Inspection Price filter
-    // =============================
-    if (
-      params.inspectionPriceMin !== undefined ||
-      params.inspectionPriceMax !== undefined
-    ) {
-      const price: any = {};
-      if (params.inspectionPriceMin !== undefined)
-        price.$gte = params.inspectionPriceMin;
-      if (params.inspectionPriceMax !== undefined)
-        price.$lte = params.inspectionPriceMax;
-      conditions.push({ inspectionPrice: price });
-    }
+
+
 
     if (params.inspectionDuration !== undefined) {
       conditions.push({
@@ -699,7 +687,6 @@ export class SearchService implements OnModuleInit, OnModuleDestroy {
   }
 
   // --- Helper: add filter conditions (asynchronous) ---
-  // --- Helper: add filter conditions (asynchronous) ---
   private async addFilterConditions(
     filters: {
       publicSpecializationId?: string;
@@ -710,6 +697,8 @@ export class SearchService implements OnModuleInit, OnModuleDestroy {
       subcity?: string;
       gender?: string;
       minRating?: number;
+      inspectionPriceMin?: number;
+      inspectionPriceMax?: number;
     },
     conditions: any[],
   ) {
@@ -794,7 +783,7 @@ export class SearchService implements OnModuleInit, OnModuleDestroy {
       );
 
       if (cityValue) {
-        const subcityList = this.getSubcityEnum(cityValue); // الآن Array<string> | null
+        const subcityList = this.getSubcityEnum(cityValue);
         if (subcityList?.includes(filters.subcity)) {
           conditions.push({ subcity: filters.subcity });
         }
@@ -822,49 +811,35 @@ export class SearchService implements OnModuleInit, OnModuleDestroy {
         },
       });
     }
+
+    // =============================
+    // Inspection Price filter
+    // =============================
+    const { inspectionPriceMin, inspectionPriceMax } = filters;
+
+    if (inspectionPriceMin !== undefined || inspectionPriceMax !== undefined) {
+      const price: any = {};
+
+      if (inspectionPriceMin !== undefined)
+        price.$gte = Number(inspectionPriceMin);
+
+      if (inspectionPriceMax !== undefined)
+        price.$lte = Number(inspectionPriceMax);
+      console.log(typeof inspectionPriceMin, typeof inspectionPriceMax);
+
+      conditions.push({ inspectionPrice: price });
+    }
+
   }
 
   // --- Helper: add subcity condition ---
   private addSubcityCondition(city: City, subcity: string, conditions: any[]) {
-    const areas = this.getCityAreas(city);
+    const areas = this.getSubcityEnum(city);
     if (areas?.includes(subcity)) {
       conditions.push({ subcity });
     }
   }
 
-  // --- Helper function to get city areas ---
-  private getCityAreas(city: City): string[] | undefined {
-    switch (city) {
-      case City.Damascus:
-        return Object.values(DamascusAreas);
-      case City.Aleppo:
-        return Object.values(AleppoAreas);
-      case City.Homs:
-        return Object.values(HomsAreas);
-      case City.Idlib:
-        return Object.values(IdlibAreas);
-      case City.Latakia:
-        return Object.values(LatakiaAreas);
-      case City.Tartus:
-        return Object.values(TartousAreas);
-      case City.Raqqa:
-        return Object.values(RaqqaAreas);
-      case City.DeirEzzor:
-        return Object.values(DeirEzzorAreas);
-      case City.Hama:
-        return Object.values(HamaAreas);
-      case City.Quneitra:
-        return Object.values(QuneitraAreas);
-      case City.Suwayda:
-        return Object.values(SweidaAreas);
-      case City.AlHasakah:
-        return Object.values(HassakehAreas);
-      case City.Daraa:
-        return Object.values(DaraaAreas);
-      default:
-        return undefined;
-    }
-  }
 
   // ---------------------------------------------
   // QUERY CENTERS
@@ -946,7 +921,8 @@ export class SearchService implements OnModuleInit, OnModuleDestroy {
     filters?: {
       name?: string | string[];
       category?: string;
-      status?: string;
+      hospitalStatus?: string;
+      approvalStatus?: string;
       city?: string;
       minBeds?: number;
       maxBeds?: number;
@@ -979,7 +955,14 @@ export class SearchService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (filters?.category) conditions.push({ category: filters.category });
-    if (filters?.status) conditions.push({ status: filters.status });
+    if (filters?.hospitalStatus) {
+      conditions.push({ hospitalstatus: filters.hospitalStatus });
+    }
+
+    if (filters?.approvalStatus) {
+      conditions.push({ status: filters.approvalStatus });
+    }
+
     if (filters?.city) conditions.push({ city: filters.city });
 
     if (filters?.minBeds !== undefined || filters?.maxBeds !== undefined) {
@@ -1031,7 +1014,7 @@ export class SearchService implements OnModuleInit, OnModuleDestroy {
       this.queryHospitalsOptimized(search, skip, limit, sortBy, order, {
         name: query.hospitalName,
         category: query.hospitalCategory,
-        status: query.hospitalStatus,
+        hospitalStatus: query.hospitalStatus,
         city: query.hospitalCity,
       }),
       this.queryCentersOptimized(search, skip, limit, sortBy, order, {
@@ -1060,6 +1043,7 @@ export class SearchService implements OnModuleInit, OnModuleDestroy {
       yearsOfExperience: query.minExperience,
       hospitalNames: query.hospitalName,
       city: query.city,
+      subcity: query.subcity,
       gender: query.gender,
       minRating: query.minRating,
       skip,
@@ -1088,7 +1072,7 @@ export class SearchService implements OnModuleInit, OnModuleDestroy {
       {
         name: query.hospitalName,
         category: query.hospitalCategory,
-        status: query.hospitalStatus,
+        hospitalStatus: query.hospitalStatus,
         city: query.hospitalCity,
       },
     );
