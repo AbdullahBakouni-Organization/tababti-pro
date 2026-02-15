@@ -8,6 +8,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { AuthValidateModule } from '@app/common/auth-validate';
 import { PostModule } from './content/post.module';
 import { SearchModule } from './search/search.module';
+import { SearchCountMiddleware } from './search/search-count.middleware';
 
 
 @Module({
@@ -27,6 +28,6 @@ import { SearchModule } from './search/search.module';
     }),
   ],
   controllers: [SocialServiceController],
-  providers: [SocialServiceService], 
+  providers: [SocialServiceService ,SearchCountMiddleware], 
 })
 export class SocialServiceModule {}

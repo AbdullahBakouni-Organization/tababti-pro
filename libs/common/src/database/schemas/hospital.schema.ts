@@ -9,12 +9,31 @@ import {
 
 @Schema({ timestamps: true, collection: 'hospital' })
 export class Hospital extends Document {
+  updateMany(arg0: { _id: { $in: any; }; }, arg1: { $inc: { searchCount: number; }; }) {
+      throw new Error('Method not implemented.');
+  }
   @Prop({ type: Types.ObjectId, ref: 'AuthAccount', unique: true })
   authAccountId: Types.ObjectId;
 
-  @Prop() name: string;
+  @Prop({
+    type: String,
+    required: true,
+    trim: true,
+    minlength: 3,
+    maxlength: 100,
+    match: /^[\p{L}\p{N}\s\.\-_\(\)]+$/u,
+  })
+  name: string;
 
-  @Prop() address?: string;
+  @Prop({
+    type: String,
+    required: true,
+    trim: true,
+    minlength: 3,
+    maxlength: 200,
+    match: /^[\p{L}\p{N}\s\.\-_\(\)]+$/u, 
+  })
+  address: string;
 
   @Prop({
     required: false,

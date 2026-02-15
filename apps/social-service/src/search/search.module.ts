@@ -8,13 +8,7 @@ import { DatabaseModule } from '@app/common/database/database.module';
 
 import { SearchController } from './search.controller';
 import { SearchService } from './search.service';
-import { SearchFactory } from './search.factory';
 
-// Strategies
-import { DoctorSearchStrategy } from './strategies/doctor-search.strategy';
-import { HospitalSearchStrategy } from './strategies/hospital-search.strategy';
-import { CenterSearchStrategy } from './strategies/center-search.strategy';
-import { AllSearchStrategy } from './strategies/all.strategy';
 
 // AI Services
 import { TranslationAiService } from '../translation-ai/translation-ai.service';
@@ -73,13 +67,7 @@ import { AiWorkerService } from '../ai-worker/ai-worker.service';
   providers: [
     // Core
     SearchService,
-    SearchFactory,
 
-    // Strategies
-    DoctorSearchStrategy,
-    HospitalSearchStrategy,
-    CenterSearchStrategy,
-    AllSearchStrategy,
 
     // AI
     TranslationAiService,
