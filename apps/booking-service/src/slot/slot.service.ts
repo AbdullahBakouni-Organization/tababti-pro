@@ -185,23 +185,23 @@ export class SlotGenerationService {
   /**
    * Get current date in Syria timezone
    */
-  private getSyriaDate(): Date {
-    const now = new Date();
+  // private getSyriaDate(): Date {
+  //   const now = new Date();
 
-    // Syria is UTC+3 (no DST)
-    const SYRIA_OFFSET_MINUTES = 3 * 60;
+  //   // Syria is UTC+3 (no DST)
+  //   const SYRIA_OFFSET_MINUTES = 3 * 60;
 
-    // Get UTC time in milliseconds
-    const utcTime = now.getTime() + now.getTimezoneOffset() * 60 * 1000;
+  //   // Get UTC time in milliseconds
+  //   const utcTime = now.getTime() + now.getTimezoneOffset() * 60 * 1000;
 
-    // Convert UTC → Syria time
-    const syriaTime = new Date(utcTime + SYRIA_OFFSET_MINUTES * 60 * 1000);
+  //   // Convert UTC → Syria time
+  //   const syriaTime = new Date(utcTime + SYRIA_OFFSET_MINUTES * 60 * 1000);
 
-    // Normalize to start of day in Syria
-    syriaTime.setHours(0, 0, 0, 0);
+  //   // Normalize to start of day in Syria
+  //   syriaTime.setHours(0, 0, 0, 0);
 
-    return syriaTime;
-  }
+  //   return syriaTime;
+  // }
 
   /**
    * Generate appointment slots based on working hours
@@ -514,7 +514,7 @@ export class SlotGenerationService {
    * Delete future slots for a doctor (for regeneration)
    */
   async deleteFutureSlotsForDoctor(doctorId: string): Promise<number> {
-    const today = this.getSyriaDate();
+    const today = getSyriaDate();
 
     const result = await this.slotModel.deleteMany({
       doctorId,
@@ -556,7 +556,7 @@ export class SlotGenerationService {
     };
 
     // Date range filter
-    const today = this.getSyriaDate();
+    const today = getSyriaDate();
     const startDate = query.startDate ? new Date(query.startDate) : today;
     const endDate = query.endDate
       ? new Date(query.endDate)

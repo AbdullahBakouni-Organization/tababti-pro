@@ -7,6 +7,7 @@ import {
   Booking,
   BookingDocument,
 } from '@app/common/database/schemas/booking.schema';
+import { getSyriaDate } from '@app/common/utils/get-syria-date';
 
 @Injectable()
 export class ConflictDetectionService {
@@ -22,14 +23,14 @@ export class ConflictDetectionService {
   /**
    * Get Syria date (same as your slot generation service)
    */
-  private getSyriaDate(): Date {
-    const now = new Date();
-    const SYRIA_OFFSET_MINUTES = 3 * 60;
-    const utcTime = now.getTime() + now.getTimezoneOffset() * 60 * 1000;
-    const syriaTime = new Date(utcTime + SYRIA_OFFSET_MINUTES * 60 * 1000);
-    syriaTime.setHours(0, 0, 0, 0);
-    return syriaTime;
-  }
+  // private getSyriaDate(): Date {
+  //   const now = new Date();
+  //   const SYRIA_OFFSET_MINUTES = 3 * 60;
+  //   const utcTime = now.getTime() + now.getTimezoneOffset() * 60 * 1000;
+  //   const syriaTime = new Date(utcTime + SYRIA_OFFSET_MINUTES * 60 * 1000);
+  //   syriaTime.setHours(0, 0, 0, 0);
+  //   return syriaTime;
+  // }
 
   /**
    * Detect conflicts between new working hours and existing bookings
@@ -41,7 +42,7 @@ export class ConflictDetectionService {
     todayConflicts: ConflictedBooking[];
     futureConflicts: ConflictedBooking[];
   }> {
-    const today = this.getSyriaDate();
+    const today = getSyriaDate();
     const endDate = new Date(today);
     endDate.setDate(today.getDate() + 84); // 12 weeks
 

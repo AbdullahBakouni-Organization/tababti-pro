@@ -22,6 +22,7 @@ import {
   SlotGenerationFutureEvent,
   SlotGenerationTodayEvent,
 } from '@app/common/kafka/interfaces/kafka-event.interface';
+import { getSyriaDate } from '@app/common/utils/get-syria-date';
 
 export interface WorkingHoursUpdateJobData {
   newWorkingHours: any[];
@@ -287,7 +288,7 @@ export class WorkingHoursUpdateProcessor {
    * Delete all future slots
    */
   private async deleteFutureSlotsForDoctor(doctorId: string): Promise<void> {
-    const today = this.getSyriaDate();
+    const today = getSyriaDate();
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
@@ -405,17 +406,17 @@ export class WorkingHoursUpdateProcessor {
     this.logger.debug(`Published slots refreshed event for ${doctorId}`);
   }
 
-  /**
-   * Get Syria date (same as your slot generation service)
-   */
-  private getSyriaDate(): Date {
-    const now = new Date();
-    const SYRIA_OFFSET_MINUTES = 3 * 60;
-    const utcTime = now.getTime() + now.getTimezoneOffset() * 60 * 1000;
-    const syriaTime = new Date(utcTime + SYRIA_OFFSET_MINUTES * 60 * 1000);
-    syriaTime.setHours(0, 0, 0, 0);
-    return syriaTime;
-  }
+  // /**
+  //  * Get Syria date (same as your slot generation service)
+  //  */
+  // private getSyriaDate(): Date {
+  //   const now = new Date();
+  //   const SYRIA_OFFSET_MINUTES = 3 * 60;
+  //   const utcTime = now.getTime() + now.getTimezoneOffset() * 60 * 1000;
+  //   const syriaTime = new Date(utcTime + SYRIA_OFFSET_MINUTES * 60 * 1000);
+  //   syriaTime.setHours(0, 0, 0, 0);
+  //   return syriaTime;
+  // }
 
   private publishSlotGenerationTodayEvent(
     workingHours: any[],
@@ -423,7 +424,7 @@ export class WorkingHoursUpdateProcessor {
     inspectionPrice: number | undefined,
     doctorInfo: any,
   ): void {
-    const today = this.getSyriaDate();
+    const today = getSyriaDate();
 
     // Delete today's available slots
     this.slotModel.deleteMany({
@@ -521,7 +522,7 @@ export class WorkingHoursUpdateProcessor {
   private async deleteFutureSlotsExcludingToday(
     doctorId: string,
   ): Promise<void> {
-    const today = this.getSyriaDate();
+    const today = getSyriaDate();
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
