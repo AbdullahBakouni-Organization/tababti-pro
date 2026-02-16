@@ -16,6 +16,7 @@ import { Hospital } from '../schemas/hospital.schema';
 import { QuestionSeeder } from './question.seeder';
 import { AnswerSeeder } from './answer.seeder';
 import { PostSeeder } from './post.seeder';
+import { UserSeeder } from './user.seeder';
 
 async function runSeeders() {
   console.log('🚀 Starting all seeders...\n');
@@ -38,6 +39,15 @@ async function runSeeders() {
     const specialtySeeder = new SpecialtySeeder(app);
     await specialtySeeder.seed();
     console.log('✅ Specializations seeded!\n');
+
+    // =====================================================
+    // Users (⭐ Add this)
+    // =====================================================
+    console.log('👥 Seeding Users...');
+    const userSeeder = new UserSeeder(app);
+    const users = await userSeeder.seed();
+    console.log('✅ Users seeded!\n');
+
 
     // =====================================================
     // Hospitals (⭐ FIXED)
