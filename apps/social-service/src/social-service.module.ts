@@ -1,4 +1,4 @@
-import { Module, Post } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule, Post, RequestMethod } from '@nestjs/common';
 import { SocialServiceController } from './social-service.controller';
 import { SocialServiceService } from './social-service.service';
 import { KafkaModule } from '@app/common/kafka/kafka.module';
@@ -7,6 +7,9 @@ import { QuestionsModule } from './questions/questions.module';
 import { JwtModule } from '@nestjs/jwt';
 import { AuthValidateModule } from '@app/common/auth-validate';
 import { PostModule } from './content/post.module';
+import { SearchModule } from './search/search.module';
+import { SearchCountMiddleware } from './search/search-count.middleware';
+
 
 @Module({
   imports: [
@@ -19,11 +22,18 @@ import { PostModule } from './content/post.module';
     AuthValidateModule,
     QuestionsModule,
     PostModule,
+    SearchModule,
     JwtModule.register({
       secret: process.env.JWT_ACCESS_SECRET,
     }),
   ],
   controllers: [SocialServiceController],
-  providers: [SocialServiceService], 
+  providers: [SocialServiceService],
 })
-export class SocialServiceModule {}
+export class SocialServiceModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer
+      .apply(SearchCountMiddleware)
+      .forRoutes({ path: 'search', method: RequestMethod.GET });
+  }
+}
