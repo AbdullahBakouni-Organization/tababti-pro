@@ -327,6 +327,7 @@ export enum BookingStatus {
   CANCELLED_BY_DOCTOR = 'cancelled_by_doctor',
   CANCELLED_BY_ADMIN = 'cancelled_by_admin',
   CANCELLED_BY_SYSTEM = 'cancelled_by_system',
+  PAUSED_BY_DOCTOR = 'paused_by_doctor',
 }
 
 export enum GeneralSpecialty {

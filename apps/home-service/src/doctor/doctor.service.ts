@@ -66,6 +66,8 @@ import {
 } from '@app/common/database/schemas/slot.schema';
 import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
+import { User } from '@app/common/database/schemas/user.schema';
+import { getSyriaDate } from '@app/common/utils/get-syria-date';
 // ============================================
 // Kafka Events
 // ============================================
@@ -1242,10 +1244,10 @@ export class DoctorService {
     const bookings = await this.bookingModel
       .find({
         slotId: { $in: dto.slotIds.map((id) => new Types.ObjectId(id)) },
-        status: { $in: [BookingStatus.PENDING] },
+        status: BookingStatus.PENDING,
       })
-      .populate('patientId', 'firstName lastName phoneNumber fcmToken')
-      .populate('slotId')
+      .populate<{ patientId: User }>('patientId', 'username phone')
+      .lean()
       .exec();
 
     const affectedBookings = bookings.map((booking) => ({
@@ -1309,9 +1311,7 @@ export class DoctorService {
     }
 
     // Determine pause date
-    const pauseDate = dto.pauseDate
-      ? new Date(dto.pauseDate)
-      : this.getSyriaDate();
+    const pauseDate = dto.pauseDate ? new Date(dto.pauseDate) : getSyriaDate();
 
     // Queue job to pause slots
     const job = await this.pauseSlotsQueue.add(

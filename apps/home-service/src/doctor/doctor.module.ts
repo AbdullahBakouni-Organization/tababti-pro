@@ -8,9 +8,22 @@ import { HttpModule } from '@nestjs/axios';
 import { ConfigModule } from '@nestjs/config';
 import { SmsService } from '../sms/sms.service';
 import { CacheModule } from '@app/common/cache/cache.module';
+import { BullModule } from '@nestjs/bull';
 
 @Module({
   imports: [
+    BullModule.registerQueue({
+      name: 'pause-slots',
+      defaultJobOptions: {
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 2000,
+        },
+        removeOnComplete: 100, // Keep last 100 completed jobs
+        removeOnFail: 500, // Keep last 500 failed jobs for debugging
+      },
+    }),
     ConfigModule.forRoot({
       isGlobal: true,
     }),

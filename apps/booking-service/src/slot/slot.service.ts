@@ -27,6 +27,7 @@ import {
   Doctor,
   DoctorDocument,
 } from '@app/common/database/schemas/doctor.schema';
+import { getSyriaDate } from '@app/common/utils/get-syria-date';
 
 @Injectable()
 export class SlotGenerationService {
@@ -147,7 +148,7 @@ export class SlotGenerationService {
     } = event.data;
 
     const slots: Partial<AppointmentSlot>[] = [];
-    const today = this.getSyriaDate();
+    const today = getSyriaDate();
 
     // Generate slots only for today
     const dayOfWeek = this.getDayName(today.getUTCDay());
@@ -217,7 +218,7 @@ export class SlotGenerationService {
     } = event.data;
 
     const slots: Partial<AppointmentSlot>[] = [];
-    const today = this.getSyriaDate();
+    const today = getSyriaDate();
 
     for (let week = 0; week < this.SLOT_GENERATION_WEEKS; week++) {
       for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
@@ -326,7 +327,7 @@ export class SlotGenerationService {
       inspectionPrice,
       doctorInfo,
     } = event.data;
-    const today = this.getSyriaDate();
+    const today = getSyriaDate();
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
