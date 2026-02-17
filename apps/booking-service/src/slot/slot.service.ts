@@ -152,6 +152,7 @@ export class SlotGenerationService {
 
     // Generate slots only for today
     const dayOfWeek = this.getDayName(today.getUTCDay());
+    // ✅ local day
 
     const dayWorkingHours = workingHours.filter(
       (wh) => wh.day.toLowerCase() === dayOfWeek.toLowerCase(),

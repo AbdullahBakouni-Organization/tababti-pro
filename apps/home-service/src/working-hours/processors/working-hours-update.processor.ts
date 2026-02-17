@@ -10,6 +10,7 @@ import {
 import {
   BookingStatus,
   SlotStatus,
+  UserRole,
 } from '@app/common/database/schemas/common.enums';
 import { KafkaService } from '@app/common/kafka/kafka.service';
 import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
@@ -82,13 +83,7 @@ export class WorkingHoursUpdateProcessor {
       await this.freeUpSlots(cancelledBookings);
 
       // Step 3: Delete today's existing slots and regenerate with new hours
-      // await this.regenerateTodaySlots(
-      //   doctorId,
-      //   newWorkingHours,
-      //   inspectionDuration,
-      //   inspectionPrice,
-      //   doctorInfo,
-      // );
+      await this.DeleteTodaySlots(doctorInfo._id);
 
       this.publishSlotGenerationTodayEvent(
         newWorkingHours,
@@ -207,7 +202,7 @@ export class WorkingHoursUpdateProcessor {
   ): Promise<any[]> {
     const bookings = await this.appointmentModel
       .find({ _id: { $in: bookingIds } })
-      .populate('patientId', 'firstName lastName phoneNumber')
+      .populate('patientId', 'username phone')
       .populate('slotId')
       .exec();
 
@@ -219,7 +214,7 @@ export class WorkingHoursUpdateProcessor {
           status: BookingStatus.CANCELLED_BY_DOCTOR,
           cancellationReason,
           cancelledAt: new Date(),
-          cancelledBy: 'system',
+          cancelledBy: UserRole.DOCTOR,
         },
       },
     );
@@ -244,21 +239,26 @@ export class WorkingHoursUpdateProcessor {
   /**
    * Regenerate slots for today only
    */
-  // private async regenerateTodaySlots(
-  //   doctorId: string,
-  //   workingHours: any[],
-  //   duration: number,
-  //   price: number | undefined,
-  //   doctorInfo: any,
-  // ): Promise<void> {
-  //   const today = this.getSyriaDate();
+  private async DeleteTodaySlots(doctorId: string): Promise<void> {
+    const now = new Date();
 
-  //   // Delete today's available slots
-  //   await this.slotModel.deleteMany({
-  //     doctorId,
-  //     date: today,
-  //     status: SlotStatus.AVAILABLE,
-  //   });
+    const startOfTodayUTC = new Date(
+      Date.UTC(
+        now.getUTCFullYear(),
+        now.getUTCMonth(),
+        now.getUTCDate(),
+        0,
+        0,
+        0,
+        0,
+      ),
+    );
+
+    await this.slotModel.deleteMany({
+      doctorId,
+      date: startOfTodayUTC,
+    });
+  }
 
   //   // Generate new slots for today using your existing service
   //   const event = {
@@ -283,21 +283,6 @@ export class WorkingHoursUpdateProcessor {
 
   //   this.logger.log(`Regenerated slots for today for doctor ${doctorId}`);
   // }
-
-  /**
-   * Delete all future slots
-   */
-  private async deleteFutureSlotsForDoctor(doctorId: string): Promise<void> {
-    const today = getSyriaDate();
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-
-    await this.slotModel.deleteMany({
-      doctorId,
-      date: { $gte: tomorrow },
-      status: SlotStatus.AVAILABLE,
-    });
-  }
 
   /**
    * Generate new slots using existing service
@@ -365,46 +350,46 @@ export class WorkingHoursUpdateProcessor {
   /**
    * Publish Kafka event for doctor hours update
    */
-  private publishDoctorHoursUpdatedEvent(
-    doctorId: string,
-    workingHours: any[],
-  ): void {
-    const event = {
-      eventType: 'DOCTOR_HOURS_UPDATED',
-      timestamp: new Date(),
-      data: {
-        doctorId,
-        workingHours,
-      },
-      metadata: {
-        source: 'working-hours-update',
-        version: '1.0',
-      },
-    };
+  //  private publishDoctorHoursUpdatedEvent(
+  //   doctorId: string,
+  //   workingHours: any[],
+  // ): void {
+  //   const event = {
+  //     eventType: 'DOCTOR_HOURS_UPDATED',
+  //     timestamp: new Date(),
+  //     data: {
+  //       doctorId,
+  //       workingHours,
+  //     },
+  //     metadata: {
+  //       source: 'working-hours-update',
+  //       version: '1.0',
+  //     },
+  //   };
 
-    this.kafkaService.emit(KAFKA_TOPICS.DOCTOR_WORKING_HOURS_UPDATED, event);
-    this.logger.debug(`Published doctor hours updated event for ${doctorId}`);
-  }
+  //   this.kafkaService.emit(KAFKA_TOPICS.DOCTOR_WORKING_HOURS_UPDATED, event);
+  //   this.logger.debug(`Published doctor hours updated event for ${doctorId}`);
+  // }
 
   /**
    * Publish Kafka event for slots refreshed
    */
-  private publishSlotsRefreshedEvent(doctorId: string): void {
-    const event = {
-      eventType: 'SLOTS_REFRESHED',
-      timestamp: new Date(),
-      data: {
-        doctorId,
-      },
-      metadata: {
-        source: 'working-hours-update',
-        version: '1.0',
-      },
-    };
+  // private publishSlotsRefreshedEvent(doctorId: string): void {
+  //   const event = {
+  //     eventType: 'SLOTS_REFRESHED',
+  //     timestamp: new Date(),
+  //     data: {
+  //       doctorId,
+  //     },
+  //     metadata: {
+  //       source: 'working-hours-update',
+  //       version: '1.0',
+  //     },
+  //   };
 
-    this.kafkaService.emit(KAFKA_TOPICS.SLOTS_REFRESHED, event);
-    this.logger.debug(`Published slots refreshed event for ${doctorId}`);
-  }
+  //   this.kafkaService.emit(KAFKA_TOPICS.SLOTS_REFRESHED, event);
+  //   this.logger.debug(`Published slots refreshed event for ${doctorId}`);
+  // }
 
   // /**
   //  * Get Syria date (same as your slot generation service)
@@ -424,14 +409,6 @@ export class WorkingHoursUpdateProcessor {
     inspectionPrice: number | undefined,
     doctorInfo: any,
   ): void {
-    const today = getSyriaDate();
-
-    // Delete today's available slots
-    this.slotModel.deleteMany({
-      doctorId: doctorInfo._id,
-      date: today,
-      status: SlotStatus.AVAILABLE,
-    });
     const event: SlotGenerationTodayEvent = {
       eventType: 'SLOTS_GENERATE_FOR_TODAY',
       timestamp: new Date(),
@@ -529,7 +506,6 @@ export class WorkingHoursUpdateProcessor {
     const result = await this.slotModel.deleteMany({
       doctorId,
       date: { $gte: tomorrow }, // Only tomorrow and beyond
-      status: SlotStatus.AVAILABLE,
     });
 
     this.logger.debug(
