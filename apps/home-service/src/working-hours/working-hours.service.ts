@@ -30,6 +30,16 @@ import {
 } from '@app/common/kafka/interfaces/kafka-event.interface';
 import { WorkingHoursUpdateJobData } from './processors/working-hours-update.processor';
 // import { WorkingHoursUpdateJobData } from './working-hours-update.processor';
+interface WorkingHour {
+  day: string;
+  startTime: string;
+  endTime: string;
+  location: {
+    type: string;
+    entity_name: string;
+    address: string;
+  };
+}
 
 @Injectable()
 export class WorkingHoursService {
@@ -242,8 +252,34 @@ export class WorkingHoursService {
     }
 
     // Update doctor working hours in database
-    doctor.workingHours = updateDto.workingHours;
+    // doctor.workingHours = updateDto.workingHours;
+    // doctor.inspectionDuration = updateDto.inspectionDuration;
+    // Days being updated
+    const updatedDays = [
+      ...new Set(updateDto.workingHours.map((wh) => wh.day)),
+    ];
+
+    // Remove only those days
+    const remainingWorkingHours = doctor.workingHours.filter(
+      (wh) => !updatedDays.includes(wh.day),
+    );
+
+    // Merge
+    const mergedWorkingHours = [
+      ...remainingWorkingHours,
+      ...updateDto.workingHours,
+    ];
+
+    // Validate final result
+    this.validateWorkingHours(mergedWorkingHours);
+
+    // Apply update
+    doctor.workingHours = mergedWorkingHours;
     doctor.inspectionDuration = updateDto.inspectionDuration;
+
+    if (updateDto.inspectionPrice !== undefined) {
+      doctor.inspectionPrice = updateDto.inspectionPrice;
+    }
 
     if (updateDto.inspectionPrice !== undefined) {
       doctor.inspectionPrice = updateDto.inspectionPrice;
@@ -294,14 +330,14 @@ export class WorkingHoursService {
         `Queued immediate conflict job ${immediateJobId} for ${todayConflicts.length} today conflicts`,
       );
     }
-
+    console.log(mergedWorkingHours);
     // JOB B: Handle future conflicts (NORMAL PRIORITY, IMMEDIATE)
     // Strategy: Run immediately but with lower priority than Job A
     if (futureConflicts.length > 0) {
       const futureJob = await this.workingHoursQueue.add(
         'handle-future-conflicts',
         {
-          newWorkingHours: updateDto.workingHours,
+          newWorkingHours: mergedWorkingHours,
           inspectionDuration: updateDto.inspectionDuration,
           inspectionPrice: updateDto.inspectionPrice,
           doctorInfo,
@@ -355,7 +391,7 @@ export class WorkingHoursService {
    * Calculate total number of slots that will be generated
    */
   private calculateTotalSlots(
-    workingHours: any[],
+    workingHours: WorkingHour[],
     inspectionDuration: number,
   ): number {
     let totalSlots = 0;
@@ -422,18 +458,63 @@ export class WorkingHoursService {
   /**
    * Validate working hours (reused from original service)
    */
-  private validateWorkingHours(workingHours: any[]): void {
-    const dayLocationMap = new Map<string, any[]>();
+  // private validateWorkingHours(workingHours: WorkingHour[]): void {
+  //   const dayLocationMap = new Map<string, WorkingHour[]>();
+
+  //   for (const wh of workingHours) {
+  //     const key = `${wh.day}-${wh.location.type}-${wh.location.entity_name}`;
+
+  //     if (!dayLocationMap.has(key)) {
+  //       dayLocationMap.set(key, []);
+  //     }
+
+  //     const existing = dayLocationMap.get(key)!;
+
+  //     for (const existingWh of existing) {
+  //       if (
+  //         this.hasTimeOverlap(
+  //           wh.startTime,
+  //           wh.endTime,
+  //           existingWh.startTime,
+  //           existingWh.endTime,
+  //         )
+  //       ) {
+  //         throw new BadRequestException(
+  //           `Overlapping working hours detected for ${wh.day} at ${wh.location.entity_name}`,
+  //         );
+  //       }
+  //     }
+
+  //     existing.push(wh);
+  //   }
+
+  //   for (const wh of workingHours) {
+  //     if (!this.isValidTimeRange(wh.startTime, wh.endTime)) {
+  //       throw new BadRequestException(
+  //         `Invalid time range: start time must be before end time for ${wh.day}`,
+  //       );
+  //     }
+  //   }
+  // }
+  private validateWorkingHours(workingHours: WorkingHour[]): void {
+    const dayMap = new Map<string, WorkingHour[]>();
 
     for (const wh of workingHours) {
-      const key = `${wh.day}-${wh.location.type}-${wh.location.entity_name}`;
-
-      if (!dayLocationMap.has(key)) {
-        dayLocationMap.set(key, []);
+      // 1️⃣ Validate time range first
+      if (!this.isValidTimeRange(wh.startTime, wh.endTime)) {
+        throw new BadRequestException(
+          `Invalid time range: start time must be before end time for ${wh.day}`,
+        );
       }
 
-      const existing = dayLocationMap.get(key)!;
+      // 2️⃣ Group by DAY ONLY
+      if (!dayMap.has(wh.day)) {
+        dayMap.set(wh.day, []);
+      }
 
+      const existing = dayMap.get(wh.day)!;
+
+      // 3️⃣ Check overlap with ALL working hours of that day
       for (const existingWh of existing) {
         if (
           this.hasTimeOverlap(
@@ -444,20 +525,12 @@ export class WorkingHoursService {
           )
         ) {
           throw new BadRequestException(
-            `Overlapping working hours detected for ${wh.day} at ${wh.location.entity_name}`,
+            `Doctor cannot work in two places at the same time on ${wh.day}. Conflict between ${wh.startTime}-${wh.endTime} and ${existingWh.startTime}-${existingWh.endTime}`,
           );
         }
       }
 
       existing.push(wh);
-    }
-
-    for (const wh of workingHours) {
-      if (!this.isValidTimeRange(wh.startTime, wh.endTime)) {
-        throw new BadRequestException(
-          `Invalid time range: start time must be before end time for ${wh.day}`,
-        );
-      }
     }
   }
 

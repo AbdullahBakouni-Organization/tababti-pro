@@ -149,13 +149,27 @@ export class SlotGenerationService {
 
     const slots: Partial<AppointmentSlot>[] = [];
     const today = getSyriaDate();
+    const dayOfWeek = new Intl.DateTimeFormat('en-US', {
+      weekday: 'long',
+      timeZone: 'Asia/Damascus',
+    }).format(new Date());
 
-    // Generate slots only for today
-    const dayOfWeek = this.getDayName(today.getUTCDay());
-    // ✅ local day
+    console.log('=== DEBUG generateTodaySlots ===');
+    console.log('today (getSyriaDate):', today);
+    console.log('dayOfWeek detected:', dayOfWeek);
+    console.log(
+      'workingHours received:',
+      JSON.stringify(workingHours, null, 2),
+    );
+    console.log('inspectionDuration:', inspectionDuration);
 
     const dayWorkingHours = workingHours.filter(
       (wh) => wh.day.toLowerCase() === dayOfWeek.toLowerCase(),
+    );
+
+    console.log(
+      'dayWorkingHours matched:',
+      JSON.stringify(dayWorkingHours, null, 2),
     );
 
     for (const wh of dayWorkingHours) {
@@ -173,9 +187,11 @@ export class SlotGenerationService {
         ),
       );
     }
+    console.log('Generated BEFORE insert:', slots.length);
+    console.log('Slots preview:', slots.slice(0, 2));
 
-    const createdSlots = await this.batchInsertSlots(slots);
     await this.invalidateSlotCaches(doctorId);
+    const createdSlots = await this.batchInsertSlots(slots);
 
     this.logger.log(
       `Generated ${createdSlots.length} slots for today for doctor ${doctorId}`,
