@@ -136,6 +136,70 @@ export class SlotGenerationService {
     }
   }
 
+  // async generateTodaySlots(
+  //   event: SlotGenerationTodayEvent,
+  // ): Promise<AppointmentSlot[]> {
+  //   const {
+  //     doctorId,
+  //     workingHours,
+  //     inspectionDuration,
+  //     inspectionPrice,
+  //     doctorInfo,
+  //   } = event.data;
+
+  //   const slots: Partial<AppointmentSlot>[] = [];
+  //   const today = getSyriaDate();
+  //   const dayOfWeek = new Intl.DateTimeFormat('en-US', {
+  //     weekday: 'long',
+  //     timeZone: 'Asia/Damascus',
+  //   }).format(new Date());
+
+  //   console.log('=== DEBUG generateTodaySlots ===');
+  //   console.log('today (getSyriaDate):', today);
+  //   console.log('dayOfWeek detected:', dayOfWeek);
+  //   console.log(
+  //     'workingHours received:',
+  //     JSON.stringify(workingHours, null, 2),
+  //   );
+  //   console.log('inspectionDuration:', inspectionDuration);
+
+  //   const dayWorkingHours = workingHours.filter(
+  //     (wh) => wh.day.toLowerCase() === dayOfWeek.toLowerCase(),
+  //   );
+
+  //   console.log(
+  //     'dayWorkingHours matched:',
+  //     JSON.stringify(dayWorkingHours, null, 2),
+  //   );
+
+  //   for (const wh of dayWorkingHours) {
+  //     slots.push(
+  //       ...this.generateSlotsForDay(
+  //         doctorId,
+  //         today,
+  //         dayOfWeek as Days,
+  //         wh.startTime,
+  //         wh.endTime,
+  //         inspectionDuration,
+  //         wh.location,
+  //         inspectionPrice,
+  //         doctorInfo,
+  //       ),
+  //     );
+  //   }
+  //   console.log('Generated BEFORE insert:', slots.length);
+  //   console.log('Slots preview:', slots.slice(0, 2));
+  //   console.log('slots', slots);
+  //   await this.invalidateSlotCaches(doctorId);
+  //   const createdSlots = await this.batchInsertSlots(slots);
+
+  //   this.logger.log(
+  //     `Generated ${createdSlots.length} slots for today for doctor ${doctorId}`,
+  //   );
+
+  //   return createdSlots;
+  // }
+  //
   async generateTodaySlots(
     event: SlotGenerationTodayEvent,
   ): Promise<AppointmentSlot[]> {
@@ -147,29 +211,28 @@ export class SlotGenerationService {
       doctorInfo,
     } = event.data;
 
+    // ✅ DELETE FIRST, before any generation
+    const slotDate = getSyriaDate();
+    slotDate.setUTCHours(0, 0, 0, 0);
+
+    const deleted = await this.slotModel.deleteMany({
+      doctorId,
+      date: slotDate,
+    });
+    this.logger.debug(
+      `Deleted ${deleted.deletedCount} existing today slots before regeneration`,
+    );
+
     const slots: Partial<AppointmentSlot>[] = [];
-    const today = getSyriaDate();
+    const today = slotDate; // reuse same date object
+
     const dayOfWeek = new Intl.DateTimeFormat('en-US', {
       weekday: 'long',
       timeZone: 'Asia/Damascus',
     }).format(new Date());
 
-    console.log('=== DEBUG generateTodaySlots ===');
-    console.log('today (getSyriaDate):', today);
-    console.log('dayOfWeek detected:', dayOfWeek);
-    console.log(
-      'workingHours received:',
-      JSON.stringify(workingHours, null, 2),
-    );
-    console.log('inspectionDuration:', inspectionDuration);
-
     const dayWorkingHours = workingHours.filter(
       (wh) => wh.day.toLowerCase() === dayOfWeek.toLowerCase(),
-    );
-
-    console.log(
-      'dayWorkingHours matched:',
-      JSON.stringify(dayWorkingHours, null, 2),
     );
 
     for (const wh of dayWorkingHours) {
@@ -187,8 +250,6 @@ export class SlotGenerationService {
         ),
       );
     }
-    console.log('Generated BEFORE insert:', slots.length);
-    console.log('Slots preview:', slots.slice(0, 2));
 
     await this.invalidateSlotCaches(doctorId);
     const createdSlots = await this.batchInsertSlots(slots);
@@ -196,7 +257,6 @@ export class SlotGenerationService {
     this.logger.log(
       `Generated ${createdSlots.length} slots for today for doctor ${doctorId}`,
     );
-
     return createdSlots;
   }
   /**

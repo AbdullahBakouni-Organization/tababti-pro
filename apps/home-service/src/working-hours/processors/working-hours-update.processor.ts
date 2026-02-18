@@ -82,8 +82,14 @@ export class WorkingHoursUpdateProcessor {
       // Step 2: Free up the slots
       await this.freeUpSlots(cancelledBookings);
 
-      // Step 3: Delete today's existing slots and regenerate with new hours
-      await this.DeleteTodaySlots(doctorInfo._id);
+      // Delete and confirm
+      // await this.DeleteTodaySlots(doctorInfo._id);
+      this.logger.log(
+        `[Job A] Today slots deleted, now publishing generation event`,
+      );
+
+      // Add small delay to ensure MongoDB write is visible across services
+      await new Promise((resolve) => setTimeout(resolve, 2000));
 
       this.publishSlotGenerationTodayEvent(
         newWorkingHours,
@@ -240,24 +246,21 @@ export class WorkingHoursUpdateProcessor {
    * Regenerate slots for today only
    */
   private async DeleteTodaySlots(doctorId: string): Promise<void> {
-    const now = new Date();
+    const today = getSyriaDate(); // 2026-02-17T21:00:00.000Z
 
-    const startOfTodayUTC = new Date(
-      Date.UTC(
-        now.getUTCFullYear(),
-        now.getUTCMonth(),
-        now.getUTCDate(),
-        0,
-        0,
-        0,
-        0,
-      ),
-    );
+    // Must match exactly what generateSlotsForDay stores:
+    // slotDate.setUTCHours(0,0,0,0) on a getSyriaDate() value
+    const slotDate = new Date(today);
+    slotDate.setUTCHours(0, 0, 0, 0); // → 2026-02-17T00:00:00.000Z
 
-    await this.slotModel.deleteMany({
+    const result = await this.slotModel.deleteMany({
       doctorId,
-      date: startOfTodayUTC,
+      date: slotDate,
     });
+
+    this.logger.debug(
+      `Deleted ${result.deletedCount} today slots for doctor ${doctorId}`,
+    );
   }
 
   //   // Generate new slots for today using your existing service

@@ -308,7 +308,7 @@ export class WorkingHoursService {
       const immediateJob = await this.workingHoursQueue.add(
         'handle-immediate-conflicts',
         {
-          newWorkingHours: updateDto.workingHours,
+          newWorkingHours: mergedWorkingHours,
           inspectionDuration: updateDto.inspectionDuration,
           inspectionPrice: updateDto.inspectionPrice,
           doctorInfo,
@@ -330,7 +330,6 @@ export class WorkingHoursService {
         `Queued immediate conflict job ${immediateJobId} for ${todayConflicts.length} today conflicts`,
       );
     }
-    console.log(mergedWorkingHours);
     // JOB B: Handle future conflicts (NORMAL PRIORITY, IMMEDIATE)
     // Strategy: Run immediately but with lower priority than Job A
     if (futureConflicts.length > 0) {
