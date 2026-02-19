@@ -23,7 +23,11 @@ import {
   CenterSpecialization,
   City,
   ApprovalStatus,
-
+  PrivateMedicineSpecialty,
+  GeneralSpecialty,
+  DepartmentType,
+  CommonSurgery,
+  Machines,
 } from '@app/common/database/schemas/common.enums';
 
 const toStringArray = () =>
@@ -66,25 +70,32 @@ export class SearchFilterDto {
 
   /* ========== DOCTOR FILTERS ========== */
   @ApiPropertyOptional({
-    description: 'Public Specialty ID',
-    example: '698f88ddba4763b672fe62be',
+    description: 'General specialty names',
+    example: ['طب_بشري', 'طب_أسنان'],
   })
   @IsOptional()
-  @IsMongoId()
-  publicSpecializationId?: string;
-
-  @ApiPropertyOptional({
-    description: 'Private Specialty IDs',
-    example: ['698f88ddba4763b672fe62c5'],
-  })
-  @IsOptional()
-  @IsMongoId({ each: true })
+  @IsArray()
+  @IsString({ each: true })
   @Transform(({ value }) => {
     if (!value) return undefined;
     if (Array.isArray(value)) return value.filter((v) => !!v);
     return [value];
   })
-  privateSpecializationIds?: string[];
+  generalSpecialtyNames?: GeneralSpecialty[];
+
+  @ApiPropertyOptional({
+    description: 'Private specialty names',
+    example: ['عظمية', 'قلب'],
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @Transform(({ value }) => {
+    if (!value) return undefined;
+    if (Array.isArray(value)) return value.filter((v) => !!v);
+    return [value];
+  })
+  privateSpecializationNames?: PrivateMedicineSpecialty[];
 
   @ApiPropertyOptional({ enum: Gender })
   @IsOptional()
@@ -109,12 +120,11 @@ export class SearchFilterDto {
   inspectionPriceMin?: number;
 
   @IsOptional()
-  @ValidateIf(o => o.inspectionPriceMin !== undefined)
+  @ValidateIf((o) => o.inspectionPriceMin !== undefined)
   @Type(() => Number)
   @IsNumber()
   @Min(0)
   inspectionPriceMax?: number;
-
 
   @IsOptional()
   @Type(() => Number)
@@ -151,7 +161,7 @@ export class SearchFilterDto {
   @Max(5)
   minRating?: number;
 
-  /* ========== INSURANCE / HOSPITAL FILTERS ========== */
+  /* ==========  / HOSPITAL FILTERS ========== */
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
@@ -168,7 +178,6 @@ export class SearchFilterDto {
   @IsOptional()
   @IsEnum(HospitalStatus)
   hospitalStatus?: HospitalStatus;
-
 
   @IsOptional()
   @IsEnum(ApprovalStatus)
@@ -203,7 +212,21 @@ export class SearchFilterDto {
   @IsString()
   centerName?: string;
 
-  topSearched?: number; 
+  // ======== NEW: COMMON DEPARTMENTS FILTERS ========
+  @IsOptional()
+  @Transform(({ value }) => (Array.isArray(value) ? value : [value]))
+  @IsArray()
+  departments?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  machines?: Machines[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  operations?: CommonSurgery[];
 
   /* ========== PAGINATION ========== */
   @ApiPropertyOptional({ default: 1 })

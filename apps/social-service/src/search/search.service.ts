@@ -3,6 +3,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { SearchFilterDto } from './dto/search-filter.dto';
 import { TranslationAiService } from '../translation-ai/translation-ai.service';
+import { CommonDepartment } from '@app/common/database/schemas/common_departments.schema';
 import {
   AleppoAreas,
   City,
@@ -57,7 +58,11 @@ export class SearchService implements OnModuleInit, OnModuleDestroy {
     private readonly privateSpecializationModel: Model<any>,
     private aiService: TranslationAiService,
     private eventEmitter: EventEmitter2,
-  ) { }
+    //
+
+    @InjectModel(CommonDepartment.name)
+    private readonly commonDepartmentModel: Model<CommonDepartment>,
+  ) {}
 
   async onModuleInit() {
     // Initialize aggressive cache
@@ -385,145 +390,57 @@ export class SearchService implements OnModuleInit, OnModuleDestroy {
   private async buildStaticConditions(params: SearchFilterDto): Promise<any[]> {
     const conditions: any[] = [];
 
-    // --- City filter ---
-    if (params.city) {
-      const cityInput = params.city.trim().toLowerCase();
-      const cityValue = Object.values(City).find(
-        (c) => c.toLowerCase() === cityInput,
+    // ======== City / Subcity ========
+    if (params.city) conditions.push({ city: params.city });
+    if (params.subcity) conditions.push({ subcity: params.subcity });
+
+    // ======== General Specialty ========
+    if (params.generalSpecialtyNames?.length) {
+      const publicSpecs = await this.publicSpecializationModel.find(
+        { name: { $in: params.generalSpecialtyNames } },
+        { _id: 1 },
       );
-      if (!cityValue) throw new Error(`Invalid city value: ${params.city}`);
-      conditions.push({ city: cityValue });
-
-      // Subcity strict
-      if (params.subcity) {
-        const subcityEnum = this.getSubcityEnum(params.city);
-        if (subcityEnum && subcityEnum.includes(params.subcity)) {
-          conditions.push({ subcity: params.subcity });
-        }
-      }
+      const publicSpecIds = publicSpecs.map((s) => s._id);
+      if (publicSpecIds.length)
+        conditions.push({ publicSpecializationId: { $in: publicSpecIds } });
     }
 
-    // --- Public specialization ---
-    if (
-      params.publicSpecializationId &&
-      Types.ObjectId.isValid(params.publicSpecializationId)
-    ) {
-      conditions.push({
-        publicSpecializationId: new Types.ObjectId(
-          params.publicSpecializationId,
-        ),
-      });
+    // ======== Private Specialty ========
+    if (params.privateSpecializationNames?.length) {
+      const privateSpecs = await this.privateSpecializationModel.find(
+        { name: { $in: params.privateSpecializationNames } },
+        { _id: 1 },
+      );
+      const privateSpecIds = privateSpecs.map((s) => s._id);
+      if (privateSpecIds.length)
+        conditions.push({ privateSpecializationId: { $in: privateSpecIds } });
     }
 
-    // --- Private specialization ---
-    if (
-      Array.isArray(params.privateSpecializationIds) &&
-      params.privateSpecializationIds.length > 0
-    ) {
-      const ids = params.privateSpecializationIds
-        .filter((id) => Types.ObjectId.isValid(id))
-        .map((id) => new Types.ObjectId(id));
-
-      if (ids.length) {
-        conditions.push({
-          privateSpecializationId: {
-            $in: ids,
-          },
-        });
-      }
-    }
-
-    // --- Other strict filters ---
+    // ======== Gender ========
     if (params.gender) conditions.push({ gender: params.gender });
-    if (params.hospitalStatus)
-      conditions.push({ status: params.hospitalStatus });
-    if (params.minRating !== undefined)
-      conditions.push({ rating: { $gte: params.minRating } });
+
+    // ======== Experience ========
     if (params.minExperience !== undefined)
       conditions.push({ yearsOfExperience: { $gte: params.minExperience } });
 
+    // ======== Rating ========
+    if (params.minRating !== undefined)
+      conditions.push({ rating: { $gte: params.minRating } });
 
-
-
-    if (params.inspectionDuration !== undefined) {
-      conditions.push({
-        inspectionDuration: { $gte: params.inspectionDuration },
-      });
-    }
-
-    // =============================
-    // Search count / popularity filter
-    // =============================
-    if (params.searchCount !== undefined) {
-      conditions.push({ searchCount: { $gte: params.searchCount } });
-    }
-
-    // =============================
-    // Latitude / Longitude filter
-    // =============================
-    if (params.latitude !== undefined) {
-      conditions.push({ latitude: params.latitude });
-    }
-
-    if (params.longitude !== undefined) {
-      conditions.push({ longitude: params.longitude });
-    }
-
-    if (params.hospitalName) {
-      conditions.push({
-        hospitals: {
-          $elemMatch: { name: { $regex: params.hospitalName, $options: 'i' } },
-        },
-      });
-    }
-
-    // --- Name search ---
-    if (params.search?.trim().length) {
-      const searchStr = params.search.trim();
-      const variants = this.getSearchVariantsNonBlocking(searchStr) || [];
-      if (variants.length) {
-        const fields = ['firstName', 'lastName', 'middleName'];
-        const orConditions = variants.flatMap((v) =>
-          fields.map((f) => ({ [f]: { $regex: v, $options: 'i' } })),
-        );
-        if (orConditions.length) conditions.push({ $or: orConditions });
-      }
+    // ======== Price ========
+    if (
+      params.inspectionPriceMin !== undefined ||
+      params.inspectionPriceMax !== undefined
+    ) {
+      const priceFilter: any = {};
+      if (params.inspectionPriceMin !== undefined)
+        priceFilter.$gte = params.inspectionPriceMin;
+      if (params.inspectionPriceMax !== undefined)
+        priceFilter.$lte = params.inspectionPriceMax;
+      conditions.push({ inspectionPrice: priceFilter });
     }
 
     return conditions;
-  }
-
-  private getSubcityEnum(city: City): string[] | null {
-    switch (city) {
-      case City.Damascus:
-        return Object.values(DamascusAreas);
-      case City.Aleppo:
-        return Object.values(AleppoAreas);
-      case City.Homs:
-        return Object.values(HomsAreas);
-      case City.Hama:
-        return Object.values(HamaAreas);
-      case City.Latakia:
-        return Object.values(LatakiaAreas);
-      case City.Tartus:
-        return Object.values(TartousAreas);
-      case City.Idlib:
-        return Object.values(IdlibAreas);
-      case City.Raqqa:
-        return Object.values(RaqqaAreas);
-      case City.DeirEzzor:
-        return Object.values(DeirEzzorAreas);
-      case City.Suwayda:
-        return Object.values(SweidaAreas);
-      case City.AlHasakah:
-        return Object.values(HassakehAreas);
-      case City.Daraa:
-        return Object.values(DaraaAreas);
-      case City.Quneitra:
-        return Object.values(QuneitraAreas);
-      default:
-        return null;
-    }
   }
 
   private getBasicVariants(text: string): string[] {
@@ -601,23 +518,25 @@ export class SearchService implements OnModuleInit, OnModuleDestroy {
     sortBy?: string,
     order: 'asc' | 'desc' = 'desc',
     filters?: {
-      generalSpecialtyName?: string;
+      generalSpecialtyNames?: string[];
       privateSpecializationNames?: string[];
       yearsOfExperience?: number;
       hospitalNames?: string[];
       city?: City;
       subcity?: string;
+      gender?: string;
+      minRating?: number;
     },
   ) {
     const conditions: any[] = [];
 
-    // --- Handle search term safely ---
-    if (search?.trim().length) {
+    // --- Search term ---
+    if (search?.trim()) {
       const variants = this.getSearchVariantsNonBlocking(search.trim()) || [];
-      if (variants.length) this.addSearchConditions(variants, conditions);
+      this.addSearchConditions(variants, conditions);
     }
 
-    // --- Handle filters safely ---
+    // --- Filters ---
     if (filters) await this.addFilterConditions(filters, conditions);
 
     const query = conditions.length ? { $and: conditions } : {};
@@ -626,10 +545,8 @@ export class SearchService implements OnModuleInit, OnModuleDestroy {
       this.doctorModel
         .find(query)
         .select(
-          'firstName lastName middleName address yearsOfExperience hospitals workingHours rating city subcity publicSpecializationId privateSpecializationId',
+          'firstName lastName middleName address yearsOfExperience hospitals workingHours rating city subcity publicSpecialization privateSpecialization',
         )
-        .populate('publicSpecializationId', 'name')
-        .populate('privateSpecializationId', 'name publicSpecialization')
         .populate('hospitals', 'id name')
         .limit(limit)
         .skip(skip)
@@ -638,6 +555,7 @@ export class SearchService implements OnModuleInit, OnModuleDestroy {
         )
         .lean()
         .exec(),
+
       this.doctorModel.countDocuments(query),
     ]);
 
@@ -687,159 +605,118 @@ export class SearchService implements OnModuleInit, OnModuleDestroy {
   }
 
   // --- Helper: add filter conditions (asynchronous) ---
+  // --- Helper: add filter conditions (asynchronous) ---
   private async addFilterConditions(
     filters: {
-      publicSpecializationId?: string;
-      privateSpecializationIds?: string[];
+      generalSpecialtyNames?: string[];
+      privateSpecializationNames?: string[];
       yearsOfExperience?: number;
       hospitalNames?: string[];
       city?: string;
       subcity?: string;
       gender?: string;
       minRating?: number;
-      inspectionPriceMin?: number;
-      inspectionPriceMax?: number;
     },
     conditions: any[],
   ) {
-    /* =============================
-     General Specialty Filter
-  ============================== */
-
-    if (
-      filters.publicSpecializationId &&
-      Types.ObjectId.isValid(filters.publicSpecializationId)
-    ) {
-      conditions.push({
-        publicSpecializationId: new Types.ObjectId(
-          filters.publicSpecializationId,
-        ),
-      });
-    }
-
-    /* =============================
-     Private Specialty Filter
-  ============================== */
-
-    if (
-      Array.isArray(filters.privateSpecializationIds) &&
-      filters.privateSpecializationIds.length > 0
-    ) {
-      const validIds = filters.privateSpecializationIds
-        .filter((id) => Types.ObjectId.isValid(id))
-        .map((id) => new Types.ObjectId(id));
-
-      if (validIds.length) {
-        conditions.push({
-          privateSpecializationId: {
-            $in: validIds,
-          },
-        });
+    // ===== General Specialty (Public) =====
+    if (filters.generalSpecialtyNames?.length) {
+      const publicSpecs = await this.publicSpecializationModel.find(
+        { name: { $in: filters.generalSpecialtyNames } },
+        { _id: 1 },
+      );
+      const publicSpecIds = publicSpecs.map((s) => s._id);
+      if (publicSpecIds.length) {
+        conditions.push({ publicSpecializationId: { $in: publicSpecIds } });
       }
     }
 
-    /* =============================
-     Experience Filter
-  ============================== */
+    // ===== Private Specialty =====
+    if (filters.privateSpecializationNames?.length) {
+      const privateSpecs = await this.privateSpecializationModel.find(
+        { name: { $in: filters.privateSpecializationNames } },
+        { _id: 1 },
+      );
+      const privateSpecIds = privateSpecs.map((s) => s._id);
+      if (privateSpecIds.length) {
+        conditions.push({ privateSpecializationId: { $in: privateSpecIds } });
+      }
+    }
 
+    // ===== Years of Experience =====
     if (filters.yearsOfExperience !== undefined) {
       conditions.push({
-        yearsOfExperience: {
-          $gte: filters.yearsOfExperience,
-        },
+        yearsOfExperience: { $gte: filters.yearsOfExperience },
       });
     }
 
-    /* =============================
-     Hospital Filter
-  ============================== */
-
-    if (Array.isArray(filters.hospitalNames) && filters.hospitalNames.length) {
+    // ===== Hospitals =====
+    if (filters.hospitalNames?.length) {
       conditions.push({
-        'hospitals.name': {
-          $in: filters.hospitalNames,
-        },
+        'hospitals.name': { $in: filters.hospitalNames.map((n) => n.trim()) },
       });
     }
 
-    /* =============================
-     City Filter
-  ============================== */
-
+    // ===== City / Subcity =====
     if (filters.city) {
-      conditions.push({
-        city: filters.city,
-      });
-    }
-
-    /* =============================
-     Subcity Filter
-  ============================== */
-
-    // --- Subcity filter ---
-    if (filters.subcity) {
-      const cityValue: City | undefined = Object.values(City).find(
-        (c) => c === filters.city,
-      );
-
-      if (cityValue) {
-        const subcityList = this.getSubcityEnum(cityValue);
-        if (subcityList?.includes(filters.subcity)) {
-          conditions.push({ subcity: filters.subcity });
-        }
+      conditions.push({ city: filters.city });
+      if (filters.subcity) {
+        conditions.push({ subcity: filters.subcity });
       }
     }
 
-    /* =============================
-     Gender Filter
-  ============================== */
-
+    // ===== Gender =====
     if (filters.gender) {
-      conditions.push({
-        gender: filters.gender,
-      });
+      conditions.push({ gender: filters.gender });
     }
 
-    /* =============================
-     Rating Filter
-  ============================== */
-
+    // ===== Minimum Rating =====
     if (filters.minRating !== undefined) {
-      conditions.push({
-        rating: {
-          $gte: filters.minRating,
-        },
-      });
+      conditions.push({ rating: { $gte: filters.minRating } });
     }
-
-    // =============================
-    // Inspection Price filter
-    // =============================
-    const { inspectionPriceMin, inspectionPriceMax } = filters;
-
-    if (inspectionPriceMin !== undefined || inspectionPriceMax !== undefined) {
-      const price: any = {};
-
-      if (inspectionPriceMin !== undefined)
-        price.$gte = Number(inspectionPriceMin);
-
-      if (inspectionPriceMax !== undefined)
-        price.$lte = Number(inspectionPriceMax);
-      console.log(typeof inspectionPriceMin, typeof inspectionPriceMax);
-
-      conditions.push({ inspectionPrice: price });
-    }
-
   }
 
   // --- Helper: add subcity condition ---
   private addSubcityCondition(city: City, subcity: string, conditions: any[]) {
-    const areas = this.getSubcityEnum(city);
+    const areas = this.getCityAreas(city);
     if (areas?.includes(subcity)) {
       conditions.push({ subcity });
     }
   }
 
+  // --- Helper function to get city areas ---
+  private getCityAreas(city: City): string[] | undefined {
+    switch (city) {
+      case City.Damascus:
+        return Object.values(DamascusAreas);
+      case City.Aleppo:
+        return Object.values(AleppoAreas);
+      case City.Homs:
+        return Object.values(HomsAreas);
+      case City.Idlib:
+        return Object.values(IdlibAreas);
+      case City.Latakia:
+        return Object.values(LatakiaAreas);
+      case City.Tartus:
+        return Object.values(TartousAreas);
+      case City.Raqqa:
+        return Object.values(RaqqaAreas);
+      case City.DeirEzzor:
+        return Object.values(DeirEzzorAreas);
+      case City.Hama:
+        return Object.values(HamaAreas);
+      case City.Quneitra:
+        return Object.values(QuneitraAreas);
+      case City.Suwayda:
+        return Object.values(SweidaAreas);
+      case City.AlHasakah:
+        return Object.values(HassakehAreas);
+      case City.Daraa:
+        return Object.values(DaraaAreas);
+      default:
+        return undefined;
+    }
+  }
 
   // ---------------------------------------------
   // QUERY CENTERS
@@ -854,10 +731,9 @@ export class SearchService implements OnModuleInit, OnModuleDestroy {
   ) {
     const conditions: any[] = [];
 
-    // --- Handle search term ---
+    // --- SEARCH ---
     if (search?.trim()) {
       const variants = this.getSearchVariantsNonBlocking(search.trim());
-      console.log('Center variants:', variants);
       if (variants.length) {
         conditions.push({
           $or: variants.map((v) => ({ name: { $regex: v, $options: 'i' } })),
@@ -865,37 +741,38 @@ export class SearchService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    // --- Handle filters safely ---
-    const namesToSearch: string[] = [];
+    // --- NAME FILTER ---
     if (filters?.name) {
-      if (Array.isArray(filters.name))
-        namesToSearch.push(...filters.name.filter(Boolean));
-      else if (typeof filters.name === 'string')
-        namesToSearch.push(filters.name.trim());
-    }
-    if (namesToSearch.length) {
-      conditions.push({
-        $or: namesToSearch.map((n) => ({ name: { $regex: n, $options: 'i' } })),
-      });
+      const names = Array.isArray(filters.name) ? filters.name : [filters.name];
+      const cleanNames = names.map((n) => n.trim()).filter(Boolean);
+      if (cleanNames.length) {
+        conditions.push({
+          $or: cleanNames.map((n) => ({ name: { $regex: n, $options: 'i' } })),
+        });
+      }
     }
 
+    // --- CATEGORY & CITY FILTER ---
     if (filters?.category) conditions.push({ category: filters.category });
     if (filters?.city) conditions.push({ city: filters.city });
 
-    const query = conditions.length ? { $and: conditions } : {};
+    // --- FINAL QUERY ---
+    const mongoQuery = conditions.length ? { $and: conditions } : {};
+    const sortQuery = sortBy
+      ? { [sortBy]: order === 'asc' ? 1 : -1 }
+      : { createdAt: -1 };
 
     const [centers, total] = await Promise.all([
       this.centerModel
-        .find(query)
-        .select('name address category city phones workingHours rating')
+        .find(mongoQuery)
+        .select(
+          'name address category city phones workingHours rating createdAt',
+        )
         .limit(limit)
         .skip(skip)
-        .sort(
-          sortBy ? { [sortBy]: order === 'asc' ? 1 : -1 } : { createdAt: -1 },
-        )
         .lean()
         .exec(),
-      this.centerModel.countDocuments(query),
+      this.centerModel.countDocuments(mongoQuery),
     ]);
 
     return {
@@ -921,73 +798,114 @@ export class SearchService implements OnModuleInit, OnModuleDestroy {
     filters?: {
       name?: string | string[];
       category?: string;
-      hospitalStatus?: string;
-      approvalStatus?: string;
+      status?: string;
       city?: string;
       minBeds?: number;
       maxBeds?: number;
+      departments?: string[];
+      machines?: string[];
+      operations?: string[];
     },
   ) {
     const conditions: any[] = [];
 
-    // --- Handle search term ---
+    // --- SEARCH ---
     if (search?.trim()) {
       const variants = this.getSearchVariantsNonBlocking(search.trim());
       if (variants.length) {
         conditions.push({
-          $or: variants.map((v) => ({ name: { $regex: v, $options: 'i' } })),
+          $or: variants.flatMap((v) => [
+            { name: { $regex: v, $options: 'i' } },
+            { city: { $regex: v, $options: 'i' } },
+            { address: { $regex: v, $options: 'i' } },
+          ]),
         });
       }
     }
 
-    // --- Handle filters safely ---
-    const namesToSearch: string[] = [];
+    // --- NAME FILTER ---
     if (filters?.name) {
-      if (Array.isArray(filters.name))
-        namesToSearch.push(...filters.name.filter(Boolean));
-      else if (typeof filters.name === 'string')
-        namesToSearch.push(filters.name.trim());
-    }
-    if (namesToSearch.length) {
-      conditions.push({
-        $or: namesToSearch.map((n) => ({ name: { $regex: n, $options: 'i' } })),
-      });
+      const names = Array.isArray(filters.name) ? filters.name : [filters.name];
+      const cleanNames = names.map((n) => n.trim()).filter(Boolean);
+      if (cleanNames.length) {
+        conditions.push({
+          $or: cleanNames.map((n) => ({ name: { $regex: n, $options: 'i' } })),
+        });
+      }
     }
 
+    // --- CATEGORY / STATUS / CITY FILTER ---
     if (filters?.category) conditions.push({ category: filters.category });
-    if (filters?.hospitalStatus) {
-      conditions.push({ hospitalstatus: filters.hospitalStatus });
-    }
-
-    if (filters?.approvalStatus) {
-      conditions.push({ status: filters.approvalStatus });
-    }
-
+    if (filters?.status) conditions.push({ hospitalstatus: filters.status });
     if (filters?.city) conditions.push({ city: filters.city });
 
+    // --- BEDS FILTER ---
     if (filters?.minBeds !== undefined || filters?.maxBeds !== undefined) {
-      const beds: any = {};
-      if (filters.minBeds !== undefined) beds.$gte = filters.minBeds;
-      if (filters.maxBeds !== undefined) beds.$lte = filters.maxBeds;
-      conditions.push({ NumberOfBeds: beds });
+      const bedsQuery: any = {};
+      if (filters.minBeds !== undefined) bedsQuery.$gte = filters.minBeds;
+      if (filters.maxBeds !== undefined) bedsQuery.$lte = filters.maxBeds;
+      conditions.push({ NumberOfBeds: bedsQuery });
     }
 
-    const query = conditions.length ? { $and: conditions } : {};
+    // --- DEPARTMENTS / MACHINES / OPERATIONS FILTER ---
+    if (
+      filters?.departments?.length ||
+      filters?.machines?.length ||
+      filters?.operations?.length
+    ) {
+      const deptConditions: any[] = [];
+
+      if (filters.departments?.length)
+        deptConditions.push({ type: { $in: filters.departments } });
+
+      if (filters.machines?.length) {
+        deptConditions.push({
+          $or: [
+            { machines_type: { $in: filters.machines } },
+            { 'machines.name': { $in: filters.machines } },
+          ],
+        });
+      }
+
+      if (filters.operations?.length)
+        deptConditions.push({ 'operations.name': { $in: filters.operations } });
+
+      const hospitalIds = await this.commonDepartmentModel
+        .find({ $and: deptConditions })
+        .distinct('hospitalId');
+
+      if (!hospitalIds.length) {
+        return {
+          data: [],
+          pagination: {
+            page: Math.floor(skip / limit) + 1,
+            limit,
+            total: 0,
+            totalPages: 0,
+          },
+        };
+      }
+
+      conditions.push({ _id: { $in: hospitalIds } });
+    }
+
+    // --- FINAL QUERY ---
+    const mongoQuery = conditions.length ? { $and: conditions } : {};
+    const sortQuery = sortBy
+      ? { [sortBy]: order === 'asc' ? 1 : -1 }
+      : { createdAt: -1 };
 
     const [hospitals, total] = await Promise.all([
       this.hospitalModel
-        .find(query)
+        .find(mongoQuery)
         .select(
-          'name address category status city NumberOfBeds phones workingHours rating',
+          'name address category hospitalstatus city NumberOfBeds phones workingHours rating createdAt',
         )
         .limit(limit)
         .skip(skip)
-        .sort(
-          sortBy ? { [sortBy]: order === 'asc' ? 1 : -1 } : { createdAt: -1 },
-        )
         .lean()
         .exec(),
-      this.hospitalModel.countDocuments(query),
+      this.hospitalModel.countDocuments(mongoQuery),
     ]);
 
     return {
@@ -1014,8 +932,11 @@ export class SearchService implements OnModuleInit, OnModuleDestroy {
       this.queryHospitalsOptimized(search, skip, limit, sortBy, order, {
         name: query.hospitalName,
         category: query.hospitalCategory,
-        hospitalStatus: query.hospitalStatus,
+        status: query.hospitalStatus,
         city: query.hospitalCity,
+        departments: query.departments,
+        machines: query.machines,
+        operations: query.operations,
       }),
       this.queryCentersOptimized(search, skip, limit, sortBy, order, {
         name: query.centerName,
@@ -1025,9 +946,18 @@ export class SearchService implements OnModuleInit, OnModuleDestroy {
     ]);
 
     return {
-      doctors: doctorsResult,
-      hospitals: hospitalsResult,
-      centers: centersResult,
+      doctors: doctorsResult ?? {
+        data: [],
+        pagination: { page, limit, total: 0, totalPages: 0 },
+      },
+      hospitals: hospitalsResult ?? {
+        data: [],
+        pagination: { page, limit, total: 0, totalPages: 0 },
+      },
+      centers: centersResult ?? {
+        data: [],
+        pagination: { page, limit, total: 0, totalPages: 0 },
+      },
     };
   }
 
@@ -1038,12 +968,11 @@ export class SearchService implements OnModuleInit, OnModuleDestroy {
     const doctorsResult = await this.queryDoctorsWithFilters({
       search: query.search,
       role: query.condition,
-      publicSpecializationId: query.publicSpecializationId,
-      privateSpecializationIds: query.privateSpecializationIds,
+      generalSpecialtyNames: query.generalSpecialtyNames,
+      privateSpecializationNames: query.privateSpecializationNames,
       yearsOfExperience: query.minExperience,
       hospitalNames: query.hospitalName,
       city: query.city,
-      subcity: query.subcity,
       gender: query.gender,
       minRating: query.minRating,
       skip,
@@ -1063,24 +992,90 @@ export class SearchService implements OnModuleInit, OnModuleDestroy {
     const { page = 1, limit = 10, search, sortBy, order = 'desc' } = query;
     const skip = (page - 1) * limit;
 
-    const hospitalsResult = await this.queryHospitalsOptimized(
-      search,
-      skip,
-      limit,
-      sortBy,
-      order,
-      {
-        name: query.hospitalName,
-        category: query.hospitalCategory,
-        hospitalStatus: query.hospitalStatus,
-        city: query.hospitalCity,
-      },
-    );
+    // بناء شروط الفلترة
+    const conditions: any[] = [];
+
+    // البحث العام
+    if (search?.trim()) {
+      const variants = this.getSearchVariantsNonBlocking(search.trim());
+      const fields = ['name', 'city', 'subcity', 'address', 'phones'];
+      conditions.push({
+        $or: variants.flatMap((v) =>
+          fields.map((f) => ({ [f]: { $regex: v, $options: 'i' } })),
+        ),
+      });
+    }
+
+    // الفلاتر الأساسية
+    if (query.hospitalName) conditions.push({ name: query.hospitalName });
+    if (query.hospitalCategory)
+      conditions.push({ category: query.hospitalCategory });
+    if (query.hospitalStatus) conditions.push({ status: query.hospitalStatus });
+    if (query.hospitalCity) conditions.push({ city: query.hospitalCity });
+    if (query.subcity) conditions.push({ subcity: query.subcity });
+
+    // فلترة عبر CommonDepartment
+    const departmentConditions: any[] = [];
+    if (query.departments?.length)
+      departmentConditions.push({ type: { $in: query.departments } });
+
+    if (query.machines?.length)
+      departmentConditions.push({
+        $or: [
+          { machines_type: { $in: query.machines } },
+          { 'machines.name': { $in: query.machines } },
+        ],
+      });
+
+    if (query.operations?.length)
+      departmentConditions.push({
+        'operations.name': { $in: query.operations },
+      });
+
+    if (
+      query.hospitalMinBeds !== undefined ||
+      query.hospitalMaxBeds !== undefined
+    ) {
+      const bedsFilter: any = {};
+      if (query.hospitalMinBeds !== undefined)
+        bedsFilter.$gte = query.hospitalMinBeds;
+      if (query.hospitalMaxBeds !== undefined)
+        bedsFilter.$lte = query.hospitalMaxBeds;
+      departmentConditions.push({ numberOfBeds: bedsFilter });
+    }
+
+    // إذا توجد شروط للأقسام / الأجهزة / العمليات، نجلب الـ hospitalId من CommonDepartment
+    if (departmentConditions.length) {
+      const deptHospitalIds = await this.commonDepartmentModel
+        .find({ $and: departmentConditions })
+        .distinct('hospitalId');
+      if (deptHospitalIds.length)
+        conditions.push({ _id: { $in: deptHospitalIds } });
+      else return this.getEmptyPaginatedResult(page, limit); // لا يوجد مستشفيات
+    }
+
+    // استعلام المستشفيات النهائي
+    const [hospitals, total] = await Promise.all([
+      this.hospitalModel
+        .find({ $and: conditions })
+        .limit(limit)
+        .skip(skip)
+        .sort(
+          sortBy ? { [sortBy]: order === 'asc' ? 1 : -1 } : { createdAt: -1 },
+        )
+        .lean()
+        .exec(),
+      this.hospitalModel.countDocuments({ $and: conditions }),
+    ]);
 
     return {
-      doctors: this.getEmptyPaginatedResult(page, limit),
-      hospitals: hospitalsResult,
-      centers: this.getEmptyPaginatedResult(page, limit),
+      data: hospitals,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
     };
   }
 
@@ -1088,23 +1083,88 @@ export class SearchService implements OnModuleInit, OnModuleDestroy {
     const { page = 1, limit = 10, search, sortBy, order = 'desc' } = query;
     const skip = (page - 1) * limit;
 
-    const centersResult = await this.queryCentersOptimized(
-      search,
-      skip,
-      limit,
-      sortBy,
-      order,
-      {
-        name: query.centerName,
-        category: query.centerSpecialization,
-        city: query.centerCity,
-      },
-    );
+    const conditions: any[] = [];
+
+    // البحث العام
+    if (search?.trim()) {
+      const variants = this.getSearchVariantsNonBlocking(search.trim());
+      const fields = ['name', 'city', 'subcity', 'address'];
+      conditions.push({
+        $or: variants.flatMap((v) =>
+          fields.map((f) => ({ [f]: { $regex: v, $options: 'i' } })),
+        ),
+      });
+    }
+
+    // الفلاتر الأساسية
+    if (query.centerName) conditions.push({ name: query.centerName });
+    if (query.centerSpecialization)
+      conditions.push({ category: query.centerSpecialization });
+    if (query.centerCity) conditions.push({ city: query.centerCity });
+    if (query.subcity) conditions.push({ subcity: query.subcity });
+
+    // فلترة عبر CommonDepartment
+    const departmentConditions: any[] = [];
+    if (query.departments?.length)
+      departmentConditions.push({ type: { $in: query.departments } });
+
+    if (query.machines?.length)
+      departmentConditions.push({
+        $or: [
+          { machines_type: { $in: query.machines } },
+          { 'machines.name': { $in: query.machines } },
+        ],
+      });
+
+    if (query.operations?.length)
+      departmentConditions.push({
+        'operations.name': { $in: query.operations },
+      });
+
+    if (
+      query.hospitalMinBeds !== undefined ||
+      query.hospitalMaxBeds !== undefined
+    ) {
+      const bedsFilter: any = {};
+      if (query.hospitalMinBeds !== undefined)
+        bedsFilter.$gte = query.hospitalMinBeds;
+      if (query.hospitalMaxBeds !== undefined)
+        bedsFilter.$lte = query.hospitalMaxBeds;
+      departmentConditions.push({ numberOfBeds: bedsFilter });
+    }
+
+    // إذا توجد شروط للأقسام / الأجهزة / العمليات، نجلب الـ centerId من CommonDepartment
+    if (departmentConditions.length) {
+      const deptCenterIds = await this.commonDepartmentModel
+        .find({ $and: departmentConditions })
+        .distinct('centerId');
+      if (deptCenterIds.length)
+        conditions.push({ _id: { $in: deptCenterIds } });
+      else return this.getEmptyPaginatedResult(page, limit); // لا يوجد مراكز
+    }
+
+    // استعلام المراكز النهائي
+    const [centers, total] = await Promise.all([
+      this.centerModel
+        .find({ $and: conditions })
+        .limit(limit)
+        .skip(skip)
+        .sort(
+          sortBy ? { [sortBy]: order === 'asc' ? 1 : -1 } : { createdAt: -1 },
+        )
+        .lean()
+        .exec(),
+      this.centerModel.countDocuments({ $and: conditions }),
+    ]);
 
     return {
-      doctors: this.getEmptyPaginatedResult(page, limit),
-      hospitals: this.getEmptyPaginatedResult(page, limit),
-      centers: centersResult,
+      data: centers,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
     };
   }
 

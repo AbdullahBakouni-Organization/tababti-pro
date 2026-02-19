@@ -17,6 +17,7 @@ import { QuestionSeeder } from './question.seeder';
 import { AnswerSeeder } from './answer.seeder';
 import { PostSeeder } from './post.seeder';
 import { UserSeeder } from './user.seeder';
+import { CommonDepartmentSeeder } from './commonDepartment.seeder';
 
 async function runSeeders() {
   console.log('🚀 Starting all seeders...\n');
@@ -48,7 +49,6 @@ async function runSeeders() {
     const users = await userSeeder.seed();
     console.log('✅ Users seeded!\n');
 
-
     // =====================================================
     // Hospitals (⭐ FIXED)
     // =====================================================
@@ -62,9 +62,7 @@ async function runSeeders() {
     // ⭐ جلب المدن مرة واحدة
     const cities = await cityModel.find().lean();
 
-    const cityMap = new Map(
-      cities.map((c: any) => [c.name, c._id])
-    );
+    const cityMap = new Map(cities.map((c: any) => [c.name, c._id]));
 
     const hospitalsToInsert = seedHospitals.map((h: any) => {
       const cityId = cityMap.get(h.cityName);
@@ -125,7 +123,6 @@ async function runSeeders() {
     await answerSeeder.seed(questions);
     console.log('✅ Answers seeded!\n');
 
-
     // =====================================================
     // Bookings
     // =====================================================
@@ -133,6 +130,11 @@ async function runSeeders() {
     // const bookingSeeder = app.get(BookingSeeder);
     // await bookingSeeder.seed();
     // console.log('✅ Bookings seeded!');
+
+    console.log('🏥 Seeding CommonDepartments...');
+    const departmentSeeder = new CommonDepartmentSeeder(app);
+    await departmentSeeder.seed();
+    console.log('✅ CommonDepartments seeded!\n');
 
     console.log('🎉 All seeders completed successfully!');
   } catch (error) {

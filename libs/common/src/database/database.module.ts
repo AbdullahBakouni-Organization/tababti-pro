@@ -29,6 +29,7 @@ import { AdsSchema } from './schemas/ads.schema';
 import { SystemConfigSchema } from './schemas/system-config.schema';
 import { CitySchema } from './schemas/cities.schema';
 import { AppointmentSlotSchema } from './schemas/slot.schema';
+import { CommonDepartmentSchema } from './schemas/common_departments.schema';
 
 @Global()
 @Module({
@@ -57,6 +58,7 @@ import { AppointmentSlotSchema } from './schemas/slot.schema';
       { name: 'Post', schema: PostSchema },
       { name: 'Booking', schema: BookingSchema },
       { name: 'Rating', schema: RatingSchema },
+      { name: 'CommonDepartment', schema: CommonDepartmentSchema },
       {
         name: 'MedicalEquipmentRequest',
         schema: MedicalEquipmentRequestSchema,
