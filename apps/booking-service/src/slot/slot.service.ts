@@ -386,6 +386,7 @@ export class SlotGenerationService {
           fullName: doctorInfo.fullName,
         },
         isRecurring: true,
+        workingHoursVersion: 0,
       });
 
       currentMinutes += duration;

@@ -121,3 +121,30 @@ export interface SlotRefreshedEvent {
     version: '1.0';
   };
 }
+
+export interface WorkingHoursUpdatedEvent {
+  doctorId: string;
+  oldWorkingHours: Array<{
+    day: Days;
+    location: {
+      type: WorkigEntity;
+      entity_name: string;
+      address: string;
+    };
+    startTime: string;
+    endTime: string;
+  }>;
+  inspectionDuration: number;
+  newWorkingHours: Array<{
+    day: Days;
+    location: {
+      type: WorkigEntity;
+      entity_name: string;
+      address: string;
+    };
+    startTime: string;
+    endTime: string;
+  }>;
+  version: number;
+  updatedDays: Array<Days>;
+}

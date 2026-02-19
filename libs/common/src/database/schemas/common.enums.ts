@@ -328,6 +328,7 @@ export enum BookingStatus {
   CANCELLED_BY_ADMIN = 'cancelled_by_admin',
   CANCELLED_BY_SYSTEM = 'cancelled_by_system',
   PAUSED_BY_DOCTOR = 'paused_by_doctor',
+  NEEDS_RESCHEDULE = 'needs_reschedule',
 }
 
 export enum GeneralSpecialty {
@@ -776,6 +777,7 @@ export enum SlotStatus {
   NO_SHOW = 'no_show', // Patient didn't show up
   COMPLETED = 'completed',
   PENDING = 'pending',
+  INVALIDATED = 'invalidated',
   // Appointment completed
 }
 

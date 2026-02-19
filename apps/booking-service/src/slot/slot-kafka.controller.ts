@@ -7,14 +7,21 @@ import type {
   SlotGenerationFutureEvent,
   SlotGenerationTodayEvent,
   SlotRefreshedEvent,
+  WorkingHoursUpdatedEvent,
 } from '@app/common/kafka/interfaces/kafka-event.interface';
 import { GetAvailableSlotsDto } from './dto/get-avalible-slot.dto';
+import { InjectQueue } from '@nestjs/bull';
+import type { Queue } from 'bull';
 
 @Controller() // ← Must be a Controller!
 export class SlotKafkaController {
   private readonly logger = new Logger(SlotKafkaController.name);
 
-  constructor(private readonly slotGenerationService: SlotGenerationService) {}
+  constructor(
+    private readonly slotGenerationService: SlotGenerationService,
+    @InjectQueue('WORKING_HOURS_UPDATE')
+    private workingHoursQueue: Queue,
+  ) {}
 
   @EventPattern(KAFKA_TOPICS.SLOTS_GENERATE)
   async handleSlotGenerationEvent(
@@ -100,6 +107,28 @@ export class SlotKafkaController {
     try {
       await this.slotGenerationService.getAvailableSlots(query);
       this.logger.log(`✅ Successfully refreshed slots for doctor`);
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `❌ Failed to process slot generation: ${err.message}`,
+        err.stack,
+      );
+    }
+  }
+
+  @EventPattern(KAFKA_TOPICS.WORKING_HOURS_UPDATED)
+  async handleWorkingHoursUpdated(@Payload() event: WorkingHoursUpdatedEvent) {
+    this.logger.log(`🎯 Received WORKING_HOURS_UPDATED event for doctor`);
+    try {
+      await this.workingHoursQueue.add('PROCESS_WORKING_HOURS_UPDATE', {
+        doctorId: event.doctorId,
+        updatedDays: event.updatedDays,
+        oldWorkingHours: event.oldWorkingHours,
+        newWorkingHours: event.newWorkingHours,
+        version: event.version,
+        inspectionDuration: event.inspectionDuration,
+      });
+      this.logger.log(`✅ Successfully processed working hours update`);
     } catch (error) {
       const err = error as Error;
       this.logger.error(

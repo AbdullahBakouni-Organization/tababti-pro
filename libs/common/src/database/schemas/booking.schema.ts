@@ -30,6 +30,8 @@ export class Booking {
   })
   status: BookingStatus;
 
+  @Prop()
+  workingHoursVersion: number;
   // YYYY-MM-DD
   @Prop({ type: Date, required: true, index: true })
   bookingDate: Date;

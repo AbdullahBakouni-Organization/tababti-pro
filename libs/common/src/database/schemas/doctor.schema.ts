@@ -144,6 +144,9 @@ export class Doctor extends Document {
     endTime: string; // format: "17:00"
   }[];
 
+  @Prop({ default: 1 })
+  workingHoursVersion: number;
+
   @Prop({ type: String, enum: Gender })
   gender: Gender;
 

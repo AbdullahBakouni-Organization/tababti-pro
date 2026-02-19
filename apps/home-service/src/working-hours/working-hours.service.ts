@@ -28,7 +28,6 @@ import {
   SlotGenerationEvent,
   WorkingHoursAddedEvent,
 } from '@app/common/kafka/interfaces/kafka-event.interface';
-import { WorkingHoursUpdateJobData } from './processors/working-hours-update.processor';
 // import { WorkingHoursUpdateJobData } from './working-hours-update.processor';
 interface WorkingHour {
   day: string;
@@ -204,182 +203,34 @@ export class WorkingHoursService {
    * Update working hours and handle conflicts
    * This route actually performs the update after doctor confirms
    */
-  async updateWorkingHours(
-    doctorId: string,
-    updateDto: UpdateWorkingHoursDto,
-  ): Promise<{
-    message: string;
-    doctorId: string;
-    workingHours: any[];
-    conflicts: {
-      todayCount: number;
-      futureCount: number;
-    };
-    jobsQueued: {
-      immediate: string | null;
-      future: string | null;
-    };
-  }> {
-    // Validate doctor ID
-    if (!Types.ObjectId.isValid(doctorId)) {
-      throw new BadRequestException('Invalid doctor ID');
-    }
+  async updateWorkingHours(doctorId: string, updateDto: UpdateWorkingHoursDto) {
+    const doctor = await this.doctorModel.findById(doctorId);
 
-    // Find doctor
-    const doctor = await this.doctorModel.findById(doctorId).exec();
-    if (!doctor) {
-      throw new NotFoundException(`Doctor with ID ${doctorId} not found`);
-    }
+    if (!doctor) throw new NotFoundException();
 
-    // Validate working hours
-    this.validateWorkingHours(updateDto.workingHours);
+    const oldWorkingHours = doctor.workingHours;
 
-    // Detect conflicts again (to ensure data hasn't changed since pre-check)
-    const { todayConflicts, futureConflicts } =
-      await this.conflictDetectionService.detectConflicts(
-        doctorId,
-        updateDto.workingHours,
-      );
+    const updatedDays = [...new Set(updateDto.workingHours.map((w) => w.day))];
 
-    const hasConflicts =
-      todayConflicts.length > 0 || futureConflicts.length > 0;
-
-    // If conflicts exist and not confirmed, throw error
-    if (hasConflicts && !updateDto.confirmUpdate) {
-      throw new ConflictException(
-        'Conflicts detected. Please confirm the update to proceed.',
-      );
-    }
-
-    // Update doctor working hours in database
-    // doctor.workingHours = updateDto.workingHours;
-    // doctor.inspectionDuration = updateDto.inspectionDuration;
-    // Days being updated
-    const updatedDays = [
-      ...new Set(updateDto.workingHours.map((wh) => wh.day)),
-    ];
-
-    // Remove only those days
-    const remainingWorkingHours = doctor.workingHours.filter(
-      (wh) => !updatedDays.includes(wh.day),
-    );
-
-    // Merge
     const mergedWorkingHours = [
-      ...remainingWorkingHours,
+      ...oldWorkingHours.filter((w) => !updatedDays.includes(w.day)),
       ...updateDto.workingHours,
     ];
 
-    // Validate final result
-    this.validateWorkingHours(mergedWorkingHours);
-
-    // Apply update
     doctor.workingHours = mergedWorkingHours;
+    doctor.workingHoursVersion += 1;
     doctor.inspectionDuration = updateDto.inspectionDuration;
-
-    if (updateDto.inspectionPrice !== undefined) {
-      doctor.inspectionPrice = updateDto.inspectionPrice;
-    }
-
-    if (updateDto.inspectionPrice !== undefined) {
-      doctor.inspectionPrice = updateDto.inspectionPrice;
-    }
-
     await doctor.save();
 
-    this.logger.log(
-      `Working hours updated for doctor ${doctorId}. Queueing conflict resolution jobs...`,
-    );
+    this.kafkaProducer.emit(KAFKA_TOPICS.WORKING_HOURS_UPDATED, {
+      doctorId,
+      updatedDays,
+      oldWorkingHours,
+      newWorkingHours: mergedWorkingHours,
+      version: doctor.workingHoursVersion,
+    });
 
-    // Invalidate cache
-    await this.invalidateDoctorCache(doctorId);
-
-    const doctorInfo = {
-      _id: doctor._id.toString(),
-      fullName: `${doctor.firstName} ${doctor.middleName} ${doctor.lastName}`,
-    };
-
-    // Queue jobs based on conflicts
-    let immediateJobId: string | null = null;
-    let futureJobId: string | null = null;
-
-    // JOB A: Handle today's conflicts (HIGH PRIORITY, IMMEDIATE)
-    if (todayConflicts.length > 0) {
-      const immediateJob = await this.workingHoursQueue.add(
-        'handle-immediate-conflicts',
-        {
-          newWorkingHours: mergedWorkingHours,
-          inspectionDuration: updateDto.inspectionDuration,
-          inspectionPrice: updateDto.inspectionPrice,
-          doctorInfo,
-          conflictedBookingIds: todayConflicts.map((c) => c.bookingId),
-          jobType: 'immediate',
-        } as WorkingHoursUpdateJobData,
-        {
-          priority: 1, // Highest priority
-          attempts: 3,
-          backoff: {
-            type: 'exponential',
-            delay: 2000,
-          },
-        },
-      );
-
-      immediateJobId = immediateJob.id.toString();
-      this.logger.log(
-        `Queued immediate conflict job ${immediateJobId} for ${todayConflicts.length} today conflicts`,
-      );
-    }
-    // JOB B: Handle future conflicts (NORMAL PRIORITY, IMMEDIATE)
-    // Strategy: Run immediately but with lower priority than Job A
-    if (futureConflicts.length > 0) {
-      const futureJob = await this.workingHoursQueue.add(
-        'handle-future-conflicts',
-        {
-          newWorkingHours: mergedWorkingHours,
-          inspectionDuration: updateDto.inspectionDuration,
-          inspectionPrice: updateDto.inspectionPrice,
-          doctorInfo,
-          conflictedBookingIds: futureConflicts.map((c) => c.bookingId),
-          jobType: 'future',
-        } as WorkingHoursUpdateJobData,
-        {
-          priority: 5, // Lower priority than immediate
-          attempts: 3,
-          backoff: {
-            type: 'exponential',
-            delay: 5000,
-          },
-          delay: 2000, // Start 2 seconds after immediate job
-        },
-      );
-
-      futureJobId = futureJob.id.toString();
-      this.logger.log(
-        `Queued future conflict job ${futureJobId} for ${futureConflicts.length} future conflicts`,
-      );
-    }
-
-    // If no conflicts, publish slot generation event directly
-    if (!hasConflicts) {
-      this.publishSlotGenerationEvent(doctor, updateDto);
-    }
-
-    return {
-      message: hasConflicts
-        ? 'Working hours updated successfully. Conflict resolution in progress.'
-        : 'Working hours updated successfully. New slots are being generated.',
-      doctorId: doctor._id.toString(),
-      workingHours: doctor.workingHours,
-      conflicts: {
-        todayCount: todayConflicts.length,
-        futureCount: futureConflicts.length,
-      },
-      jobsQueued: {
-        immediate: immediateJobId,
-        future: futureJobId,
-      },
-    };
+    return { message: 'Working hours updated successfully' };
   }
 
   /* -------------------------------------------------------------------------- */

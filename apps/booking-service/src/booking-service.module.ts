@@ -6,7 +6,8 @@ import { DatabaseModule } from '@app/common/database/database.module';
 import { KafkaModule } from '@app/common/kafka/kafka.module';
 import { SlotModule } from './slot/slot.module';
 import { CacheModule } from '@app/common/cache/cache.module';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { BullModule } from '@nestjs/bull';
 
 @Module({
   imports: [
@@ -14,6 +15,24 @@ import { ConfigModule } from '@nestjs/config';
     // Producer for sending events (if needed)
     ConfigModule.forRoot({
       isGlobal: true,
+    }),
+    BullModule.forRootAsync({
+      imports: [ConfigModule],
+      useFactory: (configService: ConfigService) => ({
+        redis: {
+          host: configService.get('REDIS_HOST', 'localhost'),
+          port: configService.get('REDIS_PORT', 6379),
+          password: configService.get('REDIS_PASSWORD'),
+          db: configService.get('REDIS_DB', 0),
+          maxRetriesPerRequest: null, // Important for Bull
+          enableReadyCheck: false,
+        },
+        defaultJobOptions: {
+          removeOnComplete: true,
+          removeOnFail: false,
+        },
+      }),
+      inject: [ConfigService],
     }),
     KafkaModule.forProducer({
       clientId: 'booking-service-producer',
