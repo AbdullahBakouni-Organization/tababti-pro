@@ -2,7 +2,6 @@ import {
   IsOptional,
   IsString,
   IsEnum,
-  IsMongoId,
   IsArray,
   IsNumber,
   Min,
@@ -13,7 +12,6 @@ import {
 } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-
 import {
   ConditionEnum,
   Gender,
@@ -25,15 +23,17 @@ import {
   ApprovalStatus,
   PrivateMedicineSpecialty,
   GeneralSpecialty,
-  DepartmentType,
-  CommonSurgery,
   Machines,
+  CommonSurgery,
 } from '@app/common/database/schemas/common.enums';
 
+/**
+ * تحويل أي قيمة إلى مصفوفة نظيفة
+ */
 const toStringArray = () =>
   Transform(({ value }) => {
     if (!value) return [];
-    if (Array.isArray(value)) return value.filter(Boolean);
+    if (Array.isArray(value)) return value.map((v) => v.trim()).filter(Boolean);
     if (typeof value === 'string')
       return value
         .split(',')
@@ -43,7 +43,6 @@ const toStringArray = () =>
   });
 
 export class SearchFilterDto {
-  /* ========== GLOBAL SEARCH ========== */
   @ApiPropertyOptional({ example: 'أحمد' })
   @IsOptional()
   @IsString()
@@ -54,21 +53,17 @@ export class SearchFilterDto {
   @IsEnum(ConditionEnum)
   condition?: ConditionEnum;
 
-  @ApiPropertyOptional({
-    enum: City,
-    example: 'Idlib',
-    description: 'Enum key',
-  })
+  @ApiPropertyOptional({ enum: City })
   @IsOptional()
   @IsEnum(City)
   city?: City;
 
-  @ApiPropertyOptional({ example: 'Ariha', description: 'Enum key' })
+  @ApiPropertyOptional({ example: 'Ariha' })
   @IsOptional()
   @IsString()
   subcity?: string;
 
-  /* ========== DOCTOR FILTERS ========== */
+  // ======== DOCTOR FILTERS ========
   @ApiPropertyOptional({
     description: 'General specialty names',
     example: ['طب_بشري', 'طب_أسنان'],
@@ -76,11 +71,7 @@ export class SearchFilterDto {
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
-  @Transform(({ value }) => {
-    if (!value) return undefined;
-    if (Array.isArray(value)) return value.filter((v) => !!v);
-    return [value];
-  })
+  @toStringArray()
   generalSpecialtyNames?: GeneralSpecialty[];
 
   @ApiPropertyOptional({
@@ -90,11 +81,7 @@ export class SearchFilterDto {
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
-  @Transform(({ value }) => {
-    if (!value) return undefined;
-    if (Array.isArray(value)) return value.filter((v) => !!v);
-    return [value];
-  })
+  @toStringArray()
   privateSpecializationNames?: PrivateMedicineSpecialty[];
 
   @ApiPropertyOptional({ enum: Gender })
@@ -108,11 +95,11 @@ export class SearchFilterDto {
   availableDay?: Days;
 
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   @Min(0)
   minExperience?: number;
 
-  /* ========== PRICE / INSPECTION INFO ========== */
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
@@ -132,28 +119,7 @@ export class SearchFilterDto {
   @Min(0)
   inspectionDuration?: number;
 
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  searchCount?: number;
-
-  /* ========== LOCATION ========== */
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  latitude?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  longitude?: number;
-
-  /* ========== RATING ========== */
-  @ApiPropertyOptional({
-    example: 4,
-    description: 'Minimum rating (0–5)',
-  })
+  @ApiPropertyOptional({ example: 4, description: 'Minimum rating (0–5)' })
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
@@ -161,31 +127,25 @@ export class SearchFilterDto {
   @Max(5)
   minRating?: number;
 
-  /* ==========  / HOSPITAL FILTERS ========== */
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  insuranceCompanies?: string[];
+  // Hospitals And Centers
+  // Location
 
+  @IsOptional()
+  @IsString()
+  hospitalCity?: string;
+
+  @IsOptional()
+  @IsString()
+  centerCity?: string;
+
+  // Name filter
   @IsOptional()
   @IsString()
   hospitalName?: string;
 
   @IsOptional()
-  @IsEnum(HospitalCategory)
-  hospitalCategory?: HospitalCategory;
-
-  @IsOptional()
-  @IsEnum(HospitalStatus)
-  hospitalStatus?: HospitalStatus;
-
-  @IsOptional()
-  @IsEnum(ApprovalStatus)
-  approvalStatus?: ApprovalStatus;
-
-  @IsOptional()
   @IsString()
-  hospitalCity?: string;
+  centerName?: string;
 
   @IsOptional()
   @Type(() => Number)
@@ -199,18 +159,21 @@ export class SearchFilterDto {
   @Min(0)
   hospitalMaxBeds?: number;
 
-  /* ========== CENTER FILTERS ========== */
+  // Specializations & Categories
   @IsOptional()
-  @IsString()
-  centerCity?: string;
-
+  @IsEnum(HospitalCategory)
+  hospitalCategory?: HospitalCategory;
   @IsOptional()
   @IsEnum(CenterSpecialization)
   centerSpecialization?: CenterSpecialization;
 
   @IsOptional()
-  @IsString()
-  centerName?: string;
+  @IsEnum(HospitalStatus)
+  hospitalStatus?: HospitalStatus;
+
+  @IsOptional()
+  @IsEnum(ApprovalStatus)
+  approvalStatus?: ApprovalStatus;
 
   // ======== NEW: COMMON DEPARTMENTS FILTERS ========
   @IsOptional()
@@ -228,7 +191,7 @@ export class SearchFilterDto {
   @IsString({ each: true })
   operations?: CommonSurgery[];
 
-  /* ========== PAGINATION ========== */
+  // ======== PAGINATION ========
   @ApiPropertyOptional({ default: 1 })
   @IsOptional()
   @Type(() => Number)
@@ -243,7 +206,7 @@ export class SearchFilterDto {
   @Min(1)
   limit?: number = 10;
 
-  /* ========== SORTING ========== */
+  // ======== SORTING ========
   @IsOptional()
   @IsString()
   sortBy?: string;

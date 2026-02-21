@@ -44,7 +44,7 @@ export class SearchController {
     )
     query: SearchFilterDto,
   ) {
-    return this.searchService.filterEntitiesOptimized(query);
+    return this.searchService.searchAll(query);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
