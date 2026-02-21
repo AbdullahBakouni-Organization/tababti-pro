@@ -16,25 +16,12 @@ export class ConflictDetectionService {
   constructor(
     @InjectModel(Booking.name)
     private appointmentModel: Model<BookingDocument>,
-    // @InjectModel(AppointmentSlot.name)
-    // private slotModel: Model<AppointmentSlotDocument>,
   ) {}
-
-  /**
-   * Get Syria date (same as your slot generation service)
-   */
-  // private getSyriaDate(): Date {
-  //   const now = new Date();
-  //   const SYRIA_OFFSET_MINUTES = 3 * 60;
-  //   const utcTime = now.getTime() + now.getTimezoneOffset() * 60 * 1000;
-  //   const syriaTime = new Date(utcTime + SYRIA_OFFSET_MINUTES * 60 * 1000);
-  //   syriaTime.setHours(0, 0, 0, 0);
-  //   return syriaTime;
-  // }
 
   /**
    * Detect conflicts between new working hours and existing bookings
    */
+
   async detectConflicts(
     doctorId: string,
     newWorkingHours: any[],
@@ -44,68 +31,68 @@ export class ConflictDetectionService {
   }> {
     const today = getSyriaDate();
     const endDate = new Date(today);
-    endDate.setDate(today.getDate() + 84); // 12 weeks
+    endDate.setDate(today.getDate() + 84);
 
-    // Get all active bookings for this doctor
+    // ✅ Only care about days that are in the new working hours
+    const updatedDays = [
+      ...new Set(newWorkingHours.map((wh) => wh.day.toLowerCase())),
+    ];
+
     const bookings = await this.appointmentModel
       .find({
         doctorId: new Types.ObjectId(doctorId),
-        status: {
-          $in: [BookingStatus.PENDING],
-        },
+        status: { $in: [BookingStatus.PENDING] },
         bookingDate: { $gte: today, $lte: endDate },
       })
       .populate('patientId', 'username phone')
       .populate('slotId')
       .lean()
       .exec();
+
     const todayConflicts: ConflictedBooking[] = [];
     const futureConflicts: ConflictedBooking[] = [];
 
     for (const booking of bookings) {
+      const slot =
+        typeof booking.slotId === 'object' && 'startTime' in booking.slotId
+          ? booking.slotId
+          : null;
+
+      if (!slot) continue;
+
+      // ✅ Skip bookings for days NOT being updated
+      if (!updatedDays.includes(slot.dayOfWeek.toLowerCase())) continue;
+
       const conflict = this.checkBookingConflict(booking, newWorkingHours);
+      if (!conflict) continue;
 
-      if (conflict) {
-        const isToday = this.isSameDay(booking.bookingDate, today);
+      const patient =
+        typeof booking.patientId === 'object' && 'username' in booking.patientId
+          ? booking.patientId
+          : null;
 
-        const patient =
-          typeof booking.patientId === 'object' &&
-          'username' in booking.patientId
-            ? booking.patientId
-            : null;
+      if (!patient) continue;
 
-        if (!patient) continue;
+      const isToday = this.isSameDay(booking.bookingDate, today);
 
-        const slot =
-          typeof booking.slotId === 'object' && 'startTime' in booking.slotId
-            ? booking.slotId
-            : null;
+      const conflictedBooking: ConflictedBooking = {
+        bookingId: booking._id.toString(),
+        patientId: booking.patientId._id.toString(),
+        patientName: patient.username,
+        patientContact: patient.phone,
+        appointmentDate: booking.bookingDate,
+        appointmentTime: slot.startTime,
+        location: slot.location,
+        reason: conflict.reason,
+        isToday,
+      };
 
-        if (!slot) continue;
-
-        const conflictedBooking: ConflictedBooking = {
-          bookingId: booking._id.toString(),
-          patientId: booking.patientId._id.toString(),
-          patientName: patient.username,
-          patientContact: patient.phone,
-          appointmentDate: booking.bookingDate,
-          appointmentTime: slot.startTime,
-          location: slot.location,
-          reason: conflict.reason,
-          isToday,
-        };
-
-        if (isToday) {
-          todayConflicts.push(conflictedBooking);
-        } else {
-          futureConflicts.push(conflictedBooking);
-        }
+      if (isToday) {
+        todayConflicts.push(conflictedBooking);
+      } else {
+        futureConflicts.push(conflictedBooking);
       }
     }
-
-    this.logger.log(
-      `Conflict detection for doctor ${doctorId}: ${todayConflicts.length} today, ${futureConflicts.length} future`,
-    );
 
     return { todayConflicts, futureConflicts };
   }

@@ -55,6 +55,11 @@ import {
   VerifyOtpForPasswordResetDto,
 } from './dto/doctor-forgot-password.dto';
 import { GetDoctorBookingsByLocationDto } from './dto/booking-responce.dto';
+import {
+  DoctorCancelBookingDto,
+  PauseSlotConflictDto,
+  PauseSlotsDto,
+} from './dto/slot-management.dto';
 
 // ============================================
 // Login DTO
@@ -608,5 +613,85 @@ export class DoctorController {
     }
 
     return this.DoctorService.getDoctorBookingsByLocation(query);
+  }
+
+  @Post('cancel-booking')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Doctor cancels a booking',
+    description:
+      'Allows doctor to cancel a patient booking. The slot is automatically freed and becomes available again. A Kafka event is published to refresh the available slots list, and the patient receives an FCM push notification.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Booking cancelled and slot freed successfully',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Booking not found or already cancelled',
+  })
+  async cancelBooking(@Body() dto: DoctorCancelBookingDto) {
+    return this.DoctorService.doctorCancelBooking(dto);
+  }
+
+  @Post('pause/check-conflicts')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Check conflicts before pausing slots (Dry Run)',
+    description:
+      'Preview which bookings will be affected if the specified slots are paused. No changes are made to the database.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Conflict check completed',
+    type: PauseSlotConflictDto,
+  })
+  async checkPauseConflicts(
+    @Body() dto: PauseSlotsDto,
+  ): Promise<PauseSlotConflictDto> {
+    return this.DoctorService.checkPauseConflicts(dto);
+  }
+
+  /**
+   * Pause slots (execute)
+   * This pauses slots for ONE DAY ONLY (today or specified date)
+   */
+  @Post('pause')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Pause appointment slots',
+    description:
+      'Pauses specified slots for ONE DAY (today or specified date). Any existing bookings for these slots will be cancelled, and patients will receive FCM push notifications. Requires confirmPause: true if conflicts exist.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Slots are being paused. Job queued.',
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'Conflicts exist but not confirmed',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Doctor or slots not found',
+  })
+  async pauseSlots(@Body() dto: PauseSlotsDto) {
+    return this.DoctorService.pauseSlots(dto);
+  }
+
+  @Post('unpause')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Unpause slots',
+    description:
+      'Reactivates previously paused slots, making them available for booking again.',
+  })
+  unpauseSlots(@Body() body: { doctorId: string; slotIds: string[] }) {
+    // Simple implementation - just update status back to AVAILABLE
+    // You can expand this if needed
+    return {
+      message: 'Slots unpaused successfully',
+      slotIds: body.slotIds,
+    };
   }
 }

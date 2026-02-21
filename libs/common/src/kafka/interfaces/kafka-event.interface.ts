@@ -1,5 +1,4 @@
 import { Days, WorkigEntity } from '@app/common/database/schemas/common.enums';
-
 export interface SlotGenerationEvent {
   eventType: 'SLOTS_GENERATE';
   timestamp: Date;
@@ -147,4 +146,23 @@ export interface WorkingHoursUpdatedEvent {
   }>;
   version: number;
   updatedDays: Array<Days>;
+}
+
+export interface BookingCancelledNotificationEvent {
+  eventType: 'BOOKING_CANCELLED_NOTIFICATION';
+  timestamp: Date;
+  data: {
+    patientId: string;
+    patientName: string;
+    fcmToken: string;
+    bookingId: string;
+    appointmentDate: Date;
+    appointmentTime: string;
+    reason: string;
+    type: string;
+  };
+  metadata: {
+    source: 'notification-service';
+    version: '1.0';
+  };
 }

@@ -12,6 +12,7 @@ import { AuthModule } from './auth/auth.module';
 import { WorkingHoursModule } from './working-hours/working-hours.module';
 import { BullModule } from '@nestjs/bull';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { FcmModule } from './fcm/fcm.module';
 
 @Module({
   imports: [
@@ -55,6 +56,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
     AdminModule,
     AuthModule,
     WorkingHoursModule,
+    FcmModule,
   ],
   controllers: [HomeServiceController],
   providers: [HomeServiceService],

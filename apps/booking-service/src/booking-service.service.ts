@@ -166,7 +166,7 @@ export class BookingService {
       .findOneAndUpdate(
         {
           _id: new Types.ObjectId(slotId.toString()),
-          doctorId: doctorId.toString(),
+          doctorId: new Types.ObjectId(doctorId),
           status: SlotStatus.AVAILABLE, // Critical: only update if available
         },
         {

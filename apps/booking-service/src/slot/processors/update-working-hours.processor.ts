@@ -58,8 +58,8 @@ export interface WorkingHourRange {
 }
 
 @Processor('WORKING_HOURS_UPDATE')
-export class WorkingHoursUpdateProcessor {
-  private readonly logger = new Logger(WorkingHoursUpdateProcessor.name);
+export class WorkingHoursUpdateProcessorV2 {
+  private readonly logger = new Logger(WorkingHoursUpdateProcessorV2.name);
 
   constructor(
     @InjectModel(AppointmentSlot.name)
@@ -72,6 +72,7 @@ export class WorkingHoursUpdateProcessor {
    * JOB A: Handle immediate (today) conflicts
    * Runs immediately after doctor confirms update
    */
+
   @Process('PROCESS_WORKING_HOURS_UPDATE')
   async processWorkingHoursUpdate(
     job: Job<WorkingHoursUpdateJobData>,
@@ -88,7 +89,6 @@ export class WorkingHoursUpdateProcessor {
     const doctorObjectId = new Types.ObjectId(doctorId);
 
     this.logger.log(`begining of PROCESS_WORKING_HOURS_UPDATE`);
-    this.logger.log(`Updated Days: ${JSON.stringify(updatedDays)}`);
 
     for (const day of updatedDays) {
       await this.processSingleDay(
@@ -115,19 +115,23 @@ export class WorkingHoursUpdateProcessor {
 
     try {
       const futureDates = this.getNext12WeeksDatesForDay(day);
-      console.log('oldWH', oldWH);
-      console.log('newWH', newWH);
-      console.log('futureDates', futureDates);
-      const validRanges = newWH.filter((w) => w.day === day);
 
+      const validRanges = newWH.filter((w) => w.day === day);
       for (const date of futureDates) {
+        const startOfDay = new Date(date); // 2026-02-19T21:00:00.000Z ✅
+        const endOfDay = new Date(date.getTime() + 24 * 60 * 60 * 1000 - 1); // +24h - 1ms ✅
+
         const oldSlots = await this.slotModel
           .find({
-            doctorId,
-            date,
+            doctorId: doctorId,
+            date: { $gte: startOfDay, $lte: endOfDay }, // ✅ range, not exact
             status: { $ne: SlotStatus.INVALIDATED },
           })
           .session(session);
+
+        this.logger.log(
+          `Found ${oldSlots.length} slots for ${day} on ${date.toISOString()}`,
+        );
 
         for (const slot of oldSlots) {
           if (!this.slotFitsRanges(slot, validRanges)) {
@@ -138,7 +142,6 @@ export class WorkingHoursUpdateProcessor {
                 { session },
               );
             }
-
             slot.status = SlotStatus.INVALIDATED;
             await slot.save({ session });
           }
@@ -171,6 +174,8 @@ export class WorkingHoursUpdateProcessor {
     duration: number,
     session: ClientSession,
   ) {
+    const startOfDay = new Date(date);
+    const endOfDay = new Date(date.getTime() + 24 * 60 * 60 * 1000 - 1);
     for (const range of ranges) {
       const generatedSlots = this.buildSlotsFromRange(
         doctorId,
@@ -186,66 +191,32 @@ export class WorkingHoursUpdateProcessor {
       for (const slot of generatedSlots) {
         const exists = await this.slotModel
           .findOne({
-            doctorId,
-            date,
+            doctorId: doctorId,
+            date: { $gte: startOfDay, $lte: endOfDay },
             startTime: slot.startTime,
             status: { $ne: SlotStatus.INVALIDATED },
           })
           .session(session);
 
         if (!exists) {
-          await this.slotModel.create([slot], { session });
+          await this.slotModel.insertMany(slot, { session });
         }
       }
     }
   }
 
-  // private getNext12WeeksDatesForDay(day: string): Date[] {
-  //   const dates: Date[] = [];
-
-  //   const dayMap: Record<string, number> = {
-  //     Sunday: 0,
-  //     Monday: 1,
-  //     Tuesday: 2,
-  //     Wednesday: 3,
-  //     Thursday: 4,
-  //     Friday: 5,
-  //     Saturday: 6,
-  //   };
-
-  //   const targetDay = dayMap[day];
-  //   if (targetDay === undefined) return [];
-
-  //   const now = new Date();
-  //   const currentDay = now.getDay();
-
-  //   const diff = (targetDay - currentDay + 7) % 7;
-  //   const firstOccurrence = new Date(now);
-  //   firstOccurrence.setDate(now.getDate() + diff);
-
-  //   for (let i = 0; i < 12; i++) {
-  //     const date = new Date(firstOccurrence);
-  //     date.setDate(firstOccurrence.getDate() + i * 7);
-  //     date.setHours(0, 0, 0, 0);
-  //     dates.push(date);
-  //   }
-
-  //   return dates;
-  // }
-
-  private getNext12WeeksDatesForDay(day: string): Date[] {
-    const dayMap = {
-      Sunday: 7,
-      Monday: 1,
-      Tuesday: 2,
-      Wednesday: 3,
-      Thursday: 4,
-      Friday: 5,
-      Saturday: 6,
+  private getNext12WeeksDatesForDay(day: Days): Date[] {
+    const dayMap: Record<Days, number> = {
+      [Days.SUNDAY]: 7,
+      [Days.MONDAY]: 1,
+      [Days.TUESDAY]: 2,
+      [Days.WEDNESDAY]: 3,
+      [Days.THURSDAY]: 4,
+      [Days.FRIDAY]: 5,
+      [Days.SATURDAY]: 6,
     };
 
     const target = dayMap[day];
-
     let dt = DateTime.now().setZone('Asia/Damascus').startOf('day');
 
     while (dt.weekday !== target) {
@@ -253,9 +224,10 @@ export class WorkingHoursUpdateProcessor {
     }
 
     const dates: Date[] = [];
-
     for (let i = 0; i < 12; i++) {
-      dates.push(dt.plus({ weeks: i }).toUTC().toJSDate());
+      const d = dt.plus({ weeks: i });
+      // ✅ Saturday Syria = 2026-02-21T00:00:00.000Z correct
+      dates.push(new Date(Date.UTC(d.year, d.month - 1, d.day, 0, 0, 0, 0)));
     }
 
     return dates;
@@ -312,10 +284,13 @@ export class WorkingHoursUpdateProcessor {
     while (startMinutes + duration <= endMinutes) {
       const slotStart = this.minutesToTime(startMinutes);
       const slotEnd = this.minutesToTime(startMinutes + duration);
+      // const today = getSyriaDate();
+      // const slotDate = new Date(today);
+      const slotDate = new Date(date);
 
       slots.push({
         doctorId,
-        date,
+        date: slotDate,
         startTime: slotStart,
         endTime: slotEnd,
         status: SlotStatus.AVAILABLE,

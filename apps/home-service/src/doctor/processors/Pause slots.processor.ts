@@ -19,8 +19,7 @@ import {
 import { KafkaService } from '@app/common/kafka/kafka.service';
 import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
 import { PauseSlotsJobData } from '../dto/slot-management.dto';
-// import { FCMService } from './fcm.service';
-// import { PauseSlotsJobData } from './pause-slot.service';
+import { FcmService } from '../../fcm/fcm.service';
 
 @Processor('pause-slots')
 export class PauseSlotsProcessor {
@@ -32,7 +31,7 @@ export class PauseSlotsProcessor {
     @InjectModel(AppointmentSlot.name)
     private slotModel: Model<AppointmentSlotDocument>,
     private readonly kafkaService: KafkaService,
-    // private readonly fcmService: FCMService,
+    private readonly fcmService: FcmService,
   ) {}
 
   /**
@@ -71,13 +70,13 @@ export class PauseSlotsProcessor {
       await this.pauseSlots(slotIds, pauseDate);
 
       // Step 3: Send FCM notifications to affected patients
-      // if (cancelledBookings.length > 0) {
-      //   await this.sendFCMNotifications(
-      //     cancelledBookings,
-      //     doctorInfo.fullName,
-      //     reason,
-      //   );
-      // }
+      if (cancelledBookings.length > 0) {
+        await this.sendFCMNotifications(
+          cancelledBookings,
+          doctorInfo.fullName,
+          reason,
+        );
+      }
 
       // Step 4: Publish Kafka event for slots refreshed
       this.publishSlotsRefreshedEvent(doctorId, slotIds);
@@ -154,68 +153,68 @@ export class PauseSlotsProcessor {
   /**
    * Send FCM notifications to all affected patients
    */
-  // private async sendFCMNotifications(
-  //   cancelledBookings: any[],
-  //   doctorName: string,
-  //   reason: string,
-  // ): Promise<void> {
-  //   const notifications = cancelledBookings
-  //     .map((booking) => {
-  //       const patient = booking.patientId;
-  //       const fcmToken = patient.fcmToken;
+  private async sendFCMNotifications(
+    cancelledBookings: any[],
+    doctorName: string,
+    reason: string,
+  ): Promise<void> {
+    const notifications = cancelledBookings
+      .map((booking) => {
+        const patient = booking.patientId;
+        const fcmToken = patient.fcmToken;
 
-  //       if (!fcmToken) {
-  //         this.logger.warn(
-  //           `Patient ${patient._id} has no FCM token. Skipping notification.`,
-  //         );
-  //         return null;
-  //       }
+        if (!fcmToken) {
+          this.logger.warn(
+            `Patient ${patient._id} has no FCM token. Skipping notification.`,
+          );
+          return null;
+        }
 
-  //       return {
-  //         fcmToken,
-  //         data: {
-  //           bookingId: booking._id.toString(),
-  //           doctorName,
-  //           appointmentDate: this.formatDate(booking.bookingDate),
-  //           appointmentTime: booking.bookingTime,
-  //           reason,
-  //           type: 'SLOT_PAUSED' as const,
-  //         },
-  //       };
-  //     })
-  //     .filter(Boolean);
+        return {
+          fcmToken,
+          data: {
+            bookingId: booking._id.toString(),
+            doctorName,
+            appointmentDate: this.formatDate(booking.bookingDate),
+            appointmentTime: booking.bookingTime,
+            reason,
+            type: 'SLOT_PAUSED' as const,
+          },
+        };
+      })
+      .filter(Boolean);
 
-  //   // Send FCM notifications
-  //   for (const notification of notifications) {
-  //     if (!notification) continue;
+    // Send FCM notifications
+    for (const notification of notifications) {
+      if (!notification) continue;
 
-  //     try {
-  //       const sent = await this.fcmService.sendBookingCancellationNotification(
-  //         notification.fcmToken,
-  //         notification.data,
-  //       );
+      try {
+        const sent = await this.fcmService.sendBookingCancellationNotification(
+          notification.fcmToken,
+          notification.data,
+        );
 
-  //       if (sent) {
-  //         this.logger.log(
-  //           `FCM notification sent for booking ${notification.data.bookingId}`,
-  //         );
-  //       } else {
-  //         this.logger.warn(
-  //           `Failed to send FCM notification for booking ${notification.data.bookingId}`,
-  //         );
-  //       }
-  //     } catch (error) {
-  //       this.logger.error(
-  //         `Error sending FCM notification: ${error.message}`,
-  //         error.stack,
-  //       );
-  //     }
-  //   }
+        if (sent) {
+          this.logger.log(
+            `FCM notification sent for booking ${notification.data.bookingId}`,
+          );
+        } else {
+          this.logger.warn(
+            `Failed to send FCM notification for booking ${notification.data.bookingId}`,
+          );
+        }
+      } catch (error) {
+        this.logger.error(
+          `Error sending FCM notification: ${error.message}`,
+          error.stack,
+        );
+      }
+    }
 
-  //   this.logger.log(
-  //     `Sent FCM notifications to ${notifications.length} patients`,
-  //   );
-  // }
+    this.logger.log(
+      `Sent FCM notifications to ${notifications.length} patients`,
+    );
+  }
 
   /**
    * Publish Kafka event for slots refreshed

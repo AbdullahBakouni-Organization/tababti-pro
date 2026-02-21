@@ -66,7 +66,7 @@ import {
 } from '@app/common/database/schemas/slot.schema';
 import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
-import { User } from '@app/common/database/schemas/user.schema';
+import { User, UserDocument } from '@app/common/database/schemas/user.schema';
 import { getSyriaDate } from '@app/common/utils/get-syria-date';
 // ============================================
 // Kafka Events
@@ -118,6 +118,7 @@ export class DoctorService {
     @InjectModel(AppointmentSlot.name)
     private slotModel: Model<AppointmentSlotDocument>,
     @InjectModel(AuthAccount.name) private authModel: Model<AuthAccount>,
+    @InjectModel(User.name) private userModel: Model<UserDocument>,
     @InjectConnection() private readonly connection: Connection,
     @InjectModel(Booking.name) private bookingModel: Model<BookingDocument>,
     private kafkaProducer: KafkaService,
@@ -1076,6 +1077,10 @@ export class DoctorService {
     slotId: string;
     patientNotified?: boolean;
   }> {
+    const doctor = await this.doctorModel.findById(dto.doctorId).exec();
+    if (!doctor) {
+      throw new NotFoundException(`Doctor with ID ${dto.doctorId} not found`);
+    }
     this.logger.log(
       `Doctor ${dto.doctorId} canceling booking ${dto.bookingId}`,
     );
@@ -1097,9 +1102,9 @@ export class DoctorService {
         .findOne({
           _id: new Types.ObjectId(dto.bookingId),
           doctorId: new Types.ObjectId(dto.doctorId),
-          status: { $in: [BookingStatus.PENDING, BookingStatus.CONFIRMED] },
+          status: { $in: [BookingStatus.PENDING] },
         })
-        .populate('patientId', 'firstName lastName phoneNumber fcmToken')
+        .populate('patientId', 'username phone fcmToken')
         .session(session)
         .exec();
 
@@ -1143,13 +1148,30 @@ export class DoctorService {
       this.publishSlotsRefreshedEvent(dto.doctorId, slot);
 
       // Step 5: Send FCM notification to patient
-      // const patient = booking.patientId as any;
-      // const patientNotified = await this.sendCancellationNotification(
-      //   patient,
-      //   booking,
-      //   dto.reason,
-      //   'DOCTOR_CANCELLED',
-      // );
+
+      const doctorName = doctor.firstName + ' ' + doctor.lastName;
+      const patientToken = await this.userModel
+        .findById(booking.patientId)
+        .select('fcmToken')
+        .exec();
+
+      if (!patientToken) {
+        this.logger.warn(`Patient has no FCM token. Notification not sent.`);
+        return {
+          message: 'Booking cancelled successfully',
+          bookingId: booking._id.toString(),
+          slotId: slot._id.toString(),
+        };
+      }
+
+      this.sendCancellationNotification(
+        dto.doctorId,
+        doctorName,
+        patientToken,
+        booking,
+        dto.reason,
+        'DOCTOR_CANCELLED',
+      );
 
       return {
         message: 'Booking cancelled successfully',
@@ -1349,7 +1371,55 @@ export class DoctorService {
       jobId: job.id.toString(),
     };
   }
+  async sendCancellationNotification(
+    doctorId: string,
+    doctorName: string,
+    patientToken: string,
+    booking: BookingDocument,
+    reason: string,
+    type: 'DOCTOR_CANCELLED' | 'SLOT_PAUSED',
+  ): boolean {
+    if (!patientToken) {
+      this.logger.warn(`Patient  has no FCM token. Notification not sent.`);
+      return false;
+    }
 
+    // This will be handled by FCM service (created separately)
+    // For now, publish to Kafka for notification service to handle
+    const event = {
+      eventType: 'BOOKING_CANCELLED_NOTIFICATION',
+      timestamp: new Date(),
+      data: {
+        doctorId,
+        doctorName,
+        fcmToken: patientToken,
+        bookingId: booking._id.toString(),
+        appointmentDate: booking.bookingDate,
+        appointmentTime: booking.bookingTime,
+        reason,
+        type,
+      },
+      metadata: {
+        source: 'slot-management-service',
+        version: '1.0',
+      },
+    };
+
+    try {
+      this.kafkaProducer.emit(
+        KAFKA_TOPICS.BOOKING_CANCELLED_NOTIFICATION,
+        event,
+      );
+      this.logger.log(`Cancellation notification event published for patient `);
+      return true;
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `Failed to publish cancellation notification: ${err.message}`,
+      );
+      return false;
+    }
+  }
   private async invalidateSlotsCache(doctorId: string): Promise<void> {
     try {
       // Delete all cache keys related to this doctor's slots

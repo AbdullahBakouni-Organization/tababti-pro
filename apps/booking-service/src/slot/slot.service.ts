@@ -136,70 +136,6 @@ export class SlotGenerationService {
     }
   }
 
-  // async generateTodaySlots(
-  //   event: SlotGenerationTodayEvent,
-  // ): Promise<AppointmentSlot[]> {
-  //   const {
-  //     doctorId,
-  //     workingHours,
-  //     inspectionDuration,
-  //     inspectionPrice,
-  //     doctorInfo,
-  //   } = event.data;
-
-  //   const slots: Partial<AppointmentSlot>[] = [];
-  //   const today = getSyriaDate();
-  //   const dayOfWeek = new Intl.DateTimeFormat('en-US', {
-  //     weekday: 'long',
-  //     timeZone: 'Asia/Damascus',
-  //   }).format(new Date());
-
-  //   console.log('=== DEBUG generateTodaySlots ===');
-  //   console.log('today (getSyriaDate):', today);
-  //   console.log('dayOfWeek detected:', dayOfWeek);
-  //   console.log(
-  //     'workingHours received:',
-  //     JSON.stringify(workingHours, null, 2),
-  //   );
-  //   console.log('inspectionDuration:', inspectionDuration);
-
-  //   const dayWorkingHours = workingHours.filter(
-  //     (wh) => wh.day.toLowerCase() === dayOfWeek.toLowerCase(),
-  //   );
-
-  //   console.log(
-  //     'dayWorkingHours matched:',
-  //     JSON.stringify(dayWorkingHours, null, 2),
-  //   );
-
-  //   for (const wh of dayWorkingHours) {
-  //     slots.push(
-  //       ...this.generateSlotsForDay(
-  //         doctorId,
-  //         today,
-  //         dayOfWeek as Days,
-  //         wh.startTime,
-  //         wh.endTime,
-  //         inspectionDuration,
-  //         wh.location,
-  //         inspectionPrice,
-  //         doctorInfo,
-  //       ),
-  //     );
-  //   }
-  //   console.log('Generated BEFORE insert:', slots.length);
-  //   console.log('Slots preview:', slots.slice(0, 2));
-  //   console.log('slots', slots);
-  //   await this.invalidateSlotCaches(doctorId);
-  //   const createdSlots = await this.batchInsertSlots(slots);
-
-  //   this.logger.log(
-  //     `Generated ${createdSlots.length} slots for today for doctor ${doctorId}`,
-  //   );
-
-  //   return createdSlots;
-  // }
-  //
   async generateTodaySlots(
     event: SlotGenerationTodayEvent,
   ): Promise<AppointmentSlot[]> {
@@ -235,10 +171,12 @@ export class SlotGenerationService {
       (wh) => wh.day.toLowerCase() === dayOfWeek.toLowerCase(),
     );
 
+    const doctorObjectId = new Types.ObjectId(doctorId);
+
     for (const wh of dayWorkingHours) {
       slots.push(
         ...this.generateSlotsForDay(
-          doctorId,
+          doctorObjectId,
           today,
           dayOfWeek as Days,
           wh.startTime,
@@ -259,26 +197,6 @@ export class SlotGenerationService {
     );
     return createdSlots;
   }
-  /**
-   * Get current date in Syria timezone
-   */
-  // private getSyriaDate(): Date {
-  //   const now = new Date();
-
-  //   // Syria is UTC+3 (no DST)
-  //   const SYRIA_OFFSET_MINUTES = 3 * 60;
-
-  //   // Get UTC time in milliseconds
-  //   const utcTime = now.getTime() + now.getTimezoneOffset() * 60 * 1000;
-
-  //   // Convert UTC → Syria time
-  //   const syriaTime = new Date(utcTime + SYRIA_OFFSET_MINUTES * 60 * 1000);
-
-  //   // Normalize to start of day in Syria
-  //   syriaTime.setHours(0, 0, 0, 0);
-
-  //   return syriaTime;
-  // }
 
   /**
    * Generate appointment slots based on working hours
@@ -308,11 +226,11 @@ export class SlotGenerationService {
         const dayWorkingHours = workingHours.filter(
           (wh) => wh.day.toLowerCase() === dayOfWeek.toLowerCase(),
         );
-
+        const doctorObjectId = new Types.ObjectId(doctorId);
         for (const wh of dayWorkingHours) {
           slots.push(
             ...this.generateSlotsForDay(
-              doctorId,
+              doctorObjectId,
               currentDate,
               dayOfWeek as Days,
               wh.startTime,
@@ -338,7 +256,7 @@ export class SlotGenerationService {
   /* -------------------------------------------------------------------------- */
 
   private generateSlotsForDay(
-    doctorId: string,
+    doctorId: Types.ObjectId,
     date: Date,
     dayOfWeek: Days,
     startTime: string,
@@ -369,7 +287,7 @@ export class SlotGenerationService {
       slotDate.setUTCHours(0, 0, 0, 0);
 
       slots.push({
-        doctorId: doctorId as any,
+        doctorId: doctorId,
         status: SlotStatus.AVAILABLE,
         date: slotDate,
         startTime: `${String(slotStartHour).padStart(2, '0')}:${String(
@@ -423,11 +341,11 @@ export class SlotGenerationService {
         const dayWorkingHours = workingHours.filter(
           (wh) => wh.day.toLowerCase() === dayOfWeek.toLowerCase(),
         );
-
+        const doctorObjectId = new Types.ObjectId(doctorId);
         for (const wh of dayWorkingHours) {
           slots.push(
             ...this.generateSlotsForDay(
-              doctorId,
+              doctorObjectId,
               currentDate,
               dayOfWeek as Days,
               wh.startTime,
@@ -539,39 +457,6 @@ export class SlotGenerationService {
   }
 
   /**
-   * Get available slots for a doctor (with caching)
-   */
-  // async getAvailableSlots(
-  //   doctorId: string,
-  //   startDate: Date,
-  //   endDate: Date,
-  // ): Promise<AppointmentSlot[]> {
-  //   const cacheKey = `slots:available:${doctorId}:${startDate.toISOString()}:${endDate.toISOString()}`;
-
-  //   // Try cache first
-  //   const cached = await this.cacheManager.get<AppointmentSlot[]>(cacheKey);
-  //   if (cached) {
-  //     return cached;
-  //   }
-
-  //   // Query database
-  //   const slots = await this.slotModel
-  //     .find({
-  //       doctorId,
-  //       status: SlotStatus.AVAILABLE,
-  //       date: { $gte: startDate, $lte: endDate },
-  //     })
-  //     .sort({ date: 1, startTime: 1 })
-  //     .lean()
-  //     .exec();
-
-  //   // Cache for 5 minutes (slots change frequently)
-  //   await this.cacheManager.set(cacheKey, slots, 300);
-
-  //   return slots as AppointmentSlot[];
-  // }
-
-  /**
    * Delete all slots for a doctor (useful when working hours change completely)
    */
   async deleteAllSlotsForDoctor(doctorId: string): Promise<number> {
@@ -629,7 +514,7 @@ export class SlotGenerationService {
 
     // Build query
     const filter: any = {
-      doctorId: query.doctorId,
+      doctorId: new Types.ObjectId(query.doctorId),
       status: SlotStatus.AVAILABLE,
     };
 

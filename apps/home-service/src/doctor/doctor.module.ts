@@ -9,6 +9,7 @@ import { ConfigModule } from '@nestjs/config';
 import { SmsService } from '../sms/sms.service';
 import { CacheModule } from '@app/common/cache/cache.module';
 import { BullModule } from '@nestjs/bull';
+import { FcmModule } from '../fcm/fcm.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { BullModule } from '@nestjs/bull';
       timeout: 3000,
     }),
     CacheModule,
+    FcmModule,
   ],
   providers: [DoctorService, SmsService],
   controllers: [DoctorController],

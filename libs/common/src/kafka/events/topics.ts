@@ -41,4 +41,6 @@ export const KAFKA_TOPICS = {
   // WhatsApp
   WHATSAPP_SEND_MESSAGE: 'whatsapp.send.message',
   WHATSAPP_SEND_OTP: 'whatsapp.send.otp',
+
+  BOOKING_CANCELLED_NOTIFICATION: 'booking.cancelled.notification',
 };

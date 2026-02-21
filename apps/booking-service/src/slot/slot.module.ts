@@ -5,7 +5,7 @@ import { CacheModule } from '@app/common/cache/cache.module';
 import { DatabaseModule } from '@app/common/database/database.module';
 import { SlotKafkaController } from './slot-kafka.controller';
 import { BullModule } from '@nestjs/bull';
-import { WorkingHoursUpdateProcessor } from './processors/update-working-hours.processor';
+import { WorkingHoursUpdateProcessorV2 } from './processors/update-working-hours.processor';
 
 @Module({
   imports: [
@@ -24,7 +24,7 @@ import { WorkingHoursUpdateProcessor } from './processors/update-working-hours.p
     DatabaseModule,
     CacheModule,
   ],
-  providers: [SlotGenerationService, WorkingHoursUpdateProcessor],
+  providers: [SlotGenerationService, WorkingHoursUpdateProcessorV2],
   controllers: [SlotController, SlotKafkaController],
   exports: [SlotGenerationService],
 })

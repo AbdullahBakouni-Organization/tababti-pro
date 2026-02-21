@@ -3,7 +3,6 @@ import {
   NotFoundException,
   BadRequestException,
   Logger,
-  ConflictException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -85,7 +84,10 @@ export class WorkingHoursService {
 
     // Validate working hours don't overlap
     this.validateWorkingHours(addWorkingHoursDto.workingHours);
-
+    this.checkIfSameAsExisting(
+      addWorkingHoursDto.workingHours,
+      doctor.workingHours,
+    );
     // Check if this is the first time adding working hours
     const isFirstTime =
       !doctor.workingHours || doctor.workingHours.length === 0;
@@ -208,6 +210,10 @@ export class WorkingHoursService {
 
     if (!doctor) throw new NotFoundException();
 
+    this.validateWorkingHours(updateDto.workingHours);
+
+    this.checkIfSameAsExisting(updateDto.workingHours, doctor.workingHours);
+
     const oldWorkingHours = doctor.workingHours;
 
     const updatedDays = [...new Set(updateDto.workingHours.map((w) => w.day))];
@@ -228,6 +234,7 @@ export class WorkingHoursService {
       oldWorkingHours,
       newWorkingHours: mergedWorkingHours,
       version: doctor.workingHoursVersion,
+      inspectionDuration: updateDto.inspectionDuration,
     });
 
     return { message: 'Working hours updated successfully' };
@@ -305,67 +312,36 @@ export class WorkingHoursService {
     }
   }
 
-  /**
-   * Validate working hours (reused from original service)
-   */
-  // private validateWorkingHours(workingHours: WorkingHour[]): void {
-  //   const dayLocationMap = new Map<string, WorkingHour[]>();
-
-  //   for (const wh of workingHours) {
-  //     const key = `${wh.day}-${wh.location.type}-${wh.location.entity_name}`;
-
-  //     if (!dayLocationMap.has(key)) {
-  //       dayLocationMap.set(key, []);
-  //     }
-
-  //     const existing = dayLocationMap.get(key)!;
-
-  //     for (const existingWh of existing) {
-  //       if (
-  //         this.hasTimeOverlap(
-  //           wh.startTime,
-  //           wh.endTime,
-  //           existingWh.startTime,
-  //           existingWh.endTime,
-  //         )
-  //       ) {
-  //         throw new BadRequestException(
-  //           `Overlapping working hours detected for ${wh.day} at ${wh.location.entity_name}`,
-  //         );
-  //       }
-  //     }
-
-  //     existing.push(wh);
-  //   }
-
-  //   for (const wh of workingHours) {
-  //     if (!this.isValidTimeRange(wh.startTime, wh.endTime)) {
-  //       throw new BadRequestException(
-  //         `Invalid time range: start time must be before end time for ${wh.day}`,
-  //       );
-  //     }
-  //   }
-  // }
   private validateWorkingHours(workingHours: WorkingHour[]): void {
     const dayMap = new Map<string, WorkingHour[]>();
 
     for (const wh of workingHours) {
-      // 1️⃣ Validate time range first
       if (!this.isValidTimeRange(wh.startTime, wh.endTime)) {
         throw new BadRequestException(
           `Invalid time range: start time must be before end time for ${wh.day}`,
         );
       }
 
-      // 2️⃣ Group by DAY ONLY
       if (!dayMap.has(wh.day)) {
         dayMap.set(wh.day, []);
       }
 
       const existing = dayMap.get(wh.day)!;
 
-      // 3️⃣ Check overlap with ALL working hours of that day
       for (const existingWh of existing) {
+        // ✅ NEW: Check duplicate location (same day + same type + entity_name + address)
+        const sameLocation =
+          existingWh.location.type === wh.location.type &&
+          existingWh.location.entity_name === wh.location.entity_name &&
+          existingWh.location.address === wh.location.address;
+
+        if (sameLocation) {
+          throw new BadRequestException(
+            `Duplicate location on ${wh.day}: cannot add multiple entries for "${wh.location.entity_name}" (${wh.location.type}) at "${wh.location.address}". Merge the time ranges into one entry instead.`,
+          );
+        }
+
+        // existing overlap check
         if (
           this.hasTimeOverlap(
             wh.startTime,
@@ -519,5 +495,28 @@ export class WorkingHoursService {
     await this.cacheManager.set(cacheKey, result, this.CACHE_TTL, 3600);
 
     return result;
+  }
+
+  private checkIfSameAsExisting(
+    newHours: WorkingHour[],
+    existingHours: WorkingHour[],
+  ): void {
+    for (const newWh of newHours) {
+      const match = existingHours.find(
+        (ex) =>
+          ex.day === newWh.day &&
+          ex.location.type === newWh.location.type &&
+          ex.location.entity_name === newWh.location.entity_name &&
+          ex.location.address === newWh.location.address &&
+          ex.startTime === newWh.startTime &&
+          ex.endTime === newWh.endTime,
+      );
+
+      if (match) {
+        throw new BadRequestException(
+          `Working hours for ${newWh.day} at "${newWh.location.entity_name}" (${newWh.startTime}-${newWh.endTime}) already exist with no changes.`,
+        );
+      }
+    }
   }
 }
