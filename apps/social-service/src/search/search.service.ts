@@ -1,4 +1,3 @@
-// search.service.ts
 import { Injectable } from '@nestjs/common';
 import { SearchFilterDto } from './dto/search-filter.dto';
 import { SearchOrchestratorService } from './orchestrators/search-orchestrator.service';
@@ -11,17 +10,12 @@ export class SearchService {
     private readonly cache: SearchVariantsCache,
   ) {}
 
-  /**
-   * البحث الموحد لجميع الكيانات (أطباء، مستشفيات، مراكز)
-   */
-  searchAll(dto: SearchFilterDto) {
+  async searchAll(dto: SearchFilterDto) {
     return this.orchestrator.searchAll(dto);
   }
 
-  /**
-   * مسح الكاش
-   */
   clearCache() {
     this.cache.clear();
+    console.log('✅ Search cache cleared');
   }
 }

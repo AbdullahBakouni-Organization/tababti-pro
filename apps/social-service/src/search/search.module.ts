@@ -13,7 +13,9 @@ import { SearchBuildersModule } from './builders/search.builders.module';
 @Module({
   imports: [
     CacheModule.register({ isGlobal: true }),
-    ThrottlerModule.forRoot({ throttlers: [{ ttl: 60, limit: 20 }] }),
+    ThrottlerModule.forRoot({
+      throttlers: [{ ttl: 60, limit: 20 }],
+    }),
     EventEmitterModule.forRoot(),
     BullModule.registerQueue({
       name: 'ai',
@@ -36,7 +38,6 @@ import { SearchBuildersModule } from './builders/search.builders.module';
     forwardRef(() => SearchQueriesModule),
     forwardRef(() => SearchBuildersModule),
   ],
-
   controllers: [SearchController],
 })
 export class SearchModule {}

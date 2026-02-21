@@ -25,6 +25,7 @@ import {
   GeneralSpecialty,
   Machines,
   CommonSurgery,
+  HospitalSpecialization,
 } from '@app/common/database/schemas/common.enums';
 
 /**
@@ -159,13 +160,16 @@ export class SearchFilterDto {
   @Min(0)
   hospitalMaxBeds?: number;
 
-  // Specializations & Categories
   @IsOptional()
   @IsEnum(HospitalCategory)
   hospitalCategory?: HospitalCategory;
   @IsOptional()
   @IsEnum(CenterSpecialization)
   centerSpecialization?: CenterSpecialization;
+
+  @IsOptional()
+  @IsEnum(CenterSpecialization)
+  hospitalSpecialization?: HospitalSpecialization;
 
   @IsOptional()
   @IsEnum(HospitalStatus)
@@ -175,21 +179,22 @@ export class SearchFilterDto {
   @IsEnum(ApprovalStatus)
   approvalStatus?: ApprovalStatus;
 
-  // ======== NEW: COMMON DEPARTMENTS FILTERS ========
   @IsOptional()
-  @Transform(({ value }) => (Array.isArray(value) ? value : [value]))
-  @IsArray()
-  departments?: string[];
+  @IsString()
+  address?: string;
+
+  // ===== LOCATION =====
+  @IsOptional()
+  @IsNumber()
+  latitude?: number;
 
   @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  machines?: Machines[];
+  @IsNumber()
+  longitude?: number;
 
   @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  operations?: CommonSurgery[];
+  @IsNumber()
+  radiusKm?: number;
 
   // ======== PAGINATION ========
   @ApiPropertyOptional({ default: 1 })
@@ -215,4 +220,68 @@ export class SearchFilterDto {
   @IsOptional()
   @IsIn(['asc', 'desc'])
   order?: 'asc' | 'desc' = 'desc';
+
+  // ======== DEPARTMENTS ========
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @Transform(({ value }) => {
+    if (!value) return [];
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string')
+      return value
+        .split(',')
+        .map((v) => v.trim())
+        .filter(Boolean);
+    return [];
+  })
+  departments?: string[];
+
+  // ======== MACHINES ========
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @Transform(({ value }) => {
+    if (!value) return [];
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string')
+      return value
+        .split(',')
+        .map((v) => v.trim())
+        .filter(Boolean);
+    return [];
+  })
+  machines?: Machines[];
+
+  // ======== OPERATIONS ========
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @Transform(({ value }) => {
+    if (!value) return [];
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string')
+      return value
+        .split(',')
+        .map((v) => v.trim())
+        .filter(Boolean);
+    return [];
+  })
+  operations?: CommonSurgery[];
+
+  // ======== INCLUDE ENHANCER ========
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @Transform(({ value }) => {
+    if (!value) return [];
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string')
+      return value
+        .split(',')
+        .map((v) => v.trim())
+        .filter(Boolean);
+    return [];
+  })
+  include?: string[];
 }

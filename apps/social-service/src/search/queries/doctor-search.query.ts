@@ -4,8 +4,8 @@ import { Model, SortOrder } from 'mongoose';
 import { SearchFilterDto } from '../dto/search-filter.dto';
 import { DoctorConditionBuilder } from '../builders/doctor-condition.builder';
 import { SearchVariantsCache } from '../cache/search-variants.cache';
+import { SearchEnhancerService } from '../enhancers/search-enhancer.service';
 import { Doctor } from '@app/common/database/schemas/doctor.schema';
-import { SearchResult } from '../interfaces/search-result.interface';
 
 @Injectable()
 export class DoctorSearchQuery {
@@ -13,12 +13,17 @@ export class DoctorSearchQuery {
     @InjectModel('Doctor') private readonly model: Model<Doctor>,
     private readonly builder: DoctorConditionBuilder,
     private readonly cache: SearchVariantsCache,
+    private readonly enhancer: SearchEnhancerService,
   ) {}
 
-  async execute(dto: SearchFilterDto): Promise<SearchResult<Doctor>> {
+  async execute(dto: SearchFilterDto) {
     const page = dto.page ?? 1;
     const limit = dto.limit ?? 10;
     const skip = (page - 1) * limit;
+
+    if (dto.search) {
+      this.enhancer.trigger(dto.search);
+    }
 
     const variants = dto.search
       ? (this.cache.get(dto.search) ?? [dto.search])
@@ -30,11 +35,11 @@ export class DoctorSearchQuery {
       ? { [dto.sortBy]: dto.order === 'asc' ? 1 : -1 }
       : undefined;
 
-    const mongooseQuery = this.model.find(query).lean();
+    const mongooseQuery = this.model.find(query).skip(skip).limit(limit).lean();
     if (sort) mongooseQuery.sort(sort);
 
     const [data, total] = await Promise.all([
-      mongooseQuery.skip(skip).limit(limit),
+      mongooseQuery,
       this.model.countDocuments(query),
     ]);
 

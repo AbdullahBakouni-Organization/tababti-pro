@@ -4,9 +4,6 @@ export type MongoCondition = Record<string, any>;
 
 @Injectable()
 export class BaseConditionBuilder {
-  model(arg0: string) {
-      throw new Error('Method not implemented.');
-  }
   textSearch(fields: string[], terms: string[]): MongoCondition {
     return {
       $or: terms.flatMap((term) =>

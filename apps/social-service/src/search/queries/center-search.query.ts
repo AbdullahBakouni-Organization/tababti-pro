@@ -1,16 +1,19 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, SortOrder } from 'mongoose';
 import { SearchFilterDto } from '../dto/search-filter.dto';
+import { Center } from '@app/common/database/schemas/center.schema';
 import { CenterConditionBuilder } from '../builders/center-condition.builder';
-import { SearchVariantsCache } from '../cache/search-variants.cache';
+import { SearchEnhancerService } from '../enhancers/search-enhancer.service';
+import { HospitalIncludeEnhancer } from '../enhancers/hospital-include.enhancer';
 
 @Injectable()
 export class CenterSearchQuery {
   constructor(
-    @InjectModel('Center') private readonly model: Model<any>,
+    @InjectModel(Center.name) private readonly model: Model<Center>,
     private readonly builder: CenterConditionBuilder,
-    private readonly cache: SearchVariantsCache,
+    private readonly enhancer: SearchEnhancerService,
+    private readonly includeEnhancer: HospitalIncludeEnhancer,
   ) {}
 
   async execute(dto: SearchFilterDto) {
@@ -18,19 +21,29 @@ export class CenterSearchQuery {
     const limit = dto.limit ?? 10;
     const skip = (page - 1) * limit;
 
-    const variants = dto.search
-      ? (this.cache.get(dto.search) ?? [dto.search])
-      : [];
+    if (dto.search) {
+      this.enhancer.trigger(dto.search);
+    }
 
-    const query = this.builder.build(dto, variants);
+    const variants = dto.search ? [dto.search] : [];
+    const query = await this.builder.build(dto, variants);
+
+    const sort: Record<string, SortOrder> | undefined = dto.sortBy
+      ? { [dto.sortBy]: dto.order === 'asc' ? 1 : -1 }
+      : undefined;
+
+    const mongooseQuery = this.model.find(query).skip(skip).limit(limit).lean();
+    if (sort) mongooseQuery.sort(sort);
 
     const [data, total] = await Promise.all([
-      this.model.find(query).limit(limit).skip(skip).lean(),
+      mongooseQuery,
       this.model.countDocuments(query),
     ]);
 
+    const resultData = await this.includeEnhancer.withDepartments(data);
+
     return {
-      data,
+      data: resultData,
       total,
       page,
       pages: Math.ceil(total / limit),

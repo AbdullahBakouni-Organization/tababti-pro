@@ -24,7 +24,6 @@ export class HospitalConditionBuilder {
   ): Promise<MongoCondition> {
     const conditions: MongoCondition[] = [];
 
-    // ===== TEXT SEARCH =====
     const terms = variants.length
       ? variants
       : dto.hospitalName
@@ -35,7 +34,6 @@ export class HospitalConditionBuilder {
       if (textCondition) conditions.push(textCondition as MongoCondition);
     }
 
-    // ===== CITY FILTER =====
     if (dto.hospitalCity) {
       let cityId: Types.ObjectId | null = Types.ObjectId.isValid(
         dto.hospitalCity,
@@ -56,7 +54,6 @@ export class HospitalConditionBuilder {
       }
     }
 
-    // ===== SUBCITY FILTER =====
     if (dto.subcity) {
       const subcityDoc = await this.subcityModel
         .findOne({ name: dto.subcity })
@@ -68,18 +65,45 @@ export class HospitalConditionBuilder {
       }
     }
 
-    // ===== BASIC HOSPITAL FILTERS =====
     [
       { field: 'category', value: dto.hospitalCategory },
       { field: 'hospitalstatus', value: dto.hospitalStatus },
-      { field: 'hospitalSpecialization', value: dto.hospitalCategory },
       { field: 'status', value: dto.approvalStatus },
+      { field: 'hospitalSpecialization', value: dto.hospitalSpecialization },
     ].forEach(({ field, value }) => {
       const cond = value ? this.base.exact(field, value) : null;
       if (cond) conditions.push(cond as MongoCondition);
     });
 
-    // ===== RANGE FILTERS =====
+    // ===== ADDRESS SEARCH =====
+    if (dto.address) {
+      const addressCondition = this.base.textSearch(['address'], [dto.address]);
+      if (addressCondition) conditions.push(addressCondition as MongoCondition);
+    }
+
+    if (
+      dto.latitude !== undefined &&
+      dto.longitude !== undefined &&
+      dto.radiusKm !== undefined
+    ) {
+      const latDelta = dto.radiusKm / 111;
+      const lngDelta =
+        dto.radiusKm / (111 * Math.cos((dto.latitude * Math.PI) / 180));
+
+      conditions.push({
+        latitude: {
+          $gte: dto.latitude - latDelta,
+          $lte: dto.latitude + latDelta,
+        },
+      } as MongoCondition);
+
+      conditions.push({
+        longitude: {
+          $gte: dto.longitude - lngDelta,
+          $lte: dto.longitude + lngDelta,
+        },
+      } as MongoCondition);
+    }
     if (
       dto.hospitalMinBeds !== undefined ||
       dto.hospitalMaxBeds !== undefined
@@ -97,7 +121,6 @@ export class HospitalConditionBuilder {
       if (ratingCondition) conditions.push(ratingCondition as MongoCondition);
     }
 
-    // ===== MEDICAL CAPABILITIES (CommonDepartment) =====
     const depIds: Types.ObjectId[] = [];
     if (
       dto.departments?.length ||
@@ -122,7 +145,6 @@ export class HospitalConditionBuilder {
       if (inCondition) conditions.push(inCondition as MongoCondition);
     }
 
-    // ===== COMBINE ALL CONDITIONS =====
     return this.base.combine(conditions);
   }
 }

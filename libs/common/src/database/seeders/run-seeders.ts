@@ -9,7 +9,7 @@ import { SpecialtySeeder } from './spicility.seeder';
 import seedHospitals from './hospital.seeder';
 import { CenterSeeder } from './center.seeder';
 import { DoctorSeeder } from './doctor.seeder';
-//import { BookingSeeder } from './booking.seeder';
+import { BookingSeeder } from './booking.seeder';
 
 import { getModelToken } from '@nestjs/mongoose';
 import { Hospital } from '../schemas/hospital.schema';
@@ -59,7 +59,6 @@ async function runSeeders() {
 
     await hospitalModel.deleteMany({});
 
-    // ⭐ جلب المدن مرة واحدة
     const cities = await cityModel.find().lean();
 
     const cityMap = new Map(cities.map((c: any) => [c.name, c._id]));
@@ -126,10 +125,10 @@ async function runSeeders() {
     // =====================================================
     // Bookings
     // =====================================================
-    // console.log('🌱 Seeding Bookings...');
-    // const bookingSeeder = app.get(BookingSeeder);
-    // await bookingSeeder.seed();
-    // console.log('✅ Bookings seeded!');
+    console.log('🌱 Seeding Bookings...');
+    const bookingSeeder = new BookingSeeder(); 
+    await bookingSeeder.seed();
+    console.log('✅ Bookings seeded!');
 
     console.log('🏥 Seeding CommonDepartments...');
     const departmentSeeder = new CommonDepartmentSeeder(app);

@@ -205,7 +205,7 @@ const seedHospitals = [
     {
         name: "الزبداني",
         address: "الزبداني أول طلعة الجرجانية",
-       cityName : City.Damascus,
+       cityName : City.RifDimashq,
         authAccountId: new Types.ObjectId(),
         category: HospitalCategory.GENERAL,
         hospitalstatus: HospitalStatus.WORKS,
@@ -223,7 +223,7 @@ const seedHospitals = [
     {
         name: "جيرود",
         address: "أول جيرود- دوار المشفى",
-       cityName : City.Damascus,
+       cityName : City.RifDimashq,
         authAccountId: new Types.ObjectId(),
         category: HospitalCategory.GENERAL,
         hospitalstatus: HospitalStatus.PARTIALLY,
@@ -241,7 +241,7 @@ const seedHospitals = [
     {
         name: "داريا",
         address: "داريا جانب مدرسة التمريض",
-       cityName : City.Damascus,
+       cityName : City.RifDimashq,
         authAccountId: new Types.ObjectId(),
         category: HospitalCategory.GENERAL,
         hospitalstatus: HospitalStatus.STOPPED,
@@ -259,7 +259,7 @@ const seedHospitals = [
     {
         name: "مشفى قطنا الوطني",
         address: "قطنا",
-       cityName : City.Damascus,
+       cityName : City.RifDimashq,
         authAccountId: new Types.ObjectId(),
         category: HospitalCategory.GENERAL,
         hospitalstatus: HospitalStatus.WORKS,
@@ -278,7 +278,7 @@ const seedHospitals = [
     {
         name: "مشفى دوما الإسعافي",
         address: "دوما-مقابل البلدية",
-       cityName : City.Damascus,
+       cityName : City.RifDimashq,
         authAccountId: new Types.ObjectId(),
         category: HospitalCategory.GENERAL,
         hospitalstatus: HospitalStatus.WORKS,
@@ -296,7 +296,7 @@ const seedHospitals = [
     {
         name: "الرازي اعام",
         address: "حلب - المحافظة - شارع  سوق الانتاج",
-       cityName : City.Damascus,
+       cityName : City.Aleppo,
         authAccountId: new Types.ObjectId(),
         category: HospitalCategory.GENERAL,
         hospitalstatus: HospitalStatus.WORKS,
@@ -314,7 +314,7 @@ const seedHospitals = [
     {
         name: "زاهي ازرق",
         address: "حلب -الهلك",
-       cityName : City.Damascus,
+       cityName : City.Aleppo,
         authAccountId: new Types.ObjectId(),
         category: HospitalCategory.PRIVATE,
         hospitalstatus: HospitalStatus.WORKS,
