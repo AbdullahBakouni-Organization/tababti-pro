@@ -58,7 +58,7 @@ const CityMapping: Record<string, string[]> = {
 
 @Injectable()
 export class DoctorSeeder {
-  constructor(private app) { }
+  constructor(private app) {}
   async seed() {
     console.log('🌱 Starting Doctor Seed...\n');
 
@@ -140,7 +140,7 @@ export class DoctorSeeder {
 
       const privateSpec =
         privateSpecCandidates[
-        Math.floor(Math.random() * privateSpecCandidates.length)
+          Math.floor(Math.random() * privateSpecCandidates.length)
         ];
       const hospitalCandidates = hospitals.filter((h) =>
         h.cityId.equals(city._id),
@@ -153,8 +153,8 @@ export class DoctorSeeder {
 
       const hospital = hospitalCandidates.length
         ? hospitalCandidates[
-        Math.floor(Math.random() * hospitalCandidates.length)
-        ]
+            Math.floor(Math.random() * hospitalCandidates.length)
+          ]
         : null;
       const center = centerCandidates.length
         ? centerCandidates[Math.floor(Math.random() * centerCandidates.length)]
@@ -167,7 +167,7 @@ export class DoctorSeeder {
       });
 
       const hashedPassword = await bcrypt.hash('password123', 10);
-
+      const yearsOfExperience = 1 + Math.floor(Math.random() * 20);
       function sanitize(name: string): string {
         if (!name) throw new Error('الاسم فارغ.');
 
@@ -180,7 +180,6 @@ export class DoctorSeeder {
 
         return cleanName;
       }
-
 
       const doctor = await doctorModel.create({
         authAccountId: new Types.ObjectId(),
@@ -198,21 +197,21 @@ export class DoctorSeeder {
         phones: [{ normal: [generateSyrianPhone()], clinic: [], whatsup: [] }],
         hospitals: hospital
           ? [
-            {
-              id: hospital._id.toString(),
-              name: hospital.name,
-              location: hospital.address ?? '',
-            },
-          ]
+              {
+                id: hospital._id.toString(),
+                name: hospital.name,
+                location: hospital.address ?? '',
+              },
+            ]
           : [],
         centers: center
           ? [
-            {
-              id: center._id.toString(),
-              name: center.name,
-              location: center.address ?? '',
-            },
-          ]
+              {
+                id: center._id.toString(),
+                name: center.name,
+                location: center.address ?? '',
+              },
+            ]
           : [],
         insuranceCompanies: [],
         workingHours: [
@@ -241,6 +240,7 @@ export class DoctorSeeder {
         image: faker.image.url(),
         certificateImage: faker.image.url(),
         licenseImage: faker.image.url(),
+        yearsOfExperience,
       });
 
       console.log(

@@ -1,56 +1,30 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { CacheModule } from '@nestjs/cache-manager';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { BullModule } from '@nestjs/bull';
 import { ThrottlerModule } from '@nestjs/throttler';
-
 import { DatabaseModule } from '@app/common/database/database.module';
 
 import { SearchController } from './search.controller';
-import { SearchService } from './search.service';
-
-
-// AI Services
-import { TranslationAiService } from '../translation-ai/translation-ai.service';
-import { AiWorkerService } from '../ai-worker/ai-worker.service';
+import { SearchCoreModule } from './search-core.module';
+import { SearchQueriesModule } from './queries/search.queries.module';
+import { SearchBuildersModule } from './builders/search.builders.module';
 
 @Module({
   imports: [
-    // ⭐ Global cache (needed for TranslationAiService)
-    CacheModule.register({
-      isGlobal: true,
+    CacheModule.register({ isGlobal: true }),
+    ThrottlerModule.forRoot({
+      throttlers: [{ ttl: 60, limit: 20 }],
     }),
-
-    // ⭐ Rate limiting
-    ThrottlerModule.forRoot([
-      {
-        ttl: 60,
-        limit: 20,
-      },
-    ]),
-
-    // ⭐ Async events
     EventEmitterModule.forRoot(),
-
-    // ⭐ Queue
     BullModule.registerQueue({
       name: 'ai',
-
       defaultJobOptions: {
         attempts: 3,
-        backoff: {
-          type: 'exponential',
-          delay: 2000,
-        },
-        removeOnComplete: {
-          age: 3600,
-          count: 1000,
-        },
-        removeOnFail: {
-          age: 86400,
-        },
+        backoff: { type: 'exponential', delay: 2000 },
+        removeOnComplete: { age: 3600, count: 1000 },
+        removeOnFail: { age: 86400 },
       },
-
       settings: {
         stalledInterval: 30000,
         maxStalledCount: 1,
@@ -58,22 +32,12 @@ import { AiWorkerService } from '../ai-worker/ai-worker.service';
         retryProcessDelay: 5000,
       },
     }),
-
     DatabaseModule,
-  ],
 
+    forwardRef(() => SearchCoreModule),
+    forwardRef(() => SearchQueriesModule),
+    forwardRef(() => SearchBuildersModule),
+  ],
   controllers: [SearchController],
-
-  providers: [
-    // Core
-    SearchService,
-
-
-    // AI
-    TranslationAiService,
-    AiWorkerService,
-  ],
-
-  exports: [SearchService],
 })
-export class SearchModule { }
+export class SearchModule {}
