@@ -17,6 +17,7 @@ import { SearchModule } from './search/search.module';
 import { SearchCountMiddleware } from './search/search-count.middleware';
 import { NearbyBookingController } from './most-searched_nearby-booking/nearby-booking.controller';
 import { NearbyBookingService } from './most-searched_nearby-booking/nearby-booking.service';
+import { DoctorProfileModule } from './doctor-profile/doctor-profile.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { NearbyBookingService } from './most-searched_nearby-booking/nearby-book
     QuestionsModule,
     PostModule,
     SearchModule,
+    DoctorProfileModule,
 
     JwtModule.register({
       secret: process.env.JWT_ACCESS_SECRET,

@@ -17,11 +17,9 @@ export class NearbyBookingService {
     @InjectModel(Doctor.name) private readonly doctorModel: Model<Doctor>,
     @InjectModel(User.name) private readonly userModel: Model<User>,
   ) {}
-
-  // الحجز القادم للمستخدم
+//we have problem in this function
   async getNextBookingForUser(authAccountId: string, doctorId?: string) {
     try {
-      // جلب User بناءً على authAccountId
       const user = await this.userModel.findOne({
         authAccountId: new Types.ObjectId(authAccountId),
       });
@@ -60,10 +58,8 @@ export class NearbyBookingService {
     }
   }
 
-  // الحجز القادم للدكتور
   async getNextBookingForDoctor(authAccountId: string) {
     try {
-      // جلب Doctor بناءً على authAccountId
       const doctor = await this.doctorModel.findOne({
         authAccountId: new Types.ObjectId(authAccountId),
       });
@@ -96,7 +92,6 @@ export class NearbyBookingService {
     }
   }
 
-  // أعلى الأطباء بحثًا
   async getTopDoctors(limit: number = 10) {
     try {
       if (limit <= 0) throw new BadRequestException('limit.INVALID');

@@ -19,7 +19,7 @@ export class NearbyBookingController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.USER)
   async getNextBookingForUser(
-    @CurrentUser('id') authAccountId: string,
+    @CurrentUser('accountId') authAccountId: string,
     @Query() query: GetNextBookingDto,
   ) {
     const booking = await this.service.getNextBookingForUser(
