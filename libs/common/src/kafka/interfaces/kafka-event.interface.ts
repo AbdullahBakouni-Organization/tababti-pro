@@ -152,17 +152,19 @@ export interface BookingCancelledNotificationEvent {
   eventType: 'BOOKING_CANCELLED_NOTIFICATION';
   timestamp: Date;
   data: {
-    patientId: string;
-    patientName: string;
+    patientId?: string;
+    patientName?: string;
+    doctorId: string;
+    doctorName: string;
     fcmToken: string;
     bookingId: string;
-    appointmentDate: Date;
+    appointmentDate: string;
     appointmentTime: string;
     reason: string;
-    type: string;
+    type: 'DOCTOR_CANCELLED';
   };
   metadata: {
-    source: 'notification-service';
+    source: 'doctor-service';
     version: '1.0';
   };
 }

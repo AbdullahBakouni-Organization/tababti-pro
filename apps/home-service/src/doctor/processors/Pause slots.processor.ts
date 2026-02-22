@@ -2,7 +2,7 @@ import { Process, Processor } from '@nestjs/bull';
 import { Logger } from '@nestjs/common';
 import type { Job } from 'bull';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import {
   Booking,
   BookingDocument,
@@ -67,7 +67,7 @@ export class PauseSlotsProcessor {
       }
 
       // Step 2: Pause the slots
-      await this.pauseSlots(slotIds, pauseDate);
+      await this.pauseSlots(slotIds);
 
       // Step 3: Send FCM notifications to affected patients
       if (cancelledBookings.length > 0) {
@@ -103,7 +103,7 @@ export class PauseSlotsProcessor {
   ): Promise<any[]> {
     const bookings = await this.bookingModel
       .find({ _id: { $in: bookingIds } })
-      .populate('patientId', 'username phone')
+      .populate('patientId', 'username phone fcmToken')
       .populate('slotId')
       .exec();
 
@@ -130,12 +130,12 @@ export class PauseSlotsProcessor {
   /**
    * Pause slots (mark as PAUSED for today only)
    */
-  private async pauseSlots(slotIds: string[], pauseDate: Date): Promise<void> {
+  private async pauseSlots(slotIds: string[]): Promise<void> {
     // Update slots to PAUSED status
     const result = await this.slotModel.updateMany(
       {
-        _id: { $in: slotIds },
-        date: pauseDate, // Only pause for the specific date
+        _id: { $in: slotIds.map((id) => new Types.ObjectId(id)) },
+        // Only pause for the specific date
       },
       {
         $set: {
@@ -145,9 +145,7 @@ export class PauseSlotsProcessor {
       },
     );
 
-    this.logger.log(
-      `Paused ${result.modifiedCount} slots for date ${pauseDate.toISOString()}`,
-    );
+    this.logger.log(`Paused ${result.modifiedCount} slots`);
   }
 
   /**
@@ -161,6 +159,12 @@ export class PauseSlotsProcessor {
     const notifications = cancelledBookings
       .map((booking) => {
         const patient = booking.patientId;
+
+        if (!patient) {
+          this.logger.warn(`Booking ${booking._id} has no patient`);
+          return null;
+        }
+
         const fcmToken = patient.fcmToken;
 
         if (!fcmToken) {

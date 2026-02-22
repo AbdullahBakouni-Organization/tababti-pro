@@ -39,7 +39,7 @@ export class User extends Document {
   status: ApprovalStatus;
 
   @Prop({ type: String, maxlength: 4096 })
-  deviceTokens?: string[];
+  fcmToken?: string;
 }
 export const UserSchema = SchemaFactory.createForClass(User);
 

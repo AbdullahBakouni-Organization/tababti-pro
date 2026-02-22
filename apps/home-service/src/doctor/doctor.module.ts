@@ -10,6 +10,7 @@ import { SmsService } from '../sms/sms.service';
 import { CacheModule } from '@app/common/cache/cache.module';
 import { BullModule } from '@nestjs/bull';
 import { FcmModule } from '../fcm/fcm.module';
+import { PauseSlotsProcessor } from './processors/Pause slots.processor';
 
 @Module({
   imports: [
@@ -41,7 +42,7 @@ import { FcmModule } from '../fcm/fcm.module';
     CacheModule,
     FcmModule,
   ],
-  providers: [DoctorService, SmsService],
+  providers: [DoctorService, SmsService, PauseSlotsProcessor],
   controllers: [DoctorController],
 })
 export class DoctorModule {}

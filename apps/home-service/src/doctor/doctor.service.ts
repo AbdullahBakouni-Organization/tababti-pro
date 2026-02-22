@@ -1150,10 +1150,18 @@ export class DoctorService {
       // Step 5: Send FCM notification to patient
 
       const doctorName = doctor.firstName + ' ' + doctor.lastName;
-      const patientToken = await this.userModel
-        .findById(booking.patientId)
-        .select('fcmToken')
-        .exec();
+      const patient = await this.userModel.findById(booking.patientId).exec();
+
+      if (!patient) {
+        this.logger.warn(`Patient not found. Notification not sent.`);
+        return {
+          message: 'Booking cancelled successfully',
+          bookingId: booking._id.toString(),
+          slotId: slot._id.toString(),
+        };
+      }
+
+      const patientToken = patient.fcmToken;
 
       if (!patientToken) {
         this.logger.warn(`Patient has no FCM token. Notification not sent.`);
@@ -1167,7 +1175,7 @@ export class DoctorService {
       this.sendCancellationNotification(
         dto.doctorId,
         doctorName,
-        patientToken,
+        patient,
         booking,
         dto.reason,
         'DOCTOR_CANCELLED',
@@ -1371,16 +1379,23 @@ export class DoctorService {
       jobId: job.id.toString(),
     };
   }
-  async sendCancellationNotification(
+  private sendCancellationNotification(
     doctorId: string,
     doctorName: string,
-    patientToken: string,
+    patient: UserDocument,
     booking: BookingDocument,
     reason: string,
     type: 'DOCTOR_CANCELLED' | 'SLOT_PAUSED',
   ): boolean {
-    if (!patientToken) {
-      this.logger.warn(`Patient  has no FCM token. Notification not sent.`);
+    if (!patient.fcmToken) {
+      this.logger.warn(`Patient has no FCM token. Notification not sent.`);
+      return false;
+    }
+
+    if (!booking._id) {
+      this.logger.error(
+        `Booking document is missing _id. Cancellation notification not sent.`,
+      );
       return false;
     }
 
@@ -1390,9 +1405,11 @@ export class DoctorService {
       eventType: 'BOOKING_CANCELLED_NOTIFICATION',
       timestamp: new Date(),
       data: {
+        patientId: patient._id.toString(),
+        patientName: patient.username,
         doctorId,
         doctorName,
-        fcmToken: patientToken,
+        fcmToken: patient.fcmToken,
         bookingId: booking._id.toString(),
         appointmentDate: booking.bookingDate,
         appointmentTime: booking.bookingTime,
@@ -1400,7 +1417,7 @@ export class DoctorService {
         type,
       },
       metadata: {
-        source: 'slot-management-service',
+        source: 'doctor-service',
         version: '1.0',
       },
     };
