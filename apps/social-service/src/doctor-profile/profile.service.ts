@@ -1,80 +1,84 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { DoctorRepository } from './profile.repository';
-import { UpdateProfileDto } from './dto/update-profile.dto';
-import { ChangePasswordDto } from './dto/change-password.dto';
+import { Doctor } from '@app/common/database/schemas/doctor.schema';
+import { Post } from '@app/common/database/schemas/post.schema';
+import { Model, Types } from 'mongoose';
+import { InjectModel } from '@nestjs/mongoose';
 
 @Injectable()
 export class DoctorProfileService {
-    constructor(private readonly doctorRepo: DoctorRepository) { }
+    constructor(
+        private readonly doctorRepo: DoctorRepository,
+        @InjectModel(Post.name) private readonly postModel: Model<Post>,
+    ) { }
 
-    async getMyProfile(doctorId: string) {
-        const doctor = await this.doctorRepo.findById(doctorId);
-        if (!doctor) throw new NotFoundException('Doctor not found');
-        return doctor;
+    // ================= GET PROFILE =================
+    async getProfile(authAccountId: string): Promise<any> {
+        const doctor = await this.doctorRepo.findByAuthAccountId(authAccountId);
+        if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
+
+        // Fetch doctor's posts
+        const posts = await this.postModel
+            .find({ authorId: doctor._id, authorType: 'doctor' })
+            .sort({ createdAt: -1 })
+            .lean();
+
+        return this.formatDoctor(doctor, posts);
     }
 
-    async updateProfile(doctorId: string, dto: UpdateProfileDto) {
-        const doctor = await this.doctorRepo.findById(doctorId);
-        if (!doctor) throw new NotFoundException('Doctor not found');
+    // ================= UPDATE PROFILE =================
+    async updateProfile(authAccountId: string, updateData: Partial<Doctor>): Promise<any> {
+        const doctor = await this.doctorRepo.updateByAuthAccountId(authAccountId, updateData);
+        if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
 
-        Object.assign(doctor, dto);
-        await this.doctorRepo.save(doctor);
-        return { message: 'Profile updated successfully' };
+        const posts = await this.postModel
+            .find({ authorId: doctor._id, authorType: 'doctor' })
+            .sort({ createdAt: -1 })
+            .lean();
+
+        return this.formatDoctor(doctor, posts);
     }
 
-    async changePassword(doctorId: string, dto: ChangePasswordDto) {
-        const doctor = await this.doctorRepo.findByIdWithPassword(doctorId);
-        if (!doctor) throw new NotFoundException();
-
-        // safe call with !
-        const isMatch = await doctor.comparePassword!(dto.currentPassword);
-        if (!isMatch) throw new BadRequestException('Wrong password');
-
-        doctor.password = dto.newPassword;
-        await this.doctorRepo.save(doctor);
-        return { message: 'Password changed successfully' };
+    // ================= DELETE DOCTOR =================
+    async deleteDoctor(doctorId: string): Promise<void> {
+        const deleted = await this.doctorRepo.deleteById(doctorId);
+        if (!deleted) throw new NotFoundException('doctor.NOT_FOUND');
     }
 
-    async updateProfileImage(doctorId: string, imageUrl: string) {
-        const doctor = await this.doctorRepo.findById(doctorId);
-        if (!doctor) throw new NotFoundException('Doctor not found');
-
-        doctor.image = imageUrl;
-        await this.doctorRepo.save(doctor);
-        return { message: 'Profile image updated successfully' };
-    }
-
-    async removeDevice(doctorId: string, deviceId: string) {
-        const doctor = await this.doctorRepo.findById(doctorId);
-        if (!doctor) throw new NotFoundException('Doctor not found');
-
-        // safe call with !
-        doctor.removeDevice!(deviceId);
-        await this.doctorRepo.save(doctor);
-        return { message: 'Device removed successfully' };
-    }
-
-    async removeAllSessions(doctorId: string) {
-        const doctor = await this.doctorRepo.findById(doctorId);
-        if (!doctor) throw new NotFoundException('Doctor not found');
-
-        doctor.removeAllSessions!();
-        await this.doctorRepo.save(doctor);
-        return { message: 'All sessions removed successfully' };
-    }
-
-    async getProfileStats(doctorId: string) {
-        const doctor = await this.doctorRepo.findById(doctorId);
-        if (!doctor) throw new NotFoundException('Doctor not found');
-
+    // ================= FORMAT DOCTOR =================
+    private formatDoctor(doctor: Doctor, posts: any[] = []) {
         return {
-            profileViews: doctor.profileViews || 0,
-            searchCount: doctor.searchCount || 0,
-            activeSessions: doctor.getActiveSessionsCount!(),
+            id: doctor._id,
+            fullName: [doctor.firstName, doctor.middleName, doctor.lastName].filter(Boolean).join(' '),
+            bio: doctor.bio || '',
+            phones: doctor.phones,
+            image: doctor.image || null,
+            certificateImage: doctor.certificateImage || null,
+            licenseImage: doctor.licenseImage || null,
+            city: doctor.city,
+            subcity: doctor.subcity,
+            publicSpecialization: doctor.publicSpecialization,
+            privateSpecialization: doctor.privateSpecialization,
+            gender: doctor.gender,
+            yearsOfExperience: doctor.yearsOfExperience,
+            workingHours: doctor.workingHours || [],
+            inspectionPrice: doctor.inspectionPrice || 0,
+            inspectionDuration: doctor.inspectionDuration || 0,
+            posts: posts.map(p => ({
+                id: p._id,
+                content: p.content,
+                images: p.images || [],
+                status: p.status,
+                subscriptionType: p.subscriptionType,
+                createdAt: p.createdAt,
+            })),
+            sessions: doctor.sessions?.map(s => ({
+                deviceName: s.deviceName,
+                lastActivityAt: s.lastActivityAt,
+                isActive: s.isActive,
+            })) || [],
+            maxSessions: doctor.maxSessions,
+            status: doctor.status,
         };
-    }
-
-    async incrementProfileViews(doctorId: string) {
-        await this.doctorRepo.incrementField(doctorId, 'profileViews');
     }
 }

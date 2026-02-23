@@ -1,46 +1,77 @@
-import { Controller, Get, Patch, Delete, Body, Param, Req, UseGuards } from '@nestjs/common';
+import {
+    Controller,
+    Get,
+    Patch,
+    Delete,
+    Body,
+    Headers,
+    UploadedFiles,
+    UseInterceptors,
+    UseGuards,
+    Logger,
+    Param,
+} from '@nestjs/common';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { DoctorProfileService } from './profile.service';
-import { UpdateProfileDto } from './dto/update-profile.dto';
-import { ChangePasswordDto } from './dto/change-password.dto';
 import { JwtAuthGuard } from '@app/common/guards/jwt.guard';
+import { RolesGuard } from '@app/common/guards/role.guard';
+import { Roles } from '@app/common/decorator/role.decorator';
+import { UserRole } from '@app/common/database/schemas/common.enums';
+import { CurrentUser } from '@app/common/decorator/current-user.decorator';
+import { doctorImageOptions } from '@app/common/helpers/file-upload.helper';
+import { ApiResponse } from '../common/response/api-response';
 
-@UseGuards(JwtAuthGuard)
 @Controller('doctor/profile')
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class DoctorProfileController {
-    constructor(private readonly doctorProfileService: DoctorProfileService) { }
+    private readonly logger = new Logger(DoctorProfileController.name);
+
+    constructor(private readonly doctorService: DoctorProfileService) { }
 
     @Get('me')
-    getProfile(@Req() req) {
-        return this.doctorProfileService.getMyProfile(req.user.id);
+    @Roles(UserRole.DOCTOR)
+    async getProfile(
+        @CurrentUser('accountId') authAccountId: string,
+        @Headers('accept-language') lang: 'en' | 'ar' = 'en',
+    ) {
+        const profile = await this.doctorService.getProfile(authAccountId);
+        return ApiResponse.success({ lang, messageKey: 'doctor.FETCHED', data: profile });
     }
 
-    @Patch('update')
-    updateProfile(@Req() req, @Body() dto: UpdateProfileDto) {
-        return this.doctorProfileService.updateProfile(req.user.id, dto);
+    @Patch('me')
+    @Roles(UserRole.DOCTOR)
+    @UseInterceptors(
+        FileFieldsInterceptor(
+            [
+                { name: 'image', maxCount: 1 },
+                { name: 'certificateImage', maxCount: 1 },
+                { name: 'licenseImage', maxCount: 1 },
+            ],
+            doctorImageOptions,
+        ),
+    )
+    async updateProfile(
+        @CurrentUser('accountId') authAccountId: string,
+        @Body() updateData: Partial<any>,
+        @UploadedFiles() files?: {
+            image?: Express.Multer.File[];
+            certificateImage?: Express.Multer.File[];
+            licenseImage?: Express.Multer.File[];
+        },
+        @Headers('accept-language') lang: 'en' | 'ar' = 'en',
+    ) {
+        if (files?.image?.length) updateData.image = files.image[0].path.replace(/\\/g, '/');
+        if (files?.certificateImage?.length) updateData.certificateImage = files.certificateImage[0].path.replace(/\\/g, '/');
+        if (files?.licenseImage?.length) updateData.licenseImage = files.licenseImage[0].path.replace(/\\/g, '/');
+
+        const updatedProfile = await this.doctorService.updateProfile(authAccountId, updateData);
+        return ApiResponse.success({ lang, messageKey: 'doctor.UPDATED', data: updatedProfile });
     }
 
-    @Patch('change-password')
-    changePassword(@Req() req, @Body() dto: ChangePasswordDto) {
-        return this.doctorProfileService.changePassword(req.user.id, dto);
-    }
-
-    @Patch('update-image')
-    updateImage(@Req() req, @Body('image') image: string) {
-        return this.doctorProfileService.updateProfileImage(req.user.id, image);
-    }
-
-    @Delete('logout-device/:deviceId')
-    removeDevice(@Req() req, @Param('deviceId') deviceId: string) {
-        return this.doctorProfileService.removeDevice(req.user.id, deviceId);
-    }
-
-    @Delete('logout-all')
-    logoutAll(@Req() req) {
-        return this.doctorProfileService.removeAllSessions(req.user.id);
-    }
-
-    @Get('stats')
-    getStats(@Req() req) {
-        return this.doctorProfileService.getProfileStats(req.user.id);
+    @Delete(':id')
+    @Roles(UserRole.ADMIN)
+    async deleteDoctor(@Param('id') doctorId: string, @Headers('accept-language') lang: 'en' | 'ar' = 'en') {
+        await this.doctorService.deleteDoctor(doctorId);
+        return ApiResponse.success({ lang, messageKey: 'doctor.DELETED', data: null });
     }
 }
