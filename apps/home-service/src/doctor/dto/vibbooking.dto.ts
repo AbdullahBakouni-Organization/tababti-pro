@@ -7,6 +7,7 @@ import {
   IsBoolean,
 } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
+import { SlotStatus } from '@app/common/database/schemas/common.enums';
 
 /* ============================================================================
    SCENARIO 1: VIP BOOKING (Doctor Creates Manual Booking)
@@ -31,15 +32,6 @@ export class GetAllSlotsDto {
   @IsNotEmpty()
   @IsDateString()
   date: string;
-
-  @ApiProperty({
-    description: 'Include booked slots',
-    example: true,
-    default: true,
-  })
-  @IsOptional()
-  @IsBoolean()
-  includeBooked?: boolean;
 }
 
 /**
@@ -84,14 +76,6 @@ export class CheckVIPBookingConflictDto {
   @IsNotEmpty()
   @IsMongoId()
   slotId: string;
-
-  @ApiProperty({
-    description: 'VIP Patient ID',
-    example: '507f1f77bcf86cd799439011',
-  })
-  @IsNotEmpty()
-  @IsMongoId()
-  vipPatientId: string;
 }
 
 /**
@@ -99,14 +83,13 @@ export class CheckVIPBookingConflictDto {
  */
 export class VIPBookingConflictResponseDto {
   hasConflict: boolean;
-  slotStatus: 'AVAILABLE' | 'BOOKED' | 'PAUSED' | 'BLOCKED';
+  slotStatus: SlotStatus;
   conflictDetails?: {
     existingBookingId: string;
     patientId: string;
     patientName: string;
     patientPhone: string;
     appointmentTime: string;
-    fcmToken: string | null;
   };
   warningMessage?: string;
   canProceed: boolean;
@@ -152,9 +135,9 @@ export class CreateVIPBookingDto {
     description: 'Confirm override if slot is already booked',
     example: true,
   })
-  @IsOptional()
+  @IsNotEmpty()
   @IsBoolean()
-  confirmOverride?: boolean;
+  confirmOverride: boolean;
 
   @ApiProperty({
     description: 'Optional note for the booking',
@@ -202,7 +185,7 @@ export class CheckHolidayConflictDto {
     description: 'Reason for holiday',
     example: 'Personal vacation',
   })
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
   reason: string;
 }
@@ -217,7 +200,6 @@ export class HolidayConflictResponseDto {
     patientId: string;
     patientName: string;
     patientPhone: string;
-    fcmToken: string | null;
     appointmentDate: Date;
     appointmentTime: string;
     location: any;

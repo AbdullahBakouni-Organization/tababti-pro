@@ -186,7 +186,7 @@ export class VIPBookingProcessor {
         bookingId: booking._id!.toString(),
         appointmentDate: booking.bookingDate,
         appointmentTime: booking.bookingTime,
-        reason: `Your appointment was rescheduled due to: ${reason}`,
+        reason: reason,
         type: 'DOCTOR_CANCELLED',
       },
       metadata: {

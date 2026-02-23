@@ -134,6 +134,7 @@ export interface WorkingHoursUpdatedEvent {
     endTime: string;
   }>;
   inspectionDuration: number;
+  inspectionPrice: number;
   newWorkingHours: Array<{
     day: Days;
     location: {

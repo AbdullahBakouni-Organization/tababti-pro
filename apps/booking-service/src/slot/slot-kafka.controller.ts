@@ -127,6 +127,7 @@ export class SlotKafkaController {
         newWorkingHours: event.newWorkingHours,
         version: event.version,
         inspectionDuration: event.inspectionDuration,
+        inspectionPrice: event.inspectionPrice,
       });
       this.logger.log(`✅ Successfully processed working hours update`);
     } catch (error) {

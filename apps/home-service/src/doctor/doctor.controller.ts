@@ -60,6 +60,16 @@ import {
   PauseSlotConflictDto,
   PauseSlotsDto,
 } from './dto/slot-management.dto';
+import {
+  AllSlotsResponseDto,
+  CheckHolidayConflictDto,
+  CheckVIPBookingConflictDto,
+  CreateHolidayDto,
+  CreateVIPBookingDto,
+  GetAllSlotsDto,
+  HolidayConflictResponseDto,
+  VIPBookingConflictResponseDto,
+} from './dto/vibbooking.dto';
 
 // ============================================
 // Login DTO
@@ -505,84 +515,6 @@ export class DoctorController {
       message: 'Logged out from all devices',
     };
   }
-
-  // ============================================
-  // ADMIN ENDPOINTS (Require Admin Role)
-  // ============================================
-
-  /**
-   * Get pending registrations (Admin only)
-   */
-  // @Get('admin/pending')
-  // @UseGuards(JwtAuthGuard, AdminGuard)
-  // @ApiBearerAuth()
-  // @ApiOperation({ summary: 'Get all pending doctor registrations (Admin)' })
-  // async getPendingRegistrations(
-  //   @Query('page') page: number = 1,
-  //   @Query('limit') limit: number = 20,
-  // ) {
-  //   return this.registrationService.getPendingRegistrations(page, limit);
-  // }
-
-  // /**
-  //  * Approve doctor (Admin only)
-  //  */
-  // @Patch('admin/:doctorId/approve')
-  // @UseGuards(JwtAuthGuard, AdminGuard)
-  // @ApiBearerAuth()
-  // @HttpCode(HttpStatus.OK)
-  // @ApiOperation({ summary: 'Approve doctor registration (Admin)' })
-  // async approveDoctor(@Param('doctorId') doctorId: string, @Req() req: any) {
-  //   const adminId = req.user.sub;
-  //   const doctor = await this.registrationService.approveDoctor(
-  //     doctorId,
-  //     adminId,
-  //   );
-
-  //   return {
-  //     message: 'Doctor approved successfully',
-  //     doctor: {
-  //       id: doctor._id,
-  //       fullName: doctor.fullName,
-  //       status: doctor.status,
-  //       approvedAt: doctor.approvedAt,
-  //     },
-  //   };
-  // }
-
-  // /**
-  //  * Reject doctor (Admin only)
-  //  */
-  // @Patch('admin/:doctorId/reject')
-  // @UseGuards(JwtAuthGuard, AdminGuard)
-  // @ApiBearerAuth()
-  // @HttpCode(HttpStatus.OK)
-  // @ApiOperation({ summary: 'Reject doctor registration (Admin)' })
-  // async rejectDoctor(
-  //   @Param('doctorId') doctorId: string,
-  //   @Body('reason') reason: string,
-  //   @Req() req: any,
-  // ) {
-  //   const adminId = req.user.sub;
-  //   const doctor = await this.registrationService.rejectDoctor(
-  //     doctorId,
-  //     adminId,
-  //     reason,
-  //   );
-
-  //   return {
-  //     message: 'Doctor rejected',
-  //     doctor: {
-  //       id: doctor._id,
-  //       fullName: doctor.fullName,
-  //       status: doctor.status,
-  //       rejectedAt: doctor.rejectedAt,
-  //       reason: doctor.rejectionReason,
-  //     },
-  //   };
-  // }
-  //
-  //
   @Get(':doctorId/bookings')
   @ApiOperation({
     summary:
@@ -693,5 +625,113 @@ export class DoctorController {
       message: 'Slots unpaused successfully',
       slotIds: body.slotIds,
     };
+  }
+
+  @Get('slots/all')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get ALL slots including booked ones (for VIP booking)',
+    description:
+      'Returns all slots for a specific date, including BOOKED slots with existing patient info. Use this for doctor to see all slots before creating VIP booking.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'All slots retrieved',
+    type: [AllSlotsResponseDto],
+  })
+  async getAllSlots(
+    @Query() query: GetAllSlotsDto,
+  ): Promise<AllSlotsResponseDto[]> {
+    return this.DoctorService.getAllSlots(query);
+  }
+
+  /**
+   * Check VIP booking conflict (dry run)
+   */
+  @Post('vip-booking/check-conflict')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Check VIP booking conflict (Dry Run)',
+    description:
+      'Check if creating a VIP booking will displace an existing booking. Returns details of the existing booking if slot is occupied.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Conflict check completed',
+    type: VIPBookingConflictResponseDto,
+  })
+  async checkVIPBookingConflict(
+    @Body() dto: CheckVIPBookingConflictDto,
+  ): Promise<VIPBookingConflictResponseDto> {
+    return this.DoctorService.checkVIPBookingConflict(dto);
+  }
+
+  /**
+   * Create VIP booking (confirmed)
+   */
+  @Post('vip-booking')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Create VIP booking',
+    description:
+      'Creates a VIP booking. If slot is already booked, the existing booking will be CANCELLED and patient will be notified via FCM push notification. Requires confirmOverride: true if slot is occupied.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'VIP booking job queued',
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'Slot is booked but not confirmed',
+  })
+  async createVIPBooking(@Body() dto: CreateVIPBookingDto) {
+    return this.DoctorService.createVIPBooking(dto);
+  }
+
+  /* ==========================================================================
+      SCENARIO 2: HOLIDAY BLOCKING ROUTES
+   ========================================================================== */
+
+  /**
+   * Check holiday conflicts (dry run)
+   */
+  @Post('holidays/check-conflict')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Check holiday conflicts (Dry Run)',
+    description:
+      'Check which bookings will be affected if doctor takes holiday during specified dates. Returns list of all PENDING bookings that will be cancelled.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Conflict check completed',
+    type: HolidayConflictResponseDto,
+  })
+  async checkHolidayConflict(
+    @Body() dto: CheckHolidayConflictDto,
+  ): Promise<HolidayConflictResponseDto> {
+    return this.DoctorService.checkHolidayConflict(dto);
+  }
+
+  /**
+   * Create holiday (confirmed)
+   */
+  @Post('holidays')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Create doctor holiday',
+    description:
+      'Blocks all slots in the date range and cancels all PENDING bookings. All affected patients receive PERSONALIZED FCM push notifications with their specific appointment details. Requires confirmHoliday: true if bookings exist.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Holiday blocking job queued',
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'Bookings exist but not confirmed',
+  })
+  async createHoliday(@Body() dto: CreateHolidayDto) {
+    return this.DoctorService.createHoliday(dto);
   }
 }

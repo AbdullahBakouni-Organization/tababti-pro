@@ -235,6 +235,7 @@ export class WorkingHoursService {
       newWorkingHours: mergedWorkingHours,
       version: doctor.workingHoursVersion,
       inspectionDuration: updateDto.inspectionDuration,
+      inspectionPrice: updateDto.inspectionPrice,
     });
 
     return { message: 'Working hours updated successfully' };

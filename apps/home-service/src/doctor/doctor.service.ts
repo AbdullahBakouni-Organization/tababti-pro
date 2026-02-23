@@ -1483,6 +1483,7 @@ export class DoctorService {
     const slots = await this.slotModel
       .find({
         doctorId: new Types.ObjectId(dto.doctorId),
+        status: { $ne: SlotStatus.INVALIDATED },
         date: { $gte: startOfDay, $lte: endOfDay },
       })
       .sort({ startTime: 1 })
@@ -1507,7 +1508,7 @@ export class DoctorService {
           .findOne({ slotId: slot._id })
           .populate<{
             patientId: User;
-          }>('patientId', 'firstName lastName phoneNumber')
+          }>('patientId', 'username phone')
           .lean()
           .exec();
 
@@ -1548,14 +1549,12 @@ export class DoctorService {
     if (!Types.ObjectId.isValid(dto.slotId)) {
       throw new BadRequestException('Invalid slot ID');
     }
-    if (!Types.ObjectId.isValid(dto.vipPatientId)) {
-      throw new BadRequestException('Invalid VIP patient ID');
-    }
 
     // Get slot
     const slot = await this.slotModel
       .findOne({
         _id: new Types.ObjectId(dto.slotId),
+        status: { $ne: SlotStatus.INVALIDATED },
         doctorId: new Types.ObjectId(dto.doctorId),
       })
       .exec();
@@ -1592,7 +1591,7 @@ export class DoctorService {
         .findOne({ slotId: slot._id })
         .populate<{
           patientId: User;
-        }>('patientId', 'username phone fcmToken')
+        }>('patientId', 'username phone')
         .exec();
 
       if (existingBooking && typeof existingBooking.patientId !== 'string') {
@@ -1605,7 +1604,6 @@ export class DoctorService {
           patientName: patient.username,
           patientPhone: patient.phone,
           appointmentTime: `${existingBooking.bookingTime} - ${existingBooking.bookingEndTime}`,
-          fcmToken: patient.fcmToken || null,
         };
         response.warningMessage = `Slot is already booked by ${response.conflictDetails.patientName}. Creating VIP booking will CANCEL their appointment and notify them.`;
         response.canProceed = true; // Can proceed with override
@@ -1631,7 +1629,6 @@ export class DoctorService {
     const conflict = await this.checkVIPBookingConflict({
       doctorId: dto.doctorId,
       slotId: dto.slotId,
-      vipPatientId: dto.vipPatientId,
     });
 
     // If conflict and not confirmed, throw error
@@ -1708,7 +1705,7 @@ export class DoctorService {
       .find({
         doctorId: new Types.ObjectId(dto.doctorId),
         date: { $gte: startDate, $lte: endDate },
-        status: { $ne: SlotStatus.BLOCKED }, // Exclude already blocked
+        status: { $nin: [SlotStatus.BLOCKED, SlotStatus.INVALIDATED] }, // Exclude blocked + invalidated
       })
       .lean()
       .exec();
@@ -1720,7 +1717,7 @@ export class DoctorService {
         bookingDate: { $gte: startDate, $lte: endDate },
         status: BookingStatus.PENDING, // Only PENDING bookings
       })
-      .populate<{ patientId: User }>('patientId', 'username phone fcmToken')
+      .populate<{ patientId: User }>('patientId', 'username phone')
       .lean()
       .exec();
 
@@ -1736,7 +1733,6 @@ export class DoctorService {
         patientId: patient?._id.toString() || '',
         patientName: patient ? `${patient.username}` : 'Unknown',
         patientPhone: patient?.phone || '',
-        fcmToken: patient?.fcmToken || null,
         appointmentDate: booking.bookingDate,
         appointmentTime: booking.bookingTime,
         location: booking.location,

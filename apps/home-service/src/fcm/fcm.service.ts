@@ -45,7 +45,7 @@ export class FcmService {
         token: fcmToken,
         notification: {
           title: '❌ Appointment Cancelled',
-          body: `Your appointment with Dr. ${data.doctorName} on ${data.appointmentDate} at ${data.appointmentTime} has been cancelled.`,
+          body: `Your appointment with Dr. ${data.doctorName} on ${data.appointmentDate} at ${data.appointmentTime} has been cancelled because of ${data.reason}.`,
         },
         data: {
           type: data.type,

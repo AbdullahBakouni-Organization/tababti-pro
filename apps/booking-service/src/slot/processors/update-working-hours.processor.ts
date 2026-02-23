@@ -35,6 +35,7 @@ export interface WorkingHoursUpdateJobData {
     endTime: string;
   }>;
   inspectionDuration: number;
+  inspectionPrice: number;
   newWorkingHours: Array<{
     day: Days;
     location: {
@@ -87,6 +88,7 @@ export class WorkingHoursUpdateProcessorV2 {
       oldWorkingHours,
       newWorkingHours,
       inspectionDuration,
+      inspectionPrice,
       version,
       updatedDays,
     } = job.data;
@@ -103,6 +105,7 @@ export class WorkingHoursUpdateProcessorV2 {
         newWorkingHours,
         version,
         inspectionDuration,
+        inspectionPrice,
       );
     }
   }
@@ -114,6 +117,7 @@ export class WorkingHoursUpdateProcessorV2 {
     newWH: WorkingHourRange[],
     version: number,
     duration: number,
+    price: number,
   ) {
     const session = await this.connection.startSession();
     session.startTransaction();
@@ -199,6 +203,7 @@ export class WorkingHoursUpdateProcessorV2 {
           validRanges,
           version,
           duration,
+          price,
           session,
         );
       }
@@ -225,6 +230,7 @@ export class WorkingHoursUpdateProcessorV2 {
     ranges: WorkingHourRange[],
     version: number,
     duration: number,
+    price: number,
     session: ClientSession,
   ) {
     const startOfDay = new Date(date);
@@ -239,6 +245,7 @@ export class WorkingHoursUpdateProcessorV2 {
         range.location,
         duration,
         version,
+        price,
       );
 
       for (const slot of generatedSlots) {
@@ -327,6 +334,7 @@ export class WorkingHoursUpdateProcessorV2 {
       address: string;
     },
     duration: number,
+    price: number,
     version: number,
   ): Partial<AppointmentSlotDocument>[] {
     const slots: Partial<AppointmentSlotDocument>[] = [];
@@ -349,6 +357,7 @@ export class WorkingHoursUpdateProcessorV2 {
         status: SlotStatus.AVAILABLE,
         workingHoursVersion: version,
         duration: duration,
+        price: price,
         dayOfWeek: dayOfWeek,
         location: location,
       });
