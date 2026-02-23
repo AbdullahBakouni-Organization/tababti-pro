@@ -11,11 +11,36 @@ import { CacheModule } from '@app/common/cache/cache.module';
 import { BullModule } from '@nestjs/bull';
 import { FcmModule } from '../fcm/fcm.module';
 import { PauseSlotsProcessor } from './processors/Pause slots.processor';
+import { VIPBookingProcessor } from './processors/VibBooking.processor';
 
 @Module({
   imports: [
     BullModule.registerQueue({
       name: 'pause-slots',
+      defaultJobOptions: {
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 2000,
+        },
+        removeOnComplete: 100, // Keep last 100 completed jobs
+        removeOnFail: 500, // Keep last 500 failed jobs for debugging
+      },
+    }),
+    BullModule.registerQueue({
+      name: 'vip-booking',
+      defaultJobOptions: {
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 2000,
+        },
+        removeOnComplete: 100, // Keep last 100 completed jobs
+        removeOnFail: 500, // Keep last 500 failed jobs for debugging
+      },
+    }),
+    BullModule.registerQueue({
+      name: 'block-holiday-dates',
       defaultJobOptions: {
         attempts: 3,
         backoff: {
@@ -42,7 +67,12 @@ import { PauseSlotsProcessor } from './processors/Pause slots.processor';
     CacheModule,
     FcmModule,
   ],
-  providers: [DoctorService, SmsService, PauseSlotsProcessor],
+  providers: [
+    DoctorService,
+    SmsService,
+    PauseSlotsProcessor,
+    VIPBookingProcessor,
+  ],
   controllers: [DoctorController],
 })
 export class DoctorModule {}

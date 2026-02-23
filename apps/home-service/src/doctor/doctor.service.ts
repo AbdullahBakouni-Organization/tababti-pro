@@ -68,6 +68,18 @@ import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
 import { User, UserDocument } from '@app/common/database/schemas/user.schema';
 import { getSyriaDate } from '@app/common/utils/get-syria-date';
+import {
+  AllSlotsResponseDto,
+  CheckHolidayConflictDto,
+  CheckVIPBookingConflictDto,
+  CreateHolidayDto,
+  CreateVIPBookingDto,
+  GetAllSlotsDto,
+  HolidayBlockJobData,
+  HolidayConflictResponseDto,
+  VIPBookingConflictResponseDto,
+  VIPBookingJobData,
+} from './dto/vibbooking.dto';
 // ============================================
 // Kafka Events
 // ============================================
@@ -127,6 +139,8 @@ export class DoctorService {
     private readonly smsService: SmsService,
     private readonly cacheManager: CacheService,
     @InjectQueue('pause-slots') private pauseSlotsQueue: Queue,
+    @InjectQueue('vip-booking') private vipBookingQueue: Queue,
+    @InjectQueue('block-holiday-dates') private holidayQueue: Queue,
   ) {
     this.SOCKET_SERVICE_URL =
       this.configService.get('SOCKET_SERVICE_URL') || '';
@@ -1448,5 +1462,407 @@ export class DoctorService {
       const err = error as Error;
       this.logger.warn(`Failed to invalidate slots cache: ${err.message}`);
     }
+  }
+
+  async getAllSlots(dto: GetAllSlotsDto): Promise<AllSlotsResponseDto[]> {
+    this.logger.log(
+      `Getting all slots for doctor ${dto.doctorId} on ${dto.date}`,
+    );
+
+    if (!Types.ObjectId.isValid(dto.doctorId)) {
+      throw new BadRequestException('Invalid doctor ID');
+    }
+
+    const date = new Date(dto.date);
+    const startOfDay = new Date(date);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(date);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    // Get ALL slots (not just AVAILABLE)
+    const slots = await this.slotModel
+      .find({
+        doctorId: new Types.ObjectId(dto.doctorId),
+        date: { $gte: startOfDay, $lte: endOfDay },
+      })
+      .sort({ startTime: 1 })
+      .lean()
+      .exec();
+
+    const slotsWithBookings: AllSlotsResponseDto[] = [];
+
+    for (const slot of slots) {
+      const slotData: AllSlotsResponseDto = {
+        slotId: slot._id.toString(),
+        date: slot.date,
+        startTime: slot.startTime,
+        endTime: slot.endTime,
+        status: slot.status as any,
+        location: slot.location,
+      };
+
+      // If slot is booked, get booking details
+      if (slot.status === SlotStatus.BOOKED) {
+        const booking = await this.bookingModel
+          .findOne({ slotId: slot._id })
+          .populate<{
+            patientId: User;
+          }>('patientId', 'firstName lastName phoneNumber')
+          .lean()
+          .exec();
+
+        if (booking && typeof booking.patientId !== 'string') {
+          const patient = booking.patientId as unknown as User;
+          slotData.existingBooking = {
+            bookingId: booking._id.toString(),
+            patientId: patient._id.toString(),
+            patientName: `${patient.username}`,
+            patientPhone: patient.phone,
+            bookingStatus: booking.status,
+          };
+        }
+      }
+
+      slotsWithBookings.push(slotData);
+    }
+
+    this.logger.log(
+      `Found ${slotsWithBookings.length} slots (${slots.filter((s) => s.status === SlotStatus.BOOKED).length} booked)`,
+    );
+
+    return slotsWithBookings;
+  }
+
+  /**
+   * Check VIP booking conflict (dry run)
+   */
+  async checkVIPBookingConflict(
+    dto: CheckVIPBookingConflictDto,
+  ): Promise<VIPBookingConflictResponseDto> {
+    this.logger.log(`Checking VIP booking conflict for slot ${dto.slotId}`);
+
+    // Validate IDs
+    if (!Types.ObjectId.isValid(dto.doctorId)) {
+      throw new BadRequestException('Invalid doctor ID');
+    }
+    if (!Types.ObjectId.isValid(dto.slotId)) {
+      throw new BadRequestException('Invalid slot ID');
+    }
+    if (!Types.ObjectId.isValid(dto.vipPatientId)) {
+      throw new BadRequestException('Invalid VIP patient ID');
+    }
+
+    // Get slot
+    const slot = await this.slotModel
+      .findOne({
+        _id: new Types.ObjectId(dto.slotId),
+        doctorId: new Types.ObjectId(dto.doctorId),
+      })
+      .exec();
+
+    if (!slot) {
+      throw new NotFoundException('Slot not found');
+    }
+
+    const response: VIPBookingConflictResponseDto = {
+      hasConflict: false,
+      slotStatus: slot.status as any,
+      canProceed: true,
+    };
+
+    // Check slot status
+    if (slot.status === SlotStatus.AVAILABLE) {
+      // No conflict - slot is available
+      response.hasConflict = false;
+      response.canProceed = true;
+      return response;
+    }
+
+    if (slot.status === SlotStatus.BLOCKED) {
+      // Cannot book on paused/blocked slots
+      response.hasConflict = true;
+      response.canProceed = false;
+      response.warningMessage = `Slot is ${slot.status}. Cannot create VIP booking.`;
+      return response;
+    }
+
+    if (slot.status === SlotStatus.BOOKED) {
+      // Conflict - slot already has a booking
+      const existingBooking = await this.bookingModel
+        .findOne({ slotId: slot._id })
+        .populate<{
+          patientId: User;
+        }>('patientId', 'username phone fcmToken')
+        .exec();
+
+      if (existingBooking && typeof existingBooking.patientId !== 'string') {
+        const patient = existingBooking.patientId as unknown as User;
+
+        response.hasConflict = true;
+        response.conflictDetails = {
+          existingBookingId: existingBooking._id.toString(),
+          patientId: patient._id.toString(),
+          patientName: patient.username,
+          patientPhone: patient.phone,
+          appointmentTime: `${existingBooking.bookingTime} - ${existingBooking.bookingEndTime}`,
+          fcmToken: patient.fcmToken || null,
+        };
+        response.warningMessage = `Slot is already booked by ${response.conflictDetails.patientName}. Creating VIP booking will CANCEL their appointment and notify them.`;
+        response.canProceed = true; // Can proceed with override
+      }
+    }
+
+    return response;
+  }
+
+  /**
+   * Create VIP booking (execute)
+   * Queues Bull job to handle conflict and notifications
+   */
+  async createVIPBooking(dto: CreateVIPBookingDto): Promise<{
+    message: string;
+    bookingId?: string;
+    jobId?: string;
+    willDisplaceBooking: boolean;
+  }> {
+    this.logger.log(`Creating VIP booking for slot ${dto.slotId}`);
+
+    // Check conflict first
+    const conflict = await this.checkVIPBookingConflict({
+      doctorId: dto.doctorId,
+      slotId: dto.slotId,
+      vipPatientId: dto.vipPatientId,
+    });
+
+    // If conflict and not confirmed, throw error
+    if (conflict.hasConflict && !dto.confirmOverride) {
+      throw new ConflictException(
+        'Slot is already booked. Set confirmOverride: true to proceed.',
+      );
+    }
+
+    // If slot is paused/blocked, cannot proceed
+    if (!conflict.canProceed) {
+      throw new BadRequestException(conflict.warningMessage);
+    }
+
+    // Get doctor info
+    const doctor = await this.doctorModel.findById(dto.doctorId).exec();
+    if (!doctor) {
+      throw new NotFoundException('Doctor not found');
+    }
+
+    const doctorName = `${doctor.firstName} ${doctor.middleName} ${doctor.lastName}`;
+
+    // Queue job
+    const jobData: VIPBookingJobData = {
+      doctorId: dto.doctorId,
+      doctorName,
+      slotId: dto.slotId,
+      vipPatientId: dto.vipPatientId,
+      existingBookingId: conflict.conflictDetails?.existingBookingId || null,
+      reason: dto.reason,
+      note: dto.note,
+    };
+
+    const job = await this.vipBookingQueue.add('create-vip-booking', jobData, {
+      priority: 1, // High priority
+      attempts: 3,
+      backoff: {
+        type: 'exponential',
+        delay: 2000,
+      },
+    });
+
+    this.logger.log(`VIP booking job queued: ${job.id}`);
+
+    return {
+      message: conflict.hasConflict
+        ? 'VIP booking is being created. Existing booking will be cancelled and patient notified.'
+        : 'VIP booking is being created.',
+      jobId: job.id.toString(),
+      willDisplaceBooking: conflict.hasConflict,
+    };
+  }
+
+  async checkHolidayConflict(
+    dto: CheckHolidayConflictDto,
+  ): Promise<HolidayConflictResponseDto> {
+    this.logger.log(
+      `Checking holiday conflicts for doctor ${dto.doctorId} from ${dto.startDate} to ${dto.endDate}`,
+    );
+
+    if (!Types.ObjectId.isValid(dto.doctorId)) {
+      throw new BadRequestException('Invalid doctor ID');
+    }
+
+    const startDate = new Date(dto.startDate);
+    const endDate = new Date(dto.endDate);
+
+    if (startDate >= endDate) {
+      throw new BadRequestException('Start date must be before end date');
+    }
+
+    // Get all slots in date range
+    const slots = await this.slotModel
+      .find({
+        doctorId: new Types.ObjectId(dto.doctorId),
+        date: { $gte: startDate, $lte: endDate },
+        status: { $ne: SlotStatus.BLOCKED }, // Exclude already blocked
+      })
+      .lean()
+      .exec();
+
+    // Get all bookings in date range (PENDING status only)
+    const bookings = await this.bookingModel
+      .find({
+        doctorId: new Types.ObjectId(dto.doctorId),
+        bookingDate: { $gte: startDate, $lte: endDate },
+        status: BookingStatus.PENDING, // Only PENDING bookings
+      })
+      .populate<{ patientId: User }>('patientId', 'username phone fcmToken')
+      .lean()
+      .exec();
+
+    // Build affected bookings list
+    const affectedBookings = bookings.map((booking) => {
+      const patient =
+        typeof booking.patientId !== 'string'
+          ? (booking.patientId as unknown as User)
+          : null;
+
+      return {
+        bookingId: booking._id.toString(),
+        patientId: patient?._id.toString() || '',
+        patientName: patient ? `${patient.username}` : 'Unknown',
+        patientPhone: patient?.phone || '',
+        fcmToken: patient?.fcmToken || null,
+        appointmentDate: booking.bookingDate,
+        appointmentTime: booking.bookingTime,
+        location: booking.location,
+      };
+    });
+
+    // Get unique dates in range
+    const dates = this.getDatesBetween(startDate, endDate);
+    const daysCount = dates.length;
+
+    const response: HolidayConflictResponseDto = {
+      hasConflicts: affectedBookings.length > 0,
+      affectedBookings,
+      affectedSlots: {
+        totalSlots: slots.length,
+        dates: dates.map((d) => d.toISOString().split('T')[0]),
+      },
+      summary: {
+        totalBookings: affectedBookings.length,
+        totalSlots: slots.length,
+        dateRange: `${dto.startDate} to ${dto.endDate}`,
+        daysCount,
+      },
+      warningMessage:
+        affectedBookings.length > 0
+          ? `Creating holiday will cancel ${affectedBookings.length} pending booking(s) and block ${slots.length} slots for ${daysCount} days. All affected patients will receive push notifications.`
+          : undefined,
+    };
+
+    this.logger.log(
+      `Holiday conflict check: ${affectedBookings.length} bookings, ${slots.length} slots affected`,
+    );
+
+    return response;
+  }
+
+  /**
+   * Create holiday (execute)
+   * Queues Bull job to handle cancellations and notifications
+   */
+  async createHoliday(dto: CreateHolidayDto): Promise<{
+    message: string;
+    jobId: string;
+    affectedBookings: number;
+    affectedSlots: number;
+    dateRange: string;
+  }> {
+    this.logger.log(`Creating holiday for doctor ${dto.doctorId}`);
+
+    // Check conflicts first
+    const conflict = await this.checkHolidayConflict({
+      doctorId: dto.doctorId,
+      startDate: dto.startDate,
+      endDate: dto.endDate,
+      reason: dto.reason,
+    });
+
+    // If conflicts and not confirmed, throw error
+    if (conflict.hasConflicts && !dto.confirmHoliday) {
+      throw new ConflictException(
+        'Holiday period has existing bookings. Set confirmHoliday: true to proceed.',
+      );
+    }
+
+    // Get doctor info
+    const doctor = await this.doctorModel.findById(dto.doctorId).exec();
+    if (!doctor) {
+      throw new NotFoundException('Doctor not found');
+    }
+
+    const doctorName = `${doctor.firstName} ${doctor.middleName} ${doctor.lastName}`;
+
+    const startDate = new Date(dto.startDate);
+    const endDate = new Date(dto.endDate);
+
+    // Get all slot IDs in range
+    const slots = await this.slotModel
+      .find({
+        doctorId: new Types.ObjectId(dto.doctorId),
+        date: { $gte: startDate, $lte: endDate },
+      })
+      .select('_id')
+      .lean()
+      .exec();
+
+    // Queue job
+    const jobData: HolidayBlockJobData = {
+      doctorId: dto.doctorId,
+      doctorName,
+      startDate,
+      endDate,
+      reason: dto.reason,
+      affectedBookingIds: conflict.affectedBookings.map((b) => b.bookingId),
+      affectedSlotIds: slots.map((s) => s._id.toString()),
+    };
+
+    const job = await this.holidayQueue.add('block-holiday-dates', jobData, {
+      priority: 2, // Normal priority
+      attempts: 3,
+      backoff: {
+        type: 'exponential',
+        delay: 2000,
+      },
+    });
+
+    this.logger.log(`Holiday block job queued: ${job.id}`);
+
+    return {
+      message:
+        'Holiday is being created. Bookings will be cancelled and patients notified.',
+      jobId: job.id.toString(),
+      affectedBookings: conflict.affectedBookings.length,
+      affectedSlots: slots.length,
+      dateRange: `${dto.startDate} to ${dto.endDate}`,
+    };
+  }
+
+  private getDatesBetween(startDate: Date, endDate: Date): Date[] {
+    const dates: Date[] = [];
+    const currentDate = new Date(startDate);
+
+    while (currentDate <= endDate) {
+      dates.push(new Date(currentDate));
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+
+    return dates;
   }
 }

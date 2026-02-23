@@ -20,6 +20,7 @@ import {
 } from '@app/common/database/schemas/booking.schema';
 import { FcmService } from 'apps/home-service/src/fcm/fcm.service';
 import { User, UserDocument } from '@app/common/database/schemas/user.schema';
+import { Doctor } from '@app/common/database/schemas/doctor.schema';
 
 export interface WorkingHoursUpdateJobData {
   doctorId: string;
@@ -116,24 +117,27 @@ export class WorkingHoursUpdateProcessorV2 {
   ) {
     const session = await this.connection.startSession();
     session.startTransaction();
+
     const affectedBookings: Array<{
       bookingId: string;
       fcmToken: string;
+      doctorName: string;
       appointmentDate: Date;
       appointmentTime: string;
     }> = [];
+
     try {
       const futureDates = this.getNext12WeeksDatesForDay(day);
-
       const validRanges = newWH.filter((w) => w.day === day);
+
       for (const date of futureDates) {
-        const startOfDay = new Date(date); // 2026-02-19T21:00:00.000Z ✅
-        const endOfDay = new Date(date.getTime() + 24 * 60 * 60 * 1000 - 1); // +24h - 1ms ✅
+        const startOfDay = new Date(date);
+        const endOfDay = new Date(date.getTime() + 24 * 60 * 60 * 1000 - 1);
 
         const oldSlots = await this.slotModel
           .find({
             doctorId: doctorId,
-            date: { $gte: startOfDay, $lte: endOfDay }, // ✅ range, not exact
+            date: { $gte: startOfDay, $lte: endOfDay },
             status: { $ne: SlotStatus.INVALIDATED },
           })
           .session(session);
@@ -147,29 +151,43 @@ export class WorkingHoursUpdateProcessorV2 {
             if (slot.status === SlotStatus.BOOKED) {
               const booking = await this.bookingModel
                 .findOne({ slotId: slot._id })
-                .populate('patientId', 'fcmToken')
-                .populate('doctorId', 'firstName lastName')
-                .session(session);
+                .populate<{ patientId: User }>('patientId', 'fcmToken')
+                .populate<{
+                  doctorId: Doctor;
+                }>('doctorId', 'firstName lastName')
+                .session(session)
+                .exec();
 
-              // ✅ ADD THIS: Collect for batch notification
-              if (booking?.patientId?.fcmToken) {
-                affectedBookings.push({
-                  bookingId: booking._id.toString(),
-                  fcmToken: booking.patientId.fcmToken,
-                  doctorName:
-                    booking.doctorId.firstName +
-                    ' ' +
-                    booking.doctorId.lastName,
-                  appointmentDate: booking.bookingDate,
-                  appointmentTime: booking.bookingTime,
-                });
+              // ✅ FIXED: Type assertion after populate
+              if (booking && typeof booking.patientId !== 'string') {
+                const patient = booking.patientId as unknown as User;
+                const doctor = booking.doctorId as unknown as Doctor;
+
+                if (patient?.fcmToken) {
+                  affectedBookings.push({
+                    bookingId: booking._id.toString(),
+                    fcmToken: patient.fcmToken,
+                    doctorName: `${doctor.firstName} ${doctor.lastName}`,
+                    appointmentDate: booking.bookingDate,
+                    appointmentTime: booking.bookingTime,
+                  });
+                }
               }
+
               await this.bookingModel.updateOne(
                 { slotId: slot._id },
-                { status: BookingStatus.NEEDS_RESCHEDULE },
+                {
+                  status: BookingStatus.NEEDS_RESCHEDULE,
+                  cancellation: {
+                    cancelledBy: 'SYSTEM',
+                    reason: 'Doctor updated working hours',
+                    cancelledAt: new Date(),
+                  },
+                },
                 { session },
               );
             }
+
             slot.status = SlotStatus.INVALIDATED;
             await slot.save({ session });
           }
@@ -187,9 +205,10 @@ export class WorkingHoursUpdateProcessorV2 {
 
       await session.commitTransaction();
 
+      // Send notifications AFTER successful commit
       if (affectedBookings.length > 0) {
-        this.sendBatchNotifications(affectedBookings).catch((err) =>
-          this.logger.error('Notification error:', err),
+        await this.sendPersonalizedNotifications(affectedBookings).catch(
+          (err) => this.logger.error('Notification error:', err),
         );
       }
     } catch (error) {
@@ -340,7 +359,7 @@ export class WorkingHoursUpdateProcessorV2 {
     return slots;
   }
 
-  private async sendBatchNotifications(
+  async sendPersonalizedNotifications(
     affectedBookings: Array<{
       bookingId: string;
       fcmToken: string;
@@ -349,47 +368,78 @@ export class WorkingHoursUpdateProcessorV2 {
       appointmentTime: string;
     }>,
   ): Promise<void> {
-    this.logger.log(`📱 Sending FCM to ${affectedBookings.length} patients`);
+    this.logger.log(
+      `📱 Sending personalized FCM to ${affectedBookings.length} patients`,
+    );
 
-    const FCM_BATCH_SIZE = 500;
+    let successCount = 0;
+    let failureCount = 0;
+    const invalidTokens: string[] = [];
 
-    // Process in batches of 500
-    for (let i = 0; i < affectedBookings.length; i += FCM_BATCH_SIZE) {
-      const batch = affectedBookings.slice(i, i + FCM_BATCH_SIZE);
-      const fcmTokens = batch.map((b) => b.fcmToken);
+    // Process in parallel batches of 10 to avoid overwhelming Firebase
+    const PARALLEL_LIMIT = 10;
 
-      const result = await this.fcmService.sendMulticastNotification(
-        fcmTokens,
-        {
-          bookingId: batch.map((b) => b.bookingId),
-          doctorName: batch.map((b) => b.doctorName),
-          appointmentDate: batch.map((b) => b.appointmentDate),
-          appointmentTime: batch.map((b) => b.appointmentTime),
-          reason: 'Doctor updated working hours',
-          type: 'DOCTOR_CANCELLED',
-        },
+    for (let i = 0; i < affectedBookings.length; i += PARALLEL_LIMIT) {
+      const batch = affectedBookings.slice(i, i + PARALLEL_LIMIT);
+
+      const promises = batch.map(async (booking) => {
+        try {
+          const sent =
+            await this.fcmService.sendBookingCancellationNotification(
+              booking.fcmToken,
+              {
+                bookingId: booking.bookingId,
+                doctorName: booking.doctorName,
+                appointmentDate: this.formatDate(booking.appointmentDate),
+                appointmentTime: booking.appointmentTime,
+                reason: 'Doctor updated working hours. Please reschedule.',
+                type: 'DOCTOR_CANCELLED',
+              },
+            );
+
+          return { success: sent, token: booking.fcmToken };
+        } catch (error) {
+          const err = error as Error;
+          this.logger.error(
+            `Failed to send notification for booking ${booking.bookingId}: ${err.message}`,
+          );
+          return { success: false, token: booking.fcmToken };
+        }
+      });
+
+      const results = await Promise.all(promises);
+
+      results.forEach((result) => {
+        if (result.success) {
+          successCount++;
+        } else {
+          failureCount++;
+          invalidTokens.push(result.token);
+        }
+      });
+
+      this.logger.debug(
+        `Progress: ${i + batch.length}/${affectedBookings.length} processed`,
       );
+    }
 
-      this.logger.log(
-        `Batch ${i / FCM_BATCH_SIZE + 1}: ✅ ${result.successCount}, ❌ ${result.failureCount}`,
-      );
+    this.logger.log(
+      `✅ Personalized notifications: ${successCount} success, ${failureCount} failed`,
+    );
 
-      // Clean up invalid tokens
-      if (result.invalidTokens.length > 0) {
-        await this.removeInvalidTokens(result.invalidTokens);
-      }
+    // Clean up invalid tokens
+    if (invalidTokens.length > 0) {
+      this.logger.warn(`Found ${invalidTokens.length} invalid tokens`);
+      // You can call removeInvalidTokens here if needed
     }
   }
 
-  /**
-   * Remove invalid FCM tokens
-   */
-  private async removeInvalidTokens(tokens: string[]): Promise<void> {
-    await this.userModel.updateMany(
-      { fcmToken: { $in: tokens } },
-      { $unset: { fcmToken: '' } },
-    );
-
-    this.logger.log(`Removed ${tokens.length} invalid FCM tokens`);
+  private formatDate(date: Date): string {
+    return new Intl.DateTimeFormat('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    }).format(new Date(date));
   }
 }
