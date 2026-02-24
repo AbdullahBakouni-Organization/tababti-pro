@@ -26,6 +26,7 @@ import {
   SweidaAreas,
   TartousAreas,
 } from '@app/common/database/schemas/common.enums';
+import { SpecialtyMapping } from '@app/common/database/seeders/spicility.seeder';
 
 @Injectable()
 export class DoctorRepository {
@@ -33,7 +34,7 @@ export class DoctorRepository {
     @InjectModel(Doctor.name) private readonly doctorModel: Model<Doctor>,
     @InjectModel(SubCities.name)
     private readonly subcityModel: Model<SubCities>,
-  ) {}
+  ) { }
 
   // ======== Find by authAccountId (private profile) ========
   async findByAuthAccountId(authAccountId: string): Promise<Doctor> {
@@ -107,39 +108,13 @@ export class DoctorRepository {
   }
 
   // ======== Check Private Specialization matches Public ========
-  async checkPrivateSpecializationMatchesPublic(
+  checkPrivateSpecializationMatchesPublic(
     publicSpecialization: GeneralSpecialty,
     privateSpecialization: PrivateMedicineSpecialty,
-  ): Promise<boolean> {
-    const validPairs: Record<GeneralSpecialty, PrivateMedicineSpecialty[]> = {
-      [GeneralSpecialty.HumanMedicine]: [
-        PrivateMedicineSpecialty.GeneralPractitioner,
-        PrivateMedicineSpecialty.Cardiology,
-        PrivateMedicineSpecialty.Pediatrics,
-        PrivateMedicineSpecialty.InternalMedicine,
-      ],
-      [GeneralSpecialty.Dentistry]: [
-        PrivateMedicineSpecialty.GeneralDentistry,
-        PrivateMedicineSpecialty.Orthodontics,
-        PrivateMedicineSpecialty.OralMaxillofacialSurgery,
-      ],
-      [GeneralSpecialty.Psychiatry]: [
-        PrivateMedicineSpecialty.GeneralPsychiatry,
-        PrivateMedicineSpecialty.DepressionTreatment,
-        PrivateMedicineSpecialty.AnxietyTreatment,
-      ],
-      [GeneralSpecialty.Veterinary]: [
-        PrivateMedicineSpecialty.GeneralVeterinary,
-        PrivateMedicineSpecialty.Pets,
-      ],
-      [GeneralSpecialty.Physiotherapy]: [
-        PrivateMedicineSpecialty.SportsPhysiotherapy,
-        PrivateMedicineSpecialty.NeurologicalPhysiotherapy,
-      ],
-    };
-
+  ): boolean {
     return (
-      validPairs[publicSpecialization]?.includes(privateSpecialization) ?? false
+      SpecialtyMapping[publicSpecialization]?.includes(privateSpecialization) ??
+      false
     );
   }
 

@@ -29,6 +29,8 @@ export const messages = {
       DELETED: 'Doctor deleted successfully',
       NOT_FOUND: 'Doctor not found',
       INVALID_ID: 'Invalid doctor ID',
+      TOP_SEARCHED: 'Top searched doctors',
+
     },
 
     // ================= POSTS =================
@@ -43,6 +45,16 @@ export const messages = {
       INVALID_CONTENT: 'Post must contain content or images',
       FETCHED: 'Posts fetched successfully',
       INVALID_ID: 'Invalid ID',
+    },
+    booking: {
+      NEXT_FOR_USER: 'Next upcoming booking',
+      NEXT_FOR_DOCTOR: 'Next upcoming booking',
+      ALL_FOR_USER: 'Bookings list',
+      NOT_FOUND_USER: 'No upcoming booking found for user',
+      NOT_FOUND_DOCTOR: 'No upcoming booking found for doctor',
+      INVALID_STATUS: 'Invalid booking status',
+      DOCTOR_PATIENTS: 'Doctor patients list',
+      MY_APPOINTMENTS: 'Doctor Appointments List',
     },
 
     // ================= COMMON =================
@@ -85,8 +97,20 @@ export const messages = {
       DELETED: 'تم حذف الطبيب بنجاح',
       NOT_FOUND: 'الطبيب غير موجود',
       INVALID_ID: 'معرّف الطبيب غير صالح',
+      TOP_SEARCHED: 'الأطباء الأكثر بحثاً',
+
     },
 
+    booking: {
+      NEXT_FOR_USER: 'أقرب حجز قادم',
+      NEXT_FOR_DOCTOR: 'أقرب حجز قادم',
+      ALL_FOR_USER: 'قائمة الحجوزات',
+      NOT_FOUND_USER: 'لا يوجد حجز قادم للمستخدم',
+      NOT_FOUND_DOCTOR: 'لا يوجد حجز قادم للطبيب',
+      INVALID_STATUS: 'حالة الحجز غير صالحة',
+      DOCTOR_PATIENTS: 'قائمة مرضى الطبيب',
+      MY_APPOINTMENTS: 'قائمة حجوزات الطبيب',
+    },
     // ================= POSTS =================
     post: {
       CREATED: 'تم إنشاء المنشور بنجاح',
