@@ -115,8 +115,9 @@ export class AddWorkingHoursDto {
     minimum: 0,
   })
   @IsNumber()
+  @IsNotEmpty()
   @Min(0, { message: 'Inspection price cannot be negative' })
-  inspectionPrice?: number;
+  inspectionPrice: number;
 }
 
 export class WorkingHoursResponseDto {

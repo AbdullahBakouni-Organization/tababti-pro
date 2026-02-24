@@ -1,6 +1,8 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Types } from 'mongoose';
 import { BookingStatus, UserRole, WorkigEntity } from './common.enums';
+import { User } from './user.schema';
+import { AppointmentSlot } from './slot.schema';
 
 @Schema({
   timestamps: true,
@@ -8,7 +10,7 @@ import { BookingStatus, UserRole, WorkigEntity } from './common.enums';
 })
 export class Booking {
   @Prop({ type: Types.ObjectId, required: true, index: true, ref: 'User' })
-  userId: Types.ObjectId;
+  patientId: Types.ObjectId;
 
   @Prop({ type: Types.ObjectId, required: true, index: true, ref: 'Doctor' })
   doctorId: Types.ObjectId;
@@ -28,6 +30,8 @@ export class Booking {
   })
   status: BookingStatus;
 
+  @Prop()
+  workingHoursVersion: number;
   // YYYY-MM-DD
   @Prop({ type: Date, required: true, index: true })
   bookingDate: Date;
@@ -96,3 +100,10 @@ BookingSchema.index(
   },
   { unique: true },
 );
+
+export type BookingDocument = Booking &
+  Document & {
+    patientId: Types.ObjectId | User;
+    slotId: Types.ObjectId | AppointmentSlot;
+    _id?: Types.ObjectId;
+  };

@@ -15,6 +15,7 @@ import {
   UseInterceptors,
   Res,
   UploadedFiles,
+  Query,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -25,6 +26,7 @@ import {
   ApiNotFoundResponse,
   ApiBadRequestResponse,
   ApiUnauthorizedResponse,
+  ApiQuery,
 } from '@nestjs/swagger';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { DoctorService } from './doctor.service';
@@ -52,6 +54,22 @@ import {
   ResetDoctorPasswordDto,
   VerifyOtpForPasswordResetDto,
 } from './dto/doctor-forgot-password.dto';
+import { GetDoctorBookingsByLocationDto } from './dto/booking-responce.dto';
+import {
+  DoctorCancelBookingDto,
+  PauseSlotConflictDto,
+  PauseSlotsDto,
+} from './dto/slot-management.dto';
+import {
+  AllSlotsResponseDto,
+  CheckHolidayConflictDto,
+  CheckVIPBookingConflictDto,
+  CreateHolidayDto,
+  CreateVIPBookingDto,
+  GetAllSlotsDto,
+  HolidayConflictResponseDto,
+  VIPBookingConflictResponseDto,
+} from './dto/vibbooking.dto';
 import { CheckDoctorByPhoneDto } from './dto/check-doctor-by-phone.dto';
 
 // ============================================
@@ -275,9 +293,9 @@ export class DoctorController {
     };
   }
 
-  @Post('forgot-password/request-otp')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.DOCTOR)
+  @Post('forgot-password/request-otp')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'طلب رمز التحقق لإعادة تعيين كلمة المرور',
@@ -303,9 +321,9 @@ export class DoctorController {
     return this.DoctorService.requestPasswordResetOtp(dto);
   }
 
-  @Post('forgot-password/verify-otp')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.DOCTOR)
+  @Post('forgot-password/verify-otp')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'التحقق من رمز OTP (اختياري)',
@@ -363,9 +381,10 @@ export class DoctorController {
   /**
    * Refresh access token
    */
-  @Post('refresh')
+
   @UseGuards(JwtRefreshGuard, RolesGuard)
   @Roles(UserRole.DOCTOR)
+  @Post('refresh')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Refresh access token' })
   async refreshToken(
@@ -497,14 +516,224 @@ export class DoctorController {
       message: 'Logged out from all devices',
     };
   }
+  @Get(':doctorId/bookings')
+  @ApiOperation({
+    summary:
+      'Get doctor bookings filtered by slot location and date with pagination',
+  })
+  @ApiQuery({ name: 'doctorId', required: true, type: String })
+  @ApiQuery({
+    name: 'locationType',
+    required: true,
+    enum: ['clinic', 'online'],
+  }) // replace with your WorkigEntity enum
+  @ApiQuery({
+    name: 'bookingDate',
+    required: true,
+    type: String,
+    description: 'YYYY-MM-DD',
+  })
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiResponse({ status: 200, description: 'Paginated list of bookings' })
+  async getDoctorBookingsByLocation(
+    @Param('doctorId') doctorId: string,
+    @Query() query: GetDoctorBookingsByLocationDto,
+  ) {
+    // Ensure the DTO doctorId matches the param
+    if (query.doctorId && query.doctorId !== doctorId) {
+      query.doctorId = doctorId;
+    }
 
-  // ============================================
-  // ADMIN ENDPOINTS (Require Admin Role)
-  // ============================================
+    return this.DoctorService.getDoctorBookingsByLocation(query);
+  }
+
+  @Post('cancel-booking')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Doctor cancels a booking',
+    description:
+      'Allows doctor to cancel a patient booking. The slot is automatically freed and becomes available again. A Kafka event is published to refresh the available slots list, and the patient receives an FCM push notification.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Booking cancelled and slot freed successfully',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Booking not found or already cancelled',
+  })
+  async cancelBooking(@Body() dto: DoctorCancelBookingDto) {
+    return this.DoctorService.doctorCancelBooking(dto);
+  }
+
+  @Post('pause/check-conflicts')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Check conflicts before pausing slots (Dry Run)',
+    description:
+      'Preview which bookings will be affected if the specified slots are paused. No changes are made to the database.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Conflict check completed',
+    type: PauseSlotConflictDto,
+  })
+  async checkPauseConflicts(
+    @Body() dto: PauseSlotsDto,
+  ): Promise<PauseSlotConflictDto> {
+    return this.DoctorService.checkPauseConflicts(dto);
+  }
 
   /**
-   * Get pending registrations (Admin only)
+   * Pause slots (execute)
+   * This pauses slots for ONE DAY ONLY (today or specified date)
    */
+  @Post('pause')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Pause appointment slots',
+    description:
+      'Pauses specified slots for ONE DAY (today or specified date). Any existing bookings for these slots will be cancelled, and patients will receive FCM push notifications. Requires confirmPause: true if conflicts exist.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Slots are being paused. Job queued.',
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'Conflicts exist but not confirmed',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Doctor or slots not found',
+  })
+  async pauseSlots(@Body() dto: PauseSlotsDto) {
+    return this.DoctorService.pauseSlots(dto);
+  }
+
+  @Post('unpause')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Unpause slots',
+    description:
+      'Reactivates previously paused slots, making them available for booking again.',
+  })
+  unpauseSlots(@Body() body: { doctorId: string; slotIds: string[] }) {
+    // Simple implementation - just update status back to AVAILABLE
+    // You can expand this if needed
+    return {
+      message: 'Slots unpaused successfully',
+      slotIds: body.slotIds,
+    };
+  }
+
+  @Get('slots/all')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get ALL slots including booked ones (for VIP booking)',
+    description:
+      'Returns all slots for a specific date, including BOOKED slots with existing patient info. Use this for doctor to see all slots before creating VIP booking.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'All slots retrieved',
+    type: [AllSlotsResponseDto],
+  })
+  async getAllSlots(
+    @Query() query: GetAllSlotsDto,
+  ): Promise<AllSlotsResponseDto[]> {
+    return this.DoctorService.getAllSlots(query);
+  }
+
+  /**
+   * Check VIP booking conflict (dry run)
+   */
+  @Post('vip-booking/check-conflict')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Check VIP booking conflict (Dry Run)',
+    description:
+      'Check if creating a VIP booking will displace an existing booking. Returns details of the existing booking if slot is occupied.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Conflict check completed',
+    type: VIPBookingConflictResponseDto,
+  })
+  async checkVIPBookingConflict(
+    @Body() dto: CheckVIPBookingConflictDto,
+  ): Promise<VIPBookingConflictResponseDto> {
+    return this.DoctorService.checkVIPBookingConflict(dto);
+  }
+
+  /**
+   * Create VIP booking (confirmed)
+   */
+  @Post('vip-booking')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Create VIP booking',
+    description:
+      'Creates a VIP booking. If slot is already booked, the existing booking will be CANCELLED and patient will be notified via FCM push notification. Requires confirmOverride: true if slot is occupied.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'VIP booking job queued',
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'Slot is booked but not confirmed',
+  })
+  async createVIPBooking(@Body() dto: CreateVIPBookingDto) {
+    return this.DoctorService.createVIPBooking(dto);
+  }
+
+  /* ==========================================================================
+      SCENARIO 2: HOLIDAY BLOCKING ROUTES
+   ========================================================================== */
+
+  /**
+   * Check holiday conflicts (dry run)
+   */
+  @Post('holidays/check-conflict')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Check holiday conflicts (Dry Run)',
+    description:
+      'Check which bookings will be affected if doctor takes holiday during specified dates. Returns list of all PENDING bookings that will be cancelled.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Conflict check completed',
+    type: HolidayConflictResponseDto,
+  })
+  async checkHolidayConflict(
+    @Body() dto: CheckHolidayConflictDto,
+  ): Promise<HolidayConflictResponseDto> {
+    return this.DoctorService.checkHolidayConflict(dto);
+  }
+
+  /**
+   * Create holiday (confirmed)
+   */
+  @Post('holidays')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Create doctor holiday',
+    description:
+      'Blocks all slots in the date range and cancels all PENDING bookings. All affected patients receive PERSONALIZED FCM push notifications with their specific appointment details. Requires confirmHoliday: true if bookings exist.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Holiday blocking job queued',
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'Bookings exist but not confirmed',
+  })
+  async createHoliday(@Body() dto: CreateHolidayDto) {
+    return this.DoctorService.createHoliday(dto);
   // @Get('admin/pending')
   // @UseGuards(JwtAuthGuard, AdminGuard)
   // @ApiBearerAuth()

@@ -29,6 +29,8 @@ export class AppointmentSlot extends Document {
   })
   status: SlotStatus;
 
+  @Prop({ required: true })
+  workingHoursVersion: number;
   // ==================== DATE & TIME ====================
 
   @Prop({ required: true, index: true })
@@ -307,6 +309,7 @@ export const AppointmentSlotSchema =
 
 // Primary queries - finding available slots
 AppointmentSlotSchema.index({ doctorId: 1, date: 1, status: 1 });
+AppointmentSlotSchema.index({ doctorId: 1, workingHoursVersion: 1 });
 AppointmentSlotSchema.index({ status: 1, date: 1, doctorId: 1 });
 
 // Unique constraint - prevent duplicate slots

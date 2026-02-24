@@ -2,7 +2,7 @@
 // GLOBAL JWT Strategy
 // Works with unified AuthAccount model
 // ============================================
-import 'dotenv';
+import 'dotenv/config';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
@@ -95,7 +95,6 @@ export class JwtRefreshStrategy extends PassportStrategy(
 
   async validate(req: Request, payload: JwtPayload) {
     const refreshToken = refreshTokenFromCookie(req);
-
     if (!refreshToken) {
       throw new UnauthorizedException('Refresh token not found in cookies');
     }

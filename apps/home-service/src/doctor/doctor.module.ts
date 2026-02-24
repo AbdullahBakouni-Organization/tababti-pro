@@ -7,11 +7,53 @@ import { DatabaseModule } from '@app/common/database/database.module';
 import { HttpModule } from '@nestjs/axios';
 import { ConfigModule } from '@nestjs/config';
 import { SmsService } from '../sms/sms.service';
+import { CacheModule } from '@app/common/cache/cache.module';
+import { BullModule } from '@nestjs/bull';
+import { FcmModule } from '../fcm/fcm.module';
+import { PauseSlotsProcessor } from './processors/Pause slots.processor';
+import { VIPBookingProcessor } from './processors/VibBooking.processor';
+import { HolidayBlockProcessor } from './processors/holidayblock.processor';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+    }),
+    BullModule.registerQueue({
+      name: 'pause-slots',
+      defaultJobOptions: {
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 2000,
+        },
+        removeOnComplete: 100, // Keep last 100 completed jobs
+        removeOnFail: 500, // Keep last 500 failed jobs for debugging
+      },
+    }),
+    BullModule.registerQueue({
+      name: 'vip-booking',
+      defaultJobOptions: {
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 2000,
+        },
+        removeOnComplete: 100, // Keep last 100 completed jobs
+        removeOnFail: 500, // Keep last 500 failed jobs for debugging
+      },
+    }),
+    BullModule.registerQueue({
+      name: 'holiday-block',
+      defaultJobOptions: {
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 2000,
+        },
+        removeOnComplete: 100, // Keep last 100 completed jobs
+        removeOnFail: 500, // Keep last 500 failed jobs for debugging
+      },
     }),
     DatabaseModule,
     AuthValidateModule,
@@ -23,8 +65,16 @@ import { SmsService } from '../sms/sms.service';
     HttpModule.register({
       timeout: 3000,
     }),
+    CacheModule,
+    FcmModule,
   ],
-  providers: [DoctorService, SmsService],
+  providers: [
+    DoctorService,
+    SmsService,
+    PauseSlotsProcessor,
+    VIPBookingProcessor,
+    HolidayBlockProcessor,
+  ],
   controllers: [DoctorController],
 })
 export class DoctorModule {}
