@@ -185,17 +185,24 @@ export class SearchFilterDto {
 
   // ===== LOCATION =====
   @IsOptional()
-  @IsNumber()
+  @Type(() => Number)
+  @IsNumber({}, { message: 'latitude must be a number' })
+  @Min(-90)
+  @Max(90)
   latitude?: number;
 
   @IsOptional()
-  @IsNumber()
+  @Type(() => Number)
+  @IsNumber({}, { message: 'longitude must be a number' })
+  @Min(-180)
+  @Max(180)
   longitude?: number;
 
   @IsOptional()
-  @IsNumber()
+  @Type(() => Number)
+  @IsNumber({}, { message: 'radiusKm must be a number' })
+  @Min(0)
   radiusKm?: number;
-
   // ======== PAGINATION ========
   @ApiPropertyOptional({ default: 1 })
   @IsOptional()

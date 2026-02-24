@@ -11,6 +11,7 @@ export interface DoctorMethods {
   resetFailedAttempts?: () => void;
   getActiveSessionsCount?: () => number;
   removeAllSessions?: () => Promise<void>;
+  removeDevice?: (deviceId: string) => void;
 }
 
 const scryptAsync = promisify(scrypt);
