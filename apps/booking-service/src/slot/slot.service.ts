@@ -73,69 +73,6 @@ export class SlotGenerationService {
     }
   }
 
-  @EventPattern(KAFKA_TOPICS.SLOTS_GENERATE_FOR_TODAY)
-  async processSlotGenerationForToday(
-    event: SlotGenerationTodayEvent,
-  ): Promise<void> {
-    this.logger.log(
-      `Received slot generation event for today to a doctor ${event.data.doctorId}`,
-    );
-
-    try {
-      const slots = await this.generateTodaySlots(event);
-      this.logger.log(
-        `Successfully generated ${slots.length} slots for doctor ${event.data.doctorId}`,
-      );
-
-      // Cache the generated slots count for monitoring
-      await this.cacheManager.set(
-        `slots:generated:${event.data.doctorId}`,
-        slots.length,
-        this.CACHE_TTL,
-        3600,
-      );
-    } catch (error) {
-      const err = error as Error;
-      this.logger.error(
-        `Failed to generate slots for doctor ${event.data.doctorId}: ${err.message}`,
-        err.stack,
-      );
-      // In production, you might want to publish this to a dead letter queue
-    }
-  }
-
-  @EventPattern(KAFKA_TOPICS.SLOTS_GENERATE_FOR_FUTURE)
-  async processSlotGenerationFor(
-    event: SlotGenerationFutureEvent,
-  ): Promise<void> {
-    this.logger.log(
-      `Received slot generation event for future to a doctor ${event.data.doctorInfo.fullName}`,
-    );
-
-    try {
-      const slots = await this.generateFutureSlots(event);
-      this.logger.log(
-        `Successfully generated
-        slots for doctor ${event.data.doctorId}`,
-      );
-
-      // Cache the generated slots count for monitoring
-      await this.cacheManager.set(
-        `slots:generated:${event.data.doctorId}`,
-        slots.length,
-        this.CACHE_TTL,
-        3600,
-      );
-    } catch (error) {
-      const err = error as Error;
-      this.logger.error(
-        `Failed to generate slots for doctor ${event.data.doctorId}: ${err.message}`,
-        err.stack,
-      );
-      // In production, you might want to publish this to a dead letter queue
-    }
-  }
-
   async generateTodaySlots(
     event: SlotGenerationTodayEvent,
   ): Promise<AppointmentSlot[]> {

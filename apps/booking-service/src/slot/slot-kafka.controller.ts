@@ -4,8 +4,6 @@ import { SlotGenerationService } from './slot.service';
 import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
 import type {
   SlotGenerationEvent,
-  SlotGenerationFutureEvent,
-  SlotGenerationTodayEvent,
   SlotRefreshedEvent,
   WorkingHoursUpdatedEvent,
 } from '@app/common/kafka/interfaces/kafka-event.interface';
@@ -35,50 +33,6 @@ export class SlotKafkaController {
       await this.slotGenerationService.processSlotGeneration(event);
       this.logger.log(
         `✅ Successfully processed slot generation for doctor ${event.data.doctorId}`,
-      );
-    } catch (error) {
-      const err = error as Error;
-      this.logger.error(
-        `❌ Failed to process slot generation: ${err.message}`,
-        err.stack,
-      );
-    }
-  }
-
-  @EventPattern(KAFKA_TOPICS.SLOTS_GENERATE_FOR_TODAY)
-  async handleSlotGenerationEventToday(
-    @Payload() event: SlotGenerationTodayEvent,
-  ): Promise<void> {
-    this.logger.log(
-      `🎯 Received SLOTS_GENERATE_TODAY event for doctor ${event.data.doctorInfo.fullName}`,
-    );
-
-    try {
-      await this.slotGenerationService.processSlotGenerationForToday(event);
-      this.logger.log(
-        `✅ Successfully processed slot generation for doctor ${event.data.doctorInfo.fullName}`,
-      );
-    } catch (error) {
-      const err = error as Error;
-      this.logger.error(
-        `❌ Failed to process slot generation: ${err.message}`,
-        err.stack,
-      );
-    }
-  }
-
-  @EventPattern(KAFKA_TOPICS.SLOTS_GENERATE_FOR_FUTURE)
-  async handleSlotGenerationEventFuture(
-    @Payload() event: SlotGenerationFutureEvent,
-  ): Promise<void> {
-    this.logger.log(
-      `🎯 Received SLOTS_GENERATE_TODAY event for doctor ${event.data.doctorInfo.fullName}`,
-    );
-
-    try {
-      await this.slotGenerationService.processSlotGenerationFor(event);
-      this.logger.log(
-        `✅ Successfully processed slot generation for doctor ${event.data.doctorInfo.fullName}`,
       );
     } catch (error) {
       const err = error as Error;

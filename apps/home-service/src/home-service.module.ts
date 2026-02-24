@@ -55,7 +55,6 @@ import { FcmModule } from './fcm/fcm.module';
     DoctorModule,
     AdminModule,
     AuthModule,
-    WorkingHoursModule,
     FcmModule,
   ],
   controllers: [HomeServiceController],

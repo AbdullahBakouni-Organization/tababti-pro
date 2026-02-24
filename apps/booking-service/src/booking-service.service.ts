@@ -39,7 +39,6 @@ export class BookingService {
     private slotModel: Model<AppointmentSlotDocument>,
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     @InjectModel(Doctor.name) private doctorModel: Model<DoctorDocument>,
-    // private readonly kafkaService: KafkaService,
     private readonly cacheService: CacheService,
   ) {}
 
@@ -258,51 +257,6 @@ export class BookingService {
       throw new BadRequestException('Invalid slot ID');
     }
   }
-
-  /**
-   * Publish booking created event to Kafka
-   */
-  // private async publishBookingCreatedEvent(
-  //   booking: BookingDocument,
-  //   patient: UserDocument,
-  //   doctor: DoctorDocument,
-  //   slot: AppointmentSlotDocument,
-  // ): Promise<void> {
-  //   const event = {
-  //     eventType: 'BOOKING_CREATED',
-  //     timestamp: new Date(),
-  //     data: {
-  //       bookingId: booking._id.toString(),
-  //       patientId: patient._id.toString(),
-  //       patientName: `${patient.firstName} ${patient.lastName}`,
-  //       patientContact: patient.phoneNumber,
-  //       doctorId: doctor._id.toString(),
-  //       doctorName: `${doctor.firstName} ${doctor.middleName} ${doctor.lastName}`,
-  //       slotId: slot._id.toString(),
-  //       bookingDate: booking.bookingDate,
-  //       bookingTime: booking.bookingTime,
-  //       bookingEndTime: booking.bookingEndTime,
-  //       location: booking.location,
-  //       price: booking.price,
-  //       status: booking.status,
-  //     },
-  //     metadata: {
-  //       source: 'booking-service',
-  //       version: '1.0',
-  //     },
-  //   };
-
-  //   try {
-  //     this.kafkaService.emit(KAFKA_TOPICS.BOOKING_CREATED, event);
-  //     this.logger.log(`Booking created event published for ${booking._id}`);
-  //   } catch (error) {
-  //     this.logger.error(
-  //       `Failed to publish booking created event: ${error.message}`,
-  //       error.stack,
-  //     );
-  //     // Don't throw - event publishing failure shouldn't rollback booking
-  //   }
-  // }
 
   /**
    * Invalidate booking-related caches

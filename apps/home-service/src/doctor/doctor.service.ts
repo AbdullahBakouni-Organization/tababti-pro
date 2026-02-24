@@ -140,7 +140,7 @@ export class DoctorService {
     private readonly cacheManager: CacheService,
     @InjectQueue('pause-slots') private pauseSlotsQueue: Queue,
     @InjectQueue('vip-booking') private vipBookingQueue: Queue,
-    @InjectQueue('block-holiday-dates') private holidayQueue: Queue,
+    @InjectQueue('holiday-block') private holidayQueue: Queue,
   ) {
     this.SOCKET_SERVICE_URL =
       this.configService.get('SOCKET_SERVICE_URL') || '';
@@ -949,42 +949,6 @@ export class DoctorService {
     }
   }
 
-  // ============================================
-  // Helper Methods
-  // ============================================
-
-  /**
-   * Get all pending registrations (for admin)
-   */
-  // async getPendingRegistrations(
-  //   page: number = 1,
-  //   limit: number = 20,
-  // ): Promise<{
-  //   doctors: DoctorDocument[];
-  //   total: number;
-  //   page: number;
-  //   totalPages: number;
-  // }> {
-  //   const skip = (page - 1) * limit;
-
-  //   const [doctors, total] = await Promise.all([
-  //     this.doctorModel
-  //       .find({ status: DoctorStatus.PENDING })
-  //       .sort({ registeredAt: -1 })
-  //       .skip(skip)
-  //       .limit(limit)
-  //       .lean(),
-  //     this.doctorModel.countDocuments({ status: DoctorStatus.PENDING }),
-  //   ]);
-
-  //   return {
-  //     doctors: doctors as DoctorDocument[],
-  //     total,
-  //     page,
-  //     totalPages: Math.ceil(total / limit),
-  //   };
-  // }
-  //
   async getDoctorBookingsByLocation(query: GetDoctorBookingsByLocationDto) {
     const { doctorId, locationType, bookingDate, page = 1, limit = 10 } = query;
 
@@ -1258,7 +1222,10 @@ export class DoctorService {
     if (!Types.ObjectId.isValid(dto.doctorId)) {
       throw new BadRequestException('Invalid doctor ID');
     }
-
+    const doctor = await this.doctorModel.findById(dto.doctorId).exec();
+    if (!doctor) {
+      throw new NotFoundException(`Doctor with ID ${dto.doctorId} not found`);
+    }
     // Validate slot IDs
     for (const slotId of dto.slotIds) {
       if (!Types.ObjectId.isValid(slotId)) {
@@ -1271,6 +1238,8 @@ export class DoctorService {
       .find({
         _id: { $in: dto.slotIds.map((id) => new Types.ObjectId(id)) },
         doctorId: new Types.ObjectId(dto.doctorId),
+        // Add this condition to exclude blocked and invalidated slots
+        status: { $nin: [SlotStatus.BLOCKED, SlotStatus.INVALIDATED] },
       })
       .exec();
 
@@ -1472,7 +1441,10 @@ export class DoctorService {
     if (!Types.ObjectId.isValid(dto.doctorId)) {
       throw new BadRequestException('Invalid doctor ID');
     }
-
+    const doctor = await this.doctorModel.findById(dto.doctorId).exec();
+    if (!doctor) {
+      throw new NotFoundException('Doctor not found');
+    }
     const date = new Date(dto.date);
     const startOfDay = new Date(date);
     startOfDay.setHours(0, 0, 0, 0);
@@ -1549,12 +1521,16 @@ export class DoctorService {
     if (!Types.ObjectId.isValid(dto.slotId)) {
       throw new BadRequestException('Invalid slot ID');
     }
+    const doctor = await this.doctorModel.findById(dto.doctorId).exec();
+    if (!doctor) {
+      throw new NotFoundException('Doctor not found');
+    }
 
     // Get slot
     const slot = await this.slotModel
       .findOne({
         _id: new Types.ObjectId(dto.slotId),
-        status: { $ne: SlotStatus.INVALIDATED },
+        status: { $nin: [SlotStatus.INVALIDATED] },
         doctorId: new Types.ObjectId(dto.doctorId),
       })
       .exec();
@@ -1692,7 +1668,11 @@ export class DoctorService {
     if (!Types.ObjectId.isValid(dto.doctorId)) {
       throw new BadRequestException('Invalid doctor ID');
     }
+    const doctor = await this.doctorModel.findById(dto.doctorId).exec();
 
+    if (!doctor) {
+      throw new NotFoundException('Doctor not found');
+    }
     const startDate = new Date(dto.startDate);
     const endDate = new Date(dto.endDate);
 
@@ -1817,7 +1797,6 @@ export class DoctorService {
       .select('_id')
       .lean()
       .exec();
-
     // Queue job
     const jobData: HolidayBlockJobData = {
       doctorId: dto.doctorId,
@@ -1828,9 +1807,8 @@ export class DoctorService {
       affectedBookingIds: conflict.affectedBookings.map((b) => b.bookingId),
       affectedSlotIds: slots.map((s) => s._id.toString()),
     };
-
     const job = await this.holidayQueue.add('block-holiday-dates', jobData, {
-      priority: 2, // Normal priority
+      priority: 1, // High priority
       attempts: 3,
       backoff: {
         type: 'exponential',

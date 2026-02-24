@@ -20,6 +20,7 @@ import {
 import { KafkaService } from '@app/common/kafka/kafka.service';
 import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
 import { VIPBookingJobData } from '../dto/vibbooking.dto';
+
 @Processor('vip-booking')
 export class VIPBookingProcessor {
   private readonly logger = new Logger(VIPBookingProcessor.name);

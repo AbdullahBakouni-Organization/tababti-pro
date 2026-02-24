@@ -12,9 +12,13 @@ import { BullModule } from '@nestjs/bull';
 import { FcmModule } from '../fcm/fcm.module';
 import { PauseSlotsProcessor } from './processors/Pause slots.processor';
 import { VIPBookingProcessor } from './processors/VibBooking.processor';
+import { HolidayBlockProcessor } from './processors/holidayblock.processor';
 
 @Module({
   imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+    }),
     BullModule.registerQueue({
       name: 'pause-slots',
       defaultJobOptions: {
@@ -40,7 +44,7 @@ import { VIPBookingProcessor } from './processors/VibBooking.processor';
       },
     }),
     BullModule.registerQueue({
-      name: 'block-holiday-dates',
+      name: 'holiday-block',
       defaultJobOptions: {
         attempts: 3,
         backoff: {
@@ -50,9 +54,6 @@ import { VIPBookingProcessor } from './processors/VibBooking.processor';
         removeOnComplete: 100, // Keep last 100 completed jobs
         removeOnFail: 500, // Keep last 500 failed jobs for debugging
       },
-    }),
-    ConfigModule.forRoot({
-      isGlobal: true,
     }),
     DatabaseModule,
     AuthValidateModule,
@@ -72,6 +73,7 @@ import { VIPBookingProcessor } from './processors/VibBooking.processor';
     SmsService,
     PauseSlotsProcessor,
     VIPBookingProcessor,
+    HolidayBlockProcessor,
   ],
   controllers: [DoctorController],
 })

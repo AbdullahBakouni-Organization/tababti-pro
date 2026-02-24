@@ -26,7 +26,7 @@ interface PopulatedBookingDocument extends Omit<BookingDocument, 'patientId'> {
   patientId: User;
 }
 
-@Processor('holiday-block')
+@Processor({ name: 'holiday-block' })
 export class HolidayBlockProcessor {
   private readonly logger = new Logger(HolidayBlockProcessor.name);
 
@@ -37,7 +37,9 @@ export class HolidayBlockProcessor {
     private slotModel: Model<AppointmentSlotDocument>,
     private readonly kafkaService: KafkaService,
     private readonly fcmService: FcmService,
-  ) {}
+  ) {
+    this.logger.log(`[Holiday Block Job] Processing for doctor`);
+  }
 
   /**
    * Process holiday blocking
@@ -55,13 +57,9 @@ export class HolidayBlockProcessor {
       affectedSlotIds,
     } = job.data;
 
-    this.logger.log(
-      `[Holiday Block Job] Processing for doctor ${doctorId}, ${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}`,
-    );
-
     const session = await this.bookingModel.db.startSession();
     session.startTransaction();
-
+    console.log(startDate, endDate);
     try {
       // Step 1: Get all affected bookings with patient details
       const bookings = (await this.bookingModel
