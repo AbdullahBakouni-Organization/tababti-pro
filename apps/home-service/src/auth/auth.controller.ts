@@ -41,13 +41,18 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import type { Request } from 'express';
 import { JwtUserGuard } from '@app/common/guards/jwt-user.guard';
 import { DocumentUrlInterceptor } from '@app/common/interceptors';
+import { AuthValidateService } from '@app/common/auth-validate';
+import { JwtUserRefreshGuard } from '@app/common/guards/jwt-refresh-user.guard';
 export interface RequestWithUser extends Request {
   user: User;
 }
 @ApiTags('Authentication')
 @Controller('auth-service')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private authValidateService: AuthValidateService,
+  ) {}
   @Throttle({ default: { limit: 3, ttl: 60 } })
   @Post('request-otp')
   @HttpCode(HttpStatus.OK)
@@ -193,22 +198,25 @@ export class AuthController {
     return this.authService.logout(req.user.accountId);
   }
 
-  private processUploadedFiles(files?: { image?: Express.Multer.File[] }):
-    | {
-        image?: Express.Multer.File;
-      }
-    | undefined {
-    if (!files) return undefined;
-
-    const result: {
-      image?: Express.Multer.File;
-    } = {};
-
-    // Extract single files from arrays
-    if (files.image?.[0]) {
-      result.image = files.image[0];
-    }
-
-    return Object.keys(result).length > 0 ? result : undefined;
+  @Post('refresh')
+  @UseGuards(JwtUserRefreshGuard, RolesGuard)
+  @Roles(UserRole.USER)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Refresh access token' })
+  async refreshToken(
+    @Body('refreshToken') refreshToken: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<{
+    success: boolean;
+    accessToken: string;
+    refreshToken?: string;
+  }> {
+    const tokens =
+      await this.authValidateService.refreshUserAccessToken(refreshToken);
+    return {
+      success: true,
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+    };
   }
 }

@@ -70,6 +70,7 @@ import {
   HolidayConflictResponseDto,
   VIPBookingConflictResponseDto,
 } from './dto/vibbooking.dto';
+import { CheckDoctorByPhoneDto } from './dto/check-doctor-by-phone.dto';
 
 // ============================================
 // Login DTO
@@ -733,5 +734,81 @@ export class DoctorController {
   })
   async createHoliday(@Body() dto: CreateHolidayDto) {
     return this.DoctorService.createHoliday(dto);
+  // @Get('admin/pending')
+  // @UseGuards(JwtAuthGuard, AdminGuard)
+  // @ApiBearerAuth()
+  // @ApiOperation({ summary: 'Get all pending doctor registrations (Admin)' })
+  // async getPendingRegistrations(
+  //   @Query('page') page: number = 1,
+  //   @Query('limit') limit: number = 20,
+  // ) {
+  //   return this.registrationService.getPendingRegistrations(page, limit);
+  // }
+
+  // /**
+  //  * Approve doctor (Admin only)
+  //  */
+  // @Patch('admin/:doctorId/approve')
+  // @UseGuards(JwtAuthGuard, AdminGuard)
+  // @ApiBearerAuth()
+  // @HttpCode(HttpStatus.OK)
+  // @ApiOperation({ summary: 'Approve doctor registration (Admin)' })
+  // async approveDoctor(@Param('doctorId') doctorId: string, @Req() req: any) {
+  //   const adminId = req.user.sub;
+  //   const doctor = await this.registrationService.approveDoctor(
+  //     doctorId,
+  //     adminId,
+  //   );
+
+  //   return {
+  //     message: 'Doctor approved successfully',
+  //     doctor: {
+  //       id: doctor._id,
+  //       fullName: doctor.fullName,
+  //       status: doctor.status,
+  //       approvedAt: doctor.approvedAt,
+  //     },
+  //   };
+  // }
+
+  // /**
+  //  * Reject doctor (Admin only)
+  //  */
+  // @Patch('admin/:doctorId/reject')
+  // @UseGuards(JwtAuthGuard, AdminGuard)
+  // @ApiBearerAuth()
+  // @HttpCode(HttpStatus.OK)
+  // @ApiOperation({ summary: 'Reject doctor registration (Admin)' })
+  // async rejectDoctor(
+  //   @Param('doctorId') doctorId: string,
+  //   @Body('reason') reason: string,
+  //   @Req() req: any,
+  // ) {
+  //   const adminId = req.user.sub;
+  //   const doctor = await this.registrationService.rejectDoctor(
+  //     doctorId,
+  //     adminId,
+  //     reason,
+  //   );
+
+  //   return {
+  //     message: 'Doctor rejected',
+  //     doctor: {
+  //       id: doctor._id,
+  //       fullName: doctor.fullName,
+  //       status: doctor.status,
+  //       rejectedAt: doctor.rejectedAt,
+  //       reason: doctor.rejectionReason,
+  //     },
+  //   };
+  // }
+  //
+  @Post('check-by-phone')
+  async checkDoctorByPhone(
+    @Body() dto: CheckDoctorByPhoneDto,
+  ): Promise<{ exists: boolean; approved: boolean }> {
+    const exists = await this.DoctorService.isApprovedDoctorByPhone(dto.phone);
+
+    return exists;
   }
 }

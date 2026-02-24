@@ -181,3 +181,46 @@ export class JwtUserStrategy extends PassportStrategy(Strategy, 'jwt-user') {
     };
   }
 }
+
+@Injectable()
+export class JwtUserRefreshStrategy extends PassportStrategy(
+  Strategy,
+  'jwt-user-refresh',
+) {
+  constructor(private readonly authValidateService: AuthValidateService) {
+    super({
+      jwtFromRequest: (req: Request) => {
+        return req?.body?.refreshToken; // ✅ FROM BODY
+      },
+      ignoreExpiration: false,
+      secretOrKey: process.env.JWT_REFRESH_SECRET || 'supersecret',
+      passReqToCallback: true,
+    });
+  }
+
+  async validate(req: Request, payload: JwtPayload) {
+    const refreshToken = req.body?.refreshToken;
+
+    if (!refreshToken) {
+      throw new UnauthorizedException(
+        'Refresh token not found in request body',
+      );
+    }
+
+    const account = await this.authValidateService.getAccount(payload.sub);
+    if (!account || !account.isActive) {
+      throw new UnauthorizedException('Account not found or inactive');
+    }
+
+    if (payload.tv !== account.tokenVersion) {
+      throw new UnauthorizedException('Refresh token revoked');
+    }
+
+    return {
+      accountId: payload.sub,
+      role: payload.role,
+      sessionId: payload.sessionId,
+      refreshToken,
+    };
+  }
+}

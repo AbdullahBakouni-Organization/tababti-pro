@@ -11,11 +11,18 @@ export interface DoctorMethods {
   resetFailedAttempts?: () => void;
   getActiveSessionsCount?: () => number;
   removeAllSessions?: () => Promise<void>;
+  removeDevice?: (deviceId: string) => void;
 }
 
 const scryptAsync = promisify(scrypt);
 @Schema({ timestamps: true, collection: 'doctors' })
 export class Doctor extends Document {
+  updateMany(
+    arg0: { _id: { $in: any } },
+    arg1: { $inc: { searchCount: number } },
+  ) {
+    throw new Error('Method not implemented.');
+  }
   @Prop({ type: Types.ObjectId, ref: 'AuthAccount', unique: true })
   authAccountId: Types.ObjectId;
 
@@ -198,6 +205,9 @@ export class Doctor extends Document {
 
   @Prop({ default: 5 }) // Max 5 concurrent sessions
   maxSessions: number;
+
+  @Prop({ type: Number, default: 0 })
+  yearsOfExperience: number;
 
   // ==================== SECURITY ====================
 

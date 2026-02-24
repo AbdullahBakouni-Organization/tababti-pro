@@ -22,9 +22,7 @@ import {
   SweidaAreas,
 } from '../schemas/common.enums';
 
-// ---------------------------------------------------------
-// 1. Mapping: Linking City Enum to Area Enums
-// ---------------------------------------------------------
+
 const CityMapping: Record<City, any[]> = {
   [City.Damascus]: Object.values(DamascusAreas),
   [City.RifDimashq]: Object.values(RuralDamascusAreas),
@@ -42,62 +40,52 @@ const CityMapping: Record<City, any[]> = {
   [City.Quneitra]: Object.values(QuneitraAreas),
 };
 
-// ---------------------------------------------------------
-// 2. Main Seed Function
-// ---------------------------------------------------------
-async function seedCities() {
-  console.log('🌍 Starting Cities & SubCities Seed...\n');
+export class CitySeeder {
+  constructor(private app) {}
+  async seed() {
+    console.log('🌍 Starting Cities & SubCities Seed...\n');
 
-  const app = await NestFactory.createApplicationContext(DatabaseModule);
+    const app = await NestFactory.createApplicationContext(DatabaseModule);
 
-  // Get Models
-  const CityModel = app.get(getModelToken('Cities'));
-  const SubCityModel = app.get(getModelToken('SubCities'));
+    const CityModel = app.get(getModelToken('Cities'));
+    const SubCityModel = app.get(getModelToken('SubCities'));
 
-  // 1. Clear Data
-  console.log('🗑️  Clearing existing data...');
-  await CityModel.deleteMany({});
-  await SubCityModel.deleteMany({});
-  console.log('✅ Data cleared\n');
+    console.log('🗑️  Clearing existing data...');
+    await CityModel.deleteMany({});
+    await SubCityModel.deleteMany({});
+    console.log('✅ Data cleared\n');
 
-  // 2. Seed Logic
-  let cityCount = 0;
-  let subCityCount = 0;
+    let cityCount = 0;
+    let subCityCount = 0;
 
-  for (const cityKey of Object.keys(CityMapping)) {
-    const cityName = cityKey as City;
-    const areas = CityMapping[cityName];
+    for (const cityKey of Object.keys(CityMapping)) {
+      const cityName = cityKey as City;
+      const areas = CityMapping[cityName];
 
-    // Create the City (stores Arabic name from City enum)
-    const cityDoc = await CityModel.create({
-      name: cityName,
-    });
-    cityCount++;
+      const cityDoc = await CityModel.create({
+        name: cityName,
+      });
+      cityCount++;
+      console.log(`✅ City created: ${cityDoc.name} (_id: ${cityDoc._id})`);
+      if (areas && areas.length > 0) {
+        const subCitiesPayload = areas.map((areaName) => ({
+          name: areaName,
+          cityId: cityDoc._id,
+        }));
 
-    if (areas && areas.length > 0) {
-      const subCitiesPayload = areas.map((areaName) => ({
-        name: areaName, // Stores Arabic name from Area enums
-        cityId: cityDoc._id,
-      }));
+        await SubCityModel.insertMany(subCitiesPayload);
+        subCityCount += subCitiesPayload.length;
+      }
 
-      await SubCityModel.insertMany(subCitiesPayload);
-      subCityCount += subCitiesPayload.length;
+      console.log(`📍 Seeded City: ${cityName} with ${areas.length} areas.`);
     }
 
-    console.log(`📍 Seeded City: ${cityName} with ${areas.length} areas.`);
+    console.log('\n🎉 Cities & SubCities Seeding Complete!');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log(`🏙️  Cities Created: ${cityCount}`);
+    console.log(`🏘️  SubCities Created: ${subCityCount}`);
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+    await app.close();
   }
-
-  // 3. Summary
-  console.log('\n🎉 Cities & SubCities Seeding Complete!');
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log(`🏙️  Cities Created: ${cityCount}`);
-  console.log(`🏘️  SubCities Created: ${subCityCount}`);
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
-
-  await app.close();
 }
-
-seedCities().catch((error) => {
-  console.error('❌ Seed failed:', error);
-  process.exit(1);
-});

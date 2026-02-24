@@ -10,7 +10,7 @@ export class CommonDepartment extends Document {
   @Prop({ type: Types.ObjectId, ref: 'Center', index: true })
   centerId: Types.ObjectId;
 
-  @Prop({ enum: DepartmentType, index: true })
+  @Prop({ type: String, enum: DepartmentType, index: true })
   type: DepartmentType;
 
   @Prop({

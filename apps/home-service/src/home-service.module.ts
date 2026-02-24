@@ -40,6 +40,7 @@ import { FcmModule } from './fcm/fcm.module';
     KafkaModule.forProducer({
       clientId: 'home-service-producer',
       brokers: [process.env.KAFKA_BROKER!],
+      groupId: 'home-consumer',
     }),
 
     // ✅ ADD THIS: Consumer for receiving events

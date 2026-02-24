@@ -9,6 +9,9 @@ import {
 
 @Schema({ timestamps: true, collection: 'hospital' })
 export class Hospital extends Document {
+  updateMany(arg0: { _id: { $in: any; }; }, arg1: { $inc: { searchCount: number; }; }) {
+      throw new Error('Method not implemented.');
+  }
   @Prop({ type: Types.ObjectId, ref: 'AuthAccount', unique: true })
   authAccountId: Types.ObjectId;
 
@@ -17,19 +20,20 @@ export class Hospital extends Document {
     required: true,
     trim: true,
     minlength: 3,
-    maxlength: 50,
-    match: /^[\p{L}._-]+$/u,
+    maxlength: 100,
+    match: /^[\p{L}\p{N}\s\.\-_\(\)]+$/u,
   })
   name: string;
 
   @Prop({
+    type: String,
     required: true,
     trim: true,
     minlength: 3,
-    maxlength: 50,
-    match: /^[\p{L}\p{N}._-]+$/u,
-  }) // Address is optional
-  address?: string;
+    maxlength: 200,
+    match: /^[\p{L}\p{N}\s\.\-_\(\)]+$/u, 
+  })
+  address: string;
 
   @Prop({
     required: false,

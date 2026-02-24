@@ -18,7 +18,7 @@ export class SpecializationsService {
     private readonly specializationModel: Model<PrivateSpecialization>,
     @InjectModel(PublicSpecialization.name)
     private readonly publicSpecializationModel: Model<PublicSpecializationDocument>,
-  ) {}
+  ) { }
 
   private toObjectIds(ids: string[]): Types.ObjectId[] {
     return ids.map((id) => {
@@ -90,5 +90,25 @@ export class SpecializationsService {
       .lean();
 
     return privateSpecs.map((s) => s._id);
+  }
+  async buildQuestionSpecializationMatch(
+    doctorPrivateSpecialization: string,
+  ): Promise<any> {
+    if (!doctorPrivateSpecialization) {
+      return null;
+    }
+
+    const privateSpec = await this.specializationModel
+      .findOne({ name: doctorPrivateSpecialization })
+      .select('_id')
+      .lean();
+
+    if (!privateSpec) {
+      return null;
+    }
+
+    return {
+      specializationId: { $in: [privateSpec._id] },
+    };
   }
 }
