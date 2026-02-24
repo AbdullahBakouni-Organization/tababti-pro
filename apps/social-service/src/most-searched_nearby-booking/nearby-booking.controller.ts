@@ -53,4 +53,21 @@ export class NearbyBookingController {
       data: doctors,
     });
   }
+
+  @Get('all-bookings')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.USER,UserRole.DOCTOR)
+  async getAllBookingsForUser(
+    @CurrentUser('accountId') authAccountId: string,
+    @Query('status') status?: string,
+  ) {
+    const bookings = await this.service.getAllBookingsForUser(
+      authAccountId,
+      status,
+    );
+    return ApiResponse.success({
+      messageKey: 'booking.ALL_FOR_USER',
+      data: bookings,
+    });
+  }
 }

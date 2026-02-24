@@ -9,6 +9,7 @@ import { Model, Types } from 'mongoose';
 import { Booking } from '@app/common/database/schemas/booking.schema';
 import { Doctor } from '@app/common/database/schemas/doctor.schema';
 import { User } from '@app/common/database/schemas/user.schema';
+import { BookingStatus } from '@app/common/database/schemas/common.enums';
 
 @Injectable()
 export class NearbyBookingService {
@@ -17,7 +18,7 @@ export class NearbyBookingService {
     @InjectModel(Doctor.name) private readonly doctorModel: Model<Doctor>,
     @InjectModel(User.name) private readonly userModel: Model<User>,
   ) {}
-//we have problem in this function
+  //we have problem in this function
   async getNextBookingForUser(authAccountId: string, doctorId?: string) {
     try {
       const user = await this.userModel.findOne({
@@ -105,6 +106,43 @@ export class NearbyBookingService {
       return doctors;
     } catch (error) {
       console.error('❌ Unexpected error in getTopDoctors:', error);
+      throw new InternalServerErrorException('common.ERROR');
+    }
+  }
+
+  async getAllBookingsForUser(authAccountId: string, status?: string) {
+    try {
+      const user = await this.userModel.findOne({
+        authAccountId: new Types.ObjectId(authAccountId),
+      });
+      if (!user) throw new NotFoundException('User not found');
+
+      const query: any = {
+        userId: user._id,
+      };
+
+      if (status) {
+        const validStatuses = Object.values(BookingStatus);
+        if (!validStatuses.includes(status as BookingStatus)) {
+          throw new BadRequestException('Invalid booking status');
+        }
+        query.status = status;
+      }
+
+      const bookings = await this.bookingModel
+        .find(query)
+        .sort({ bookingDate: -1, bookingTime: -1 })
+        .populate('doctorId', 'firstName lastName middleName image');
+
+      return bookings;
+    } catch (error) {
+      if (
+        error instanceof NotFoundException ||
+        error instanceof BadRequestException
+      )
+        throw error;
+
+      console.error('❌ Unexpected error in getAllBookingsForUser:', error);
       throw new InternalServerErrorException('common.ERROR');
     }
   }
