@@ -6,7 +6,7 @@ import {
 import { DoctorRepository } from './profile.repository';
 import { Doctor } from '@app/common/database/schemas/doctor.schema';
 import { Post } from '@app/common/database/schemas/post.schema';
-import { Model, Types } from 'mongoose';
+import { Model } from 'mongoose';
 import { InjectModel } from '@nestjs/mongoose';
 import { UpdateDoctorProfileDto } from './dto/update-doctor-profile.dto';
 import {
@@ -34,11 +34,13 @@ export class DoctorProfileService {
         return this.formatDoctor(doctor, posts);
     }
 
+    // ================= UPDATE PROFILE =================
     async updateProfile(
         authAccountId: string,
         updateData: UpdateDoctorProfileDto,
     ): Promise<any> {
-        // ===== Validate specialization match dynamically =====
+
+        // ===== Validate specialization =====
         if (updateData.publicSpecialization && updateData.privateSpecialization) {
             const isValidSpecialization =
                 await this.doctorRepo.checkPrivateSpecializationMatchesPublic(
@@ -55,15 +57,29 @@ export class DoctorProfileService {
 
         // ===== Validate subcity belongs to city =====
         if (updateData.subcity && updateData.city) {
-            const isValidSubcity = await this.doctorRepo.checkSubcityBelongsToCity(
-                updateData.subcity,
-                updateData.city,
-            );
+            const isValidSubcity =
+                await this.doctorRepo.checkSubcityBelongsToCity(
+                    updateData.subcity,
+                    updateData.city,
+                );
             if (!isValidSubcity) {
                 throw new BadRequestException(
                     'Subcity does not belong to the specified city',
                 );
             }
+        }
+
+        // ===== Validate experience start date =====
+        if (updateData.experienceStartDate) {
+            const startDate = new Date(updateData.experienceStartDate);
+
+            if (startDate > new Date()) {
+                throw new BadRequestException(
+                    'Experience start date cannot be in the future',
+                );
+            }
+
+            updateData.experienceStartDate = startDate;
         }
 
         // ===== Update doctor in DB =====
@@ -74,7 +90,6 @@ export class DoctorProfileService {
 
         if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
 
-        // ===== Fetch doctor's posts =====
         const posts = await this.postModel
             .find({ authorId: doctor._id, authorType: 'doctor' })
             .sort({ createdAt: -1 })
@@ -106,7 +121,8 @@ export class DoctorProfileService {
             publicSpecialization: doctor.publicSpecialization,
             privateSpecialization: doctor.privateSpecialization,
             gender: doctor.gender,
-            yearsOfExperience: doctor.yearsOfExperience,
+            experienceStartDate: doctor.yearsOfExperience,
+            yearsOfExperience: this.calculateYears(doctor.yearsOfExperience),
             workingHours: doctor.workingHours || [],
             inspectionPrice: doctor.inspectionPrice || 0,
             inspectionDuration: doctor.inspectionDuration || 0,
@@ -160,7 +176,8 @@ export class DoctorProfileService {
             publicSpecialization: doctor.publicSpecialization,
             privateSpecialization: doctor.privateSpecialization,
             gender: doctor.gender,
-            yearsOfExperience: doctor.yearsOfExperience,
+            experienceStartDate: doctor.yearsOfExperience,
+            yearsOfExperience: this.calculateYears(doctor.yearsOfExperience),
             workingHours: doctor.workingHours || [],
             inspectionPrice: doctor.inspectionPrice || 0,
             inspectionDuration: doctor.inspectionDuration || 0,
@@ -172,5 +189,22 @@ export class DoctorProfileService {
                 createdAt: p.createdAt,
             })),
         };
+    }
+
+    // ================= CALCULATE YEARS OF EXPERIENCE =================
+    private calculateYears(startDate: Date): number {
+        if (!startDate) return 0;
+
+        const today = new Date();
+        const start = new Date(startDate);
+
+        let years = today.getFullYear() - start.getFullYear();
+        const monthDiff = today.getMonth() - start.getMonth();
+
+        if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < start.getDate())) {
+            years--;
+        }
+
+        return years;
     }
 }
