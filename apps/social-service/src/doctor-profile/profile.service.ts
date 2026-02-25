@@ -6,6 +6,7 @@ import {
 import { DoctorRepository } from './profile.repository';
 import { Doctor } from '@app/common/database/schemas/doctor.schema';
 import { Post } from '@app/common/database/schemas/post.schema';
+import { PostStatus } from '@app/common/database/schemas/common.enums';
 import { Model } from 'mongoose';
 import { InjectModel } from '@nestjs/mongoose';
 import { UpdateDoctorProfileDto } from './dto/update-doctor-profile.dto';
@@ -26,6 +27,7 @@ export class DoctorProfileService {
         const doctor = await this.doctorRepo.findByAuthAccountId(authAccountId);
         if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
 
+        // Fetch **all posts** including pending, approved, rejected
         const posts = await this.postModel
             .find({ authorId: doctor._id, authorType: 'doctor' })
             .sort({ createdAt: -1 })
@@ -90,6 +92,7 @@ export class DoctorProfileService {
 
         if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
 
+        // Fetch posts with **all statuses** for private view
         const posts = await this.postModel
             .find({ authorId: doctor._id, authorType: 'doctor' })
             .sort({ createdAt: -1 })
@@ -130,7 +133,7 @@ export class DoctorProfileService {
                 id: p._id,
                 content: p.content,
                 images: p.images || [],
-                status: p.status,
+                status: p.status as PostStatus, // <-- use enum
                 subscriptionType: p.subscriptionType,
                 createdAt: p.createdAt,
             })),
@@ -153,8 +156,13 @@ export class DoctorProfileService {
         // Increment profile views
         await this.doctorRepo.incrementProfileViews(doctorId);
 
+        // Only fetch **approved/published posts** for public
         const posts = await this.postModel
-            .find({ authorId: doctor._id, authorType: 'doctor', status: 'published' })
+            .find({
+                authorId: doctor._id,
+                authorType: 'doctor',
+                status: { $in: [PostStatus.APPROVED, PostStatus.PUBLISHED] },
+            })
             .sort({ createdAt: -1 })
             .lean();
 
@@ -186,6 +194,7 @@ export class DoctorProfileService {
                 id: p._id,
                 content: p.content,
                 images: p.images || [],
+                status: p.status as PostStatus, // <-- show enum
                 createdAt: p.createdAt,
             })),
         };

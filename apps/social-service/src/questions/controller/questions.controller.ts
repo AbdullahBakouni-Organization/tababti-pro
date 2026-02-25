@@ -24,7 +24,7 @@ import { UserRole } from '@app/common/database/schemas/common.enums';
 @ApiTags('Questions')
 @Controller('questions')
 export class QuestionsController {
-  constructor(private readonly service: QuestionsService) {}
+  constructor(private readonly service: QuestionsService) { }
 
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -49,7 +49,7 @@ export class QuestionsController {
 
   @Get()
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.DOCTOR, UserRole.HOSPITAL, UserRole.CENTER ,UserRole.USER)
+  @Roles(UserRole.DOCTOR, UserRole.HOSPITAL, UserRole.CENTER, UserRole.USER)
   async getQuestions(
     @CurrentUser('id') userId: string,
     @Query() query: FilterQuestionDto,
@@ -103,9 +103,11 @@ export class QuestionsController {
   async getDoctorQuestions(
     @CurrentUser('accountId') accountId: string,
     @Query('filter') filter: 'all' | 'specialization' | 'myAnswers' = 'all',
+    @Query('page') page = 1,
+    @Query('limit') limit = 10,
     @Headers('accept-language') lang: 'en' | 'ar' = 'en',
   ) {
-    const data = await this.service.getDoctorQuestions(accountId, filter);
+    const data = await this.service.getDoctorQuestions(accountId, filter, page, limit);
 
     return ApiResponse.success({
       lang,

@@ -22,7 +22,7 @@ export class PostService {
     @InjectModel(Doctor.name) private readonly doctorModel: Model<Doctor>,
     @InjectModel(Hospital.name) private readonly hospitalModel: Model<Hospital>,
     @InjectModel(Center.name) private readonly centerModel: Model<Center>,
-  ) {}
+  ) { }
   private async getAuthor(authAccountId: string, role: UserRole) {
     if (!Types.ObjectId.isValid(authAccountId)) {
       throw new BadRequestException('Invalid ID');
@@ -109,12 +109,13 @@ export class PostService {
 
     const author = await this.getAuthor(authAccountId, role);
 
+    // Set status to PENDING by default
     const post = await this.postModel.create({
       authorId: author._id,
       authorType: role,
       content: dto.content,
       images,
-      status: dto.status,
+      status: 'pending',
       subscriptionType: dto.subscriptionType,
       usageCount: 0,
     });

@@ -713,6 +713,9 @@ export enum AdStatus {
 export enum PostStatus {
   PUBLISHED = 'published',
   DELETED = 'deleted',
+  PENDING = 'pending',
+  APPROVED = 'approved',
+  REJECTED = 'rejected',
 }
 
 export enum OfferStatus {

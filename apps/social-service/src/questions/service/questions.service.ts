@@ -56,12 +56,13 @@ export class QuestionsService {
       status: QuestionStatus.PENDING,
     });
   }
-
   async getQuestions(
     authAccountId: string,
     filter: 'allQuestions' | 'answered' | 'pending' | 'public',
     publicSpecializationId?: string,
     privateSpecializationIds?: string[],
+    page = 1,
+    limit = 10,
   ) {
     try {
       const match: any = {};
@@ -84,7 +85,6 @@ export class QuestionsService {
           await this.specializationsService.getPrivateIdsByPublicName(
             'طب_بشري',
           );
-
         match.specializationId = { $in: privateSpecs };
       }
 
@@ -96,37 +96,46 @@ export class QuestionsService {
           await this.specializationsService.getPrivateIdsByPublic(
             publicSpecializationId,
           );
-
         match.specializationId = { $in: privateSpecs };
       }
 
-      const questions = await this.repo.findQuestionsWithAnswers(match);
+      const skip = (page - 1) * limit;
 
-      return questions.map((q) => ({
+      const { questions, total, totalPages } = await this.repo.findQuestionsWithAnswers(
+        match,
+        skip,
+        limit,
+      );
+
+      const mappedQuestions = questions.map((q) => ({
         _id: q._id,
         content: q.content,
         status: q.status,
         specializations: q.specializations,
-        answersCount:
-          q.status === QuestionStatus.ANSWERED ? q.answers.length : 0,
-        answers:
-          q.status === QuestionStatus.ANSWERED
-            ? q.answers.map((a) => ({
-              _id: a._id,
-              content: a.content,
-              responderName:
-                a.responder?.firstName +
-                ' ' +
-                a.responder?.middleName +
-                ' ' +
-                a.responder?.lastName || 'Unknown',
-              responderImage: a.responder?.image || null,
-              answeredAgo: a.createdAt ? this.timeAgo(a.createdAt) : null,
-            }))
-            : [],
+        answersCount: q.answers?.length || 0,
+        answers: (q.answers || []).map((a) => ({
+          _id: a._id,
+          content: a.content,
+          responderName:
+            (a.responder?.firstName || '') +
+            ' ' +
+            (a.responder?.middleName || '') +
+            ' ' +
+            (a.responder?.lastName || '') || 'Unknown',
+          responderImage: a.responder?.image || null,
+          answeredAgo: a.createdAt ? this.timeAgo(a.createdAt) : null,
+        })),
         createdAt: q.createdAt,
         updatedAt: q.updatedAt,
       }));
+
+      return {
+        questions: mappedQuestions,
+        total,
+        page,
+        limit,
+        totalPages,
+      };
     } catch (error) {
       if (
         error instanceof NotFoundException ||
@@ -234,6 +243,8 @@ export class QuestionsService {
   async getDoctorQuestions(
     authAccountId: string,
     filter: 'all' | 'specialization' | 'myAnswers' = 'all',
+    page = 1,
+    limit = 10,
   ) {
     if (!Types.ObjectId.isValid(authAccountId)) {
       throw new BadRequestException('doctor.INVALID_ID');
@@ -243,81 +254,59 @@ export class QuestionsService {
       authAccountId: new Types.ObjectId(authAccountId),
     });
 
-    if (!doctor) {
-      throw new NotFoundException('doctor.NOT_FOUND');
-    }
+    if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
+
+    const myAnswers = await this.answerModel
+      .find({ responderId: doctor._id }, { questionId: 1 })
+      .lean();
+
+    const answeredQuestionIds = myAnswers.map((a) => a.questionId);
 
     let match: any = {};
 
-    // Get all answers by this doctor
-    const myAnswers = await this.answerModel
-      .find({ responderId: doctor._id }, { questionId: 1, _id: 0 })
-      .lean();
-    const answeredQuestionIds = myAnswers.map((a) => a.questionId);
-
     if (filter === 'all') {
-      // Exclude questions already answered by this doctor
-      if (answeredQuestionIds.length) {
-        match._id = { $nin: answeredQuestionIds };
-      }
+      if (answeredQuestionIds.length) match._id = { $nin: answeredQuestionIds };
     }
 
     if (filter === 'specialization') {
       match = await this.specializationsService.buildQuestionSpecializationMatch(
         doctor.privateSpecialization,
       );
-      // Exclude already answered questions
       if (answeredQuestionIds.length) {
-        match._id = match._id
-          ? { $in: match._id.$in, $nin: answeredQuestionIds } // merge with existing
-          : { $nin: answeredQuestionIds };
+        if (match._id?.$in) {
+          match._id = { $in: match._id.$in.filter((id) => !answeredQuestionIds.includes(id)) };
+        } else {
+          match._id = { $nin: answeredQuestionIds };
+        }
       }
     }
 
     if (filter === 'myAnswers') {
-      // Only questions doctor answered
-      if (!answeredQuestionIds.length) {
-        return [];
-      }
+      if (!answeredQuestionIds.length)
+        return { questions: [], total: 0, page, limit, totalPages: 0 };
       match._id = { $in: answeredQuestionIds };
     }
 
-    const questions = await this.repo.findQuestionsWithAnswers(match);
+    const skip = (page - 1) * limit;
 
-    return questions.map((q) => {
-      let answersToReturn = [];
+    const { questions, total, totalPages } = await this.repo.findQuestionsWithAnswers(
+      match,
+      skip,
+      limit,
+    );
 
-      if (q.status === 'answered') {
-        if (filter === 'all' || filter === 'specialization') {
-          // Show only other users' answers (exclude this doctor)
-          answersToReturn = q.answers
-            .filter((a) => a?._id && !a.responder?._id.equals(doctor._id))
-            .map((a) => ({
-              _id: a._id,
-              content: a.content,
-              responderName: a.responder
-                ? `${a.responder.firstName} ${a.responder.middleName || ''} ${a.responder.lastName}`.trim()
-                : 'Unknown',
-              responderImage: a.responder?.image || null,
-              answeredAgo: this.timeAgo(a.createdAt),
-            }));
-        }
+    const mappedQuestions = questions.map((q) => {
+      const allAnswersCount = q.answers?.length || 0;
 
-        if (filter === 'myAnswers') {
-          // Show only this doctor's answer
-          answersToReturn = q.answers
-            .filter((a) => a?._id && a.responder?._id.equals(doctor._id))
-            .map((a) => ({
-              _id: a._id,
-              content: a.content,
-              responderName: a.responder
-                ? `${a.responder.firstName} ${a.responder.middleName || ''} ${a.responder.lastName}`.trim()
-                : 'Unknown',
-              responderImage: a.responder?.image || null,
-              answeredAgo: this.timeAgo(a.createdAt),
-            }));
-        }
-      }
+      const answersToReturn = (q.answers || []).map((a) => ({
+        _id: a._id,
+        content: a.content,
+        responderName: a.responder
+          ? `${a.responder.firstName} ${a.responder.middleName || ''} ${a.responder.lastName}`.trim()
+          : 'Unknown',
+        responderImage: a.responder?.image || null,
+        answeredAgo: a.createdAt ? this.timeAgo(a.createdAt) : null,
+      }));
 
       return {
         _id: q._id,
@@ -328,11 +317,15 @@ export class QuestionsService {
           image: q.asker?.image || null,
         },
         specializations: q.specializations,
-        answersCount: answersToReturn.length,
+        answersCount: allAnswersCount,
         answers: answersToReturn,
         createdAt: q.createdAt,
         updatedAt: q.updatedAt,
       };
     });
+
+    return { questions: mappedQuestions, total, page, limit, totalPages };
   }
 }
+
+
