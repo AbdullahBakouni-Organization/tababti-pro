@@ -8,6 +8,7 @@ import { SlotModule } from './slot/slot.module';
 import { CacheModule } from '@app/common/cache/cache.module';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { BullModule } from '@nestjs/bull';
+import { UsersService } from 'apps/home-service/src/users/users.service';
 
 @Module({
   imports: [
@@ -54,6 +55,6 @@ import { BullModule } from '@nestjs/bull';
     SlotModule,
   ],
   controllers: [BookingController],
-  providers: [BookingService],
+  providers: [BookingService, UsersService],
 })
 export class BookingServiceModule {}

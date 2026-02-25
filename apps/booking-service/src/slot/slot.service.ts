@@ -12,7 +12,6 @@ import { CacheService } from '@app/common/cache/cache.service';
 import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
 import type {
   SlotGenerationEvent,
-  SlotGenerationFutureEvent,
   SlotGenerationTodayEvent,
 } from '@app/common/kafka/interfaces/kafka-event.interface';
 import {
@@ -44,7 +43,6 @@ export class SlotGenerationService {
   /**
    * Listen to slot generation events from Kafka
    */
-  @EventPattern(KAFKA_TOPICS.SLOTS_GENERATE)
   async processSlotGeneration(event: SlotGenerationEvent): Promise<void> {
     this.logger.log(
       `Received slot generation event for doctor ${event.data.doctorId}`,
@@ -250,58 +248,6 @@ export class SlotGenerationService {
     return slots;
   }
 
-  private async generateFutureSlots(
-    event: SlotGenerationFutureEvent,
-  ): Promise<Partial<AppointmentSlot>[]> {
-    const {
-      doctorId,
-      workingHours,
-      inspectionDuration,
-      inspectionPrice,
-      doctorInfo,
-    } = event.data;
-    const today = getSyriaDate();
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-
-    const slots: Partial<AppointmentSlot>[] = [];
-    const WEEKS = 12;
-
-    // Start from day 1 (tomorrow), not day 0 (today)
-    for (let week = 0; week < WEEKS; week++) {
-      for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
-        const currentDate = new Date(tomorrow);
-        currentDate.setDate(tomorrow.getDate() + week * 7 + dayOffset);
-
-        const dayOfWeek = this.getDayName(currentDate.getUTCDay());
-
-        const dayWorkingHours = workingHours.filter(
-          (wh) => wh.day.toLowerCase() === dayOfWeek.toLowerCase(),
-        );
-        const doctorObjectId = new Types.ObjectId(doctorId);
-        for (const wh of dayWorkingHours) {
-          slots.push(
-            ...this.generateSlotsForDay(
-              doctorObjectId,
-              currentDate,
-              dayOfWeek as Days,
-              wh.startTime,
-              wh.endTime,
-              inspectionDuration,
-              wh.location,
-              inspectionPrice,
-              doctorInfo,
-            ),
-          );
-        }
-      }
-    }
-
-    // Use your existing batch insert logic
-    await this.invalidateSlotCaches(doctorId);
-    const createdSlots = await this.batchInsertSlots(slots);
-    return createdSlots;
-  }
   /**
    * Batch insert slots with duplicate handling
    */

@@ -4,6 +4,7 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types, ClientSession } from 'mongoose';
@@ -25,9 +26,8 @@ import {
   SlotStatus,
 } from '@app/common/database/schemas/common.enums';
 import { CreateBookingDto, BookingResponseDto } from './dto/create-booking.dto';
-// import { KafkaService } from '@app/common/kafka/kafka.service';
-// import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
 import { CacheService } from '@app/common/cache/cache.service';
+import { UsersService } from 'apps/home-service/src/users/users.service';
 
 @Injectable()
 export class BookingService {
@@ -40,6 +40,7 @@ export class BookingService {
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     @InjectModel(Doctor.name) private doctorModel: Model<DoctorDocument>,
     private readonly cacheService: CacheService,
+    private readonly patientBookingService: UsersService,
   ) {}
 
   /**
@@ -56,6 +57,22 @@ export class BookingService {
     // Validate IDs
     this.validateObjectIds(createBookingDto);
 
+    // Get slot to determine booking date
+    const slot = await this.slotModel.findById(createBookingDto.slotId).exec();
+    if (!slot) {
+      throw new NotFoundException('Slot not found');
+    }
+
+    // ✅ VALIDATE BOOKING RULES
+    const validation = await this.patientBookingService.validateBooking(
+      createBookingDto.patientId,
+      createBookingDto.doctorId,
+      slot.date,
+    );
+
+    if (!validation.canBook) {
+      throw new ForbiddenException(validation.reason);
+    }
     // Start a MongoDB session for transaction
     const session = await this.bookingModel.db.startSession();
     session.startTransaction();

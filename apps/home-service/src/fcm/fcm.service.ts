@@ -109,6 +109,89 @@ export class FcmService {
     }
   }
 
+  async sendBookingCancellationNotificationToDoctor(
+    fcmToken: string,
+    data: {
+      bookingId: string;
+      doctorName: string;
+      patientName: string;
+      patientId: string;
+      appointmentDate: string;
+      appointmentTime: string;
+      reason: string;
+      type: 'USER_CANCELLED';
+    },
+  ): Promise<boolean> {
+    try {
+      const message: admin.messaging.Message = {
+        token: fcmToken,
+        notification: {
+          title: '❌ Appointment Cancelled',
+          body: `Your appointment with  ${data.patientName} on ${data.appointmentDate} at ${data.appointmentTime} has been cancelled because of ${data.reason}.`,
+        },
+        data: {
+          type: data.type,
+          bookingId: data.bookingId,
+          appointmentDate: data.appointmentDate,
+          appointmentTime: data.appointmentTime,
+          doctorName: data.doctorName,
+          patientName: data.patientName,
+          reason: data.reason,
+          action: 'BOOK_NEW_APPOINTMENT',
+          timestamp: new Date().toISOString(),
+        },
+        android: {
+          priority: 'high',
+          notification: {
+            channelId: 'booking_updates',
+            priority: 'high',
+            defaultSound: true,
+            defaultVibrateTimings: true,
+            icon: 'ic_notification',
+            color: '#FF0000',
+          },
+        },
+        apns: {
+          headers: {
+            'apns-priority': '10',
+          },
+          payload: {
+            aps: {
+              alert: {
+                title: '❌ Appointment Cancelled',
+                body: `Your appointment with ${data.patientName} on ${data.appointmentDate} at ${data.appointmentTime} has been cancelled.`,
+              },
+              sound: 'default',
+              badge: 1,
+            },
+          },
+        },
+      };
+
+      const response = await admin.messaging().send(message);
+
+      this.logger.log(
+        `FCM notification sent successfully. Message ID: ${response}`,
+      );
+
+      return true;
+    } catch (error) {
+      this.logger.error(
+        `Failed to send FCM notification: ${error.message}`,
+        error.stack,
+      );
+
+      // Handle specific FCM errors
+      if (error.code === 'messaging/invalid-registration-token') {
+        this.logger.warn(`Invalid FCM token: ${fcmToken}`);
+      } else if (error.code === 'messaging/registration-token-not-registered') {
+        this.logger.warn(`FCM token not registered: ${fcmToken}`);
+      }
+
+      return false;
+    }
+  }
+
   /**
    * Send notification to multiple users
    */
