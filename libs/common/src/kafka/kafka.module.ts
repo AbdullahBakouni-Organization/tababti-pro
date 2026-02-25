@@ -12,6 +12,7 @@ export interface KafkaModuleOptions {
 export interface KafkaModuleproducerOptions {
   clientId: string;
   brokers: string[];
+  groupId: string;
 }
 
 export interface KafkaModuleAsyncOptions {

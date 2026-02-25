@@ -37,6 +37,7 @@ import { BullModule } from '@nestjs/bull';
     KafkaModule.forProducer({
       clientId: 'booking-service-producer',
       brokers: [process.env.KAFKA_BROKER!],
+      groupId: 'booking-consumer',
     }),
 
     // ✅ ADD THIS: Consumer for receiving events
