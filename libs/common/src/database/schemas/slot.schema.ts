@@ -33,7 +33,7 @@ export class AppointmentSlot extends Document {
   workingHoursVersion: number;
   // ==================== DATE & TIME ====================
 
-  @Prop({ required: true, index: true })
+  @Prop({ required: true })
   date: Date; // The actual date of the appointment (e.g., 2024-03-15)
 
   @Prop({ required: true })

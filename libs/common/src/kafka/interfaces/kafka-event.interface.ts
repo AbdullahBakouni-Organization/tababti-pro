@@ -4,7 +4,7 @@ export interface SlotGenerationEvent {
   timestamp: Date;
   data: {
     doctorId: string;
-    workingHours: Array<{
+    WorkingHours: Array<{
       day: Days;
       location: {
         type: WorkigEntity;
@@ -20,7 +20,7 @@ export interface SlotGenerationEvent {
       fullName: string;
     };
   };
-  metadata: {
+  metadata?: {
     source: 'doctor-service';
     version: '1.0';
   };

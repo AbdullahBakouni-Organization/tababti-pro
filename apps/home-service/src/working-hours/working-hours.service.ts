@@ -6,9 +6,6 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { InjectQueue } from '@nestjs/bull';
-import type { Queue } from 'bull';
-
 import { AddWorkingHoursDto } from './dto/add-working-hours.dto';
 import {
   UpdateWorkingHoursDto,
@@ -27,7 +24,6 @@ import {
   SlotGenerationEvent,
   WorkingHoursAddedEvent,
 } from '@app/common/kafka/interfaces/kafka-event.interface';
-// import { WorkingHoursUpdateJobData } from './working-hours-update.processor';
 interface WorkingHour {
   day: string;
   startTime: string;
@@ -49,7 +45,6 @@ export class WorkingHoursService {
     private kafkaProducer: KafkaService,
     private readonly cacheManager: CacheService,
     private readonly conflictDetectionService: ConflictDetectionService,
-    @InjectQueue('working-hours-update') private workingHoursQueue: Queue,
   ) {}
 
   /* -------------------------------------------------------------------------- */
@@ -406,7 +401,7 @@ export class WorkingHoursService {
       timestamp: new Date(),
       data: {
         doctorId: doctor._id.toString(),
-        workingHours: dto.workingHours.map((wh) => ({
+        WorkingHours: dto.workingHours.map((wh) => ({
           day: wh.day,
           location: {
             type: wh.location.type,

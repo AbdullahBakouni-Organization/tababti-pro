@@ -120,12 +120,9 @@ export interface DoctorRegisteredEvent {
 @Injectable()
 export class DoctorService {
   private readonly logger = new Logger(DoctorService.name);
-  private readonly SOCKET_SERVICE_URL: string;
 
   constructor(
     @InjectModel(Doctor.name) private doctorModel: Model<DoctorDocument>,
-    @InjectModel(Notification.name)
-    private readonly notificationModel: Model<Notification>,
     @InjectModel(Otp.name) private otpModel: Model<OtpDocument>,
     @InjectModel(AppointmentSlot.name)
     private slotModel: Model<AppointmentSlotDocument>,
@@ -134,17 +131,12 @@ export class DoctorService {
     @InjectConnection() private readonly connection: Connection,
     @InjectModel(Booking.name) private bookingModel: Model<BookingDocument>,
     private kafkaProducer: KafkaService,
-    private httpService: HttpService,
-    private configService: ConfigService,
     private readonly smsService: SmsService,
     private readonly cacheManager: CacheService,
     @InjectQueue('pause-slots') private pauseSlotsQueue: Queue,
     @InjectQueue('vip-booking') private vipBookingQueue: Queue,
     @InjectQueue('holiday-block') private holidayQueue: Queue,
-  ) {
-    this.SOCKET_SERVICE_URL =
-      this.configService.get('SOCKET_SERVICE_URL') || '';
-  }
+  ) {}
 
   // ============================================
   // Validation Methods
@@ -851,126 +843,6 @@ export class DoctorService {
     } catch (error) {
       const err = error as Error;
       this.logger.error(`Failed to publish event: ${err.message}`);
-    }
-  }
-  /**
-   * Extract a valid phone number from doctor phones array
-   * @param phones Array of phone objects
-   * @returns Valid phone number string or default if none found
-   */
-
-  private async notifyAdminDashboardDirect(
-    doctor: DoctorDocument,
-  ): Promise<void> {
-    let savedNotification: Notification | null = null;
-
-    // 1️⃣ Persist notification (source of truth)
-    try {
-      savedNotification = await this.notificationModel.create({
-        recipientType: UserRole.ADMIN,
-        recipientId: undefined,
-        Notificationtype: NotificationTypes.NewDoctorRegistration,
-        title: 'New Doctor Registration Pending',
-        message: `Dr. ${doctor.firstName} ${doctor.lastName} submitted a new registration.`,
-        status: NotificationStatus.PENDING,
-        isRead: false,
-      });
-    } catch (error) {
-      this.logger.error(
-        'Failed to persist admin notification',
-        error instanceof Error ? error.stack : undefined,
-      );
-      return; // no point broadcasting without DB record
-    }
-
-    // 2️⃣ Build realtime payload
-    const payload = {
-      event: 'new-registration-pending',
-      data: {
-        notificationId: savedNotification._id.toString(),
-        type: 'NEW_DOCTOR_REGISTRATION',
-        priority: 'high',
-        timestamp: new Date(),
-        doctor: {
-          id: doctor._id.toString(),
-          fullName: `${doctor.firstName} ${doctor.middleName} ${doctor.lastName}`,
-          phone: doctor.phones
-            .map((p) => p.normal || p.clinic || p.whatsup)
-            .flat()
-            .join(', '),
-          gender: doctor.gender,
-          certificateImage: doctor.certificateImage,
-          licenseImage: doctor.licenseImage,
-          status: doctor.status,
-          registeredAt: doctor.registeredAt,
-        },
-        actions: [
-          {
-            label: 'Review Now',
-            type: 'primary',
-            url: `/admin/doctors/pending/${doctor._id.toString()}`,
-          },
-          {
-            label: 'View Certificate',
-            type: 'secondary',
-            url: doctor.certificateImage,
-            openInNewTab: true,
-          },
-          {
-            label: 'View License',
-            type: 'secondary',
-            url: doctor.licenseImage,
-            openInNewTab: true,
-          },
-          {
-            label: 'View Certificate Document',
-            type: 'secondary',
-            url: doctor.certificateDocument,
-            openInNewTab: true,
-          },
-          {
-            label: 'View License Document',
-            type: 'secondary',
-            url: doctor.licenseDocument,
-            openInNewTab: true,
-          },
-        ],
-      },
-    };
-
-    // 3️⃣ Broadcast WebSocket
-    try {
-      await firstValueFrom(
-        this.httpService.post(
-          `${this.SOCKET_SERVICE_URL}/notifications/admin/broadcast`,
-          payload,
-          {
-            timeout: 3000,
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Source': 'home-service',
-            },
-          },
-        ),
-      );
-
-      this.logger.log(`⚡ FAST: Admin notification broadcasted to admins)`);
-
-      // 4️⃣ Mark as DELIVERED (only on success)
-      await this.notificationModel.updateOne(
-        { _id: savedNotification._id },
-        {
-          $set: {
-            status: NotificationStatus.DELIVERED,
-          },
-        },
-      );
-    } catch (error) {
-      this.logger.warn(
-        'Realtime notification failed; notification remains PENDING',
-        error instanceof Error ? error.message : undefined,
-      );
-      // intentionally NOT updating status → retryable
     }
   }
 

@@ -19,7 +19,7 @@ import {
   BookingDocument,
 } from '@app/common/database/schemas/booking.schema';
 import { FcmService } from 'apps/home-service/src/fcm/fcm.service';
-import { User, UserDocument } from '@app/common/database/schemas/user.schema';
+import { User } from '@app/common/database/schemas/user.schema';
 import { Doctor } from '@app/common/database/schemas/doctor.schema';
 
 export interface WorkingHoursUpdateJobData {
@@ -71,7 +71,6 @@ export class WorkingHoursUpdateProcessorV2 {
     @InjectConnection() private readonly connection: Connection,
     @InjectModel(Booking.name) private bookingModel: Model<BookingDocument>,
     private readonly fcmService: FcmService,
-    @InjectModel(User.name) private userModel: Model<UserDocument>,
   ) {}
 
   /**

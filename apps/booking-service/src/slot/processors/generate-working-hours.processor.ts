@@ -1,30 +1,26 @@
 import { Process, Processor } from '@nestjs/bull';
 import { Logger } from '@nestjs/common';
 import type { Job } from 'bull';
-import { InjectConnection, InjectModel } from '@nestjs/mongoose';
-import { ClientSession, Connection, Model, Types } from 'mongoose';
-import { DateTime } from 'luxon';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model, Types } from 'mongoose';
 import {
   AppointmentSlot,
   AppointmentSlotDocument,
 } from '@app/common/database/schemas/slot.schema';
 import {
-  BookingStatus,
-  Days,
   SlotStatus,
+  Days,
   WorkigEntity,
 } from '@app/common/database/schemas/common.enums';
-import {
-  Booking,
-  BookingDocument,
-} from '@app/common/database/schemas/booking.schema';
-import { FcmService } from 'apps/home-service/src/fcm/fcm.service';
-import { User, UserDocument } from '@app/common/database/schemas/user.schema';
-import { Doctor } from '@app/common/database/schemas/doctor.schema';
+import { SlotGenerationEvent } from '@app/common/kafka/interfaces/kafka-event.interface'; // adjust path
+import { getSyriaDate } from '@app/common/utils/get-syria-date'; // adjust path
+import { CacheService } from '@app/common/cache/cache.service';
 
-export interface WorkingHoursUpdateJobData {
+export interface SlotGenerationJobData {
+  eventType: 'SLOTS_GENERATE';
+  timestamp: string | Date;
   doctorId: string;
-  oldWorkingHours: Array<{
+  WorkingHours: Array<{
     day: Days;
     location: {
       type: WorkigEntity;
@@ -35,420 +31,281 @@ export interface WorkingHoursUpdateJobData {
     endTime: string;
   }>;
   inspectionDuration: number;
-  inspectionPrice: number;
-  newWorkingHours: Array<{
-    day: Days;
-    location: {
-      type: WorkigEntity;
-      entity_name: string;
-      address: string;
-    };
-    startTime: string;
-    endTime: string;
-  }>;
-  version: number;
-  updatedDays: Array<Days>;
-}
-
-export interface WorkingHourRange {
-  day: Days;
-  location: {
-    type: WorkigEntity;
-    entity_name: string;
-    address: string;
+  inspectionPrice?: number;
+  doctorInfo: {
+    fullName: string;
+    [key: string]: any;
   };
-  startTime: string;
-  endTime: string;
 }
 
-@Processor('WORKING_HOURS_UPDATE')
-export class WorkingHoursUpdateProcessorV2 {
-  private readonly logger = new Logger(WorkingHoursUpdateProcessorV2.name);
+@Processor('WORKING_HOURS_GENERATE')
+export class SlotGenerationProcessor {
+  private readonly logger = new Logger(SlotGenerationProcessor.name);
+
+  // How many weeks ahead to generate slots — keep same as your original service
+  private readonly SLOT_GENERATION_WEEKS = 12;
+  private readonly CACHE_TTL = 3600;
 
   constructor(
     @InjectModel(AppointmentSlot.name)
     private slotModel: Model<AppointmentSlotDocument>,
-    @InjectConnection() private readonly connection: Connection,
-    @InjectModel(Booking.name) private bookingModel: Model<BookingDocument>,
-    private readonly fcmService: FcmService,
-    @InjectModel(User.name) private userModel: Model<UserDocument>,
+    private readonly cacheManager: CacheService,
   ) {}
 
-  /**
-   * JOB A: Handle immediate (today) conflicts
-   * Runs immediately after doctor confirms update
-   */
+  /* -------------------------------------------------------------------------- */
+  /*                              BULL JOB HANDLER                               */
+  /* -------------------------------------------------------------------------- */
 
-  @Process('PROCESS_WORKING_HOURS_UPDATE')
-  async processWorkingHoursUpdate(
-    job: Job<WorkingHoursUpdateJobData>,
-  ): Promise<void> {
-    const {
-      doctorId,
-      oldWorkingHours,
-      newWorkingHours,
-      inspectionDuration,
-      inspectionPrice,
-      version,
-      updatedDays,
-    } = job.data;
+  @Process('PROCESS_WORKING_HOURS_GENERATE')
+  async handleSlotGeneration(job: Job<SlotGenerationJobData>): Promise<void> {
+    const { doctorId } = job.data;
 
-    const doctorObjectId = new Types.ObjectId(doctorId);
+    this.logger.log(
+      `[Slot Generation Job] Processing for doctor ${doctorId} | Job ID: ${job.id}`,
+    );
 
-    this.logger.log(`begining of PROCESS_WORKING_HOURS_UPDATE`);
-
-    for (const day of updatedDays) {
-      await this.processSingleDay(
-        doctorObjectId,
-        day,
-        oldWorkingHours,
-        newWorkingHours,
-        version,
-        inspectionDuration,
-        inspectionPrice,
-      );
-    }
-  }
-
-  private async processSingleDay(
-    doctorId: Types.ObjectId,
-    day: Days,
-    oldWH: WorkingHourRange[],
-    newWH: WorkingHourRange[],
-    version: number,
-    duration: number,
-    price: number,
-  ) {
-    const session = await this.connection.startSession();
-    session.startTransaction();
-
-    const affectedBookings: Array<{
-      bookingId: string;
-      fcmToken: string;
-      doctorName: string;
-      appointmentDate: Date;
-      appointmentTime: string;
-    }> = [];
+    // Update job progress
+    await job.progress(0);
 
     try {
-      const futureDates = this.getNext12WeeksDatesForDay(day);
-      const validRanges = newWH.filter((w) => w.day === day);
+      // Build a SlotGenerationEvent-like shape from the job data
+      // to keep generateSlots() unchanged
+      const event: SlotGenerationEvent = {
+        eventType: job.data.eventType,
+        timestamp: new Date(job.data.timestamp),
+        data: {
+          doctorId: job.data.doctorId,
+          WorkingHours: job.data.WorkingHours,
+          inspectionDuration: job.data.inspectionDuration,
+          inspectionPrice: job.data.inspectionPrice,
+          doctorInfo: job.data.doctorInfo,
+        },
+      };
 
-      for (const date of futureDates) {
-        const startOfDay = new Date(date);
-        const endOfDay = new Date(date.getTime() + 24 * 60 * 60 * 1000 - 1);
+      await job.progress(10);
 
-        const oldSlots = await this.slotModel
-          .find({
-            doctorId: doctorId,
-            date: { $gte: startOfDay, $lte: endOfDay },
-            status: { $ne: SlotStatus.INVALIDATED },
-          })
-          .session(session);
+      const slots = await this.generateSlots(event);
 
-        this.logger.log(
-          `Found ${oldSlots.length} slots for ${day} on ${date.toISOString()}`,
-        );
+      await job.progress(80);
 
-        for (const slot of oldSlots) {
-          if (!this.slotFitsRanges(slot, validRanges)) {
-            if (slot.status === SlotStatus.BOOKED) {
-              const booking = await this.bookingModel
-                .findOne({ slotId: slot._id })
-                .populate<{ patientId: User }>('patientId', 'fcmToken')
-                .populate<{
-                  doctorId: Doctor;
-                }>('doctorId', 'firstName lastName')
-                .session(session)
-                .exec();
-
-              // ✅ FIXED: Type assertion after populate
-              if (booking && typeof booking.patientId !== 'string') {
-                const patient = booking.patientId as unknown as User;
-                const doctor = booking.doctorId as unknown as Doctor;
-
-                if (patient?.fcmToken) {
-                  affectedBookings.push({
-                    bookingId: booking._id.toString(),
-                    fcmToken: patient.fcmToken,
-                    doctorName: `${doctor.firstName} ${doctor.lastName}`,
-                    appointmentDate: booking.bookingDate,
-                    appointmentTime: booking.bookingTime,
-                  });
-                }
-              }
-
-              await this.bookingModel.updateOne(
-                { slotId: slot._id },
-                {
-                  status: BookingStatus.NEEDS_RESCHEDULE,
-                  cancellation: {
-                    cancelledBy: 'SYSTEM',
-                    reason: 'Doctor updated working hours',
-                    cancelledAt: new Date(),
-                  },
-                },
-                { session },
-              );
-            }
-
-            slot.status = SlotStatus.INVALIDATED;
-            await slot.save({ session });
-          }
-        }
-
-        await this.generateNewSlotsForDate(
-          doctorId,
-          date,
-          validRanges,
-          version,
-          duration,
-          price,
-          session,
-        );
-      }
-
-      await session.commitTransaction();
-
-      // Send notifications AFTER successful commit
-      if (affectedBookings.length > 0) {
-        await this.sendPersonalizedNotifications(affectedBookings).catch(
-          (err) => this.logger.error('Notification error:', err),
-        );
-      }
-    } catch (error) {
-      await session.abortTransaction();
-      throw error;
-    } finally {
-      await session.endSession();
-    }
-  }
-
-  private async generateNewSlotsForDate(
-    doctorId: Types.ObjectId,
-    date: Date,
-    ranges: WorkingHourRange[],
-    version: number,
-    duration: number,
-    price: number,
-    session: ClientSession,
-  ) {
-    const startOfDay = new Date(date);
-    const endOfDay = new Date(date.getTime() + 24 * 60 * 60 * 1000 - 1);
-    for (const range of ranges) {
-      const generatedSlots = this.buildSlotsFromRange(
-        doctorId,
-        date,
-        range.startTime,
-        range.endTime,
-        range.day,
-        range.location,
-        duration,
-        version,
-        price,
+      this.logger.log(
+        `[Slot Generation Job] Generated ${slots.length} slots for doctor ${doctorId}`,
       );
 
-      for (const slot of generatedSlots) {
-        const exists = await this.slotModel
-          .findOne({
-            doctorId: doctorId,
-            date: { $gte: startOfDay, $lte: endOfDay },
-            startTime: slot.startTime,
-            status: { $ne: SlotStatus.INVALIDATED },
-          })
-          .session(session);
+      // Cache the generated slots count for monitoring — same as original
+      await this.cacheManager.set(
+        `slots:generated:${doctorId}`,
+        slots.length,
+        this.CACHE_TTL,
+      );
 
-        if (!exists) {
-          await this.slotModel.insertMany(slot, { session });
+      await job.progress(100);
+
+      this.logger.log(
+        `[Slot Generation Job] ✅ Completed for doctor ${doctorId}`,
+      );
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `[Slot Generation Job] ❌ Failed for doctor ${doctorId}: ${err.message}`,
+        err.stack,
+      );
+      // Re-throw so Bull marks the job as failed and triggers retries
+      throw error;
+    }
+  }
+
+  /* -------------------------------------------------------------------------- */
+  /*                          UNCHANGED CORE LOGIC                               */
+  /* -------------------------------------------------------------------------- */
+
+  private async generateSlots(
+    event: SlotGenerationEvent,
+  ): Promise<AppointmentSlot[]> {
+    const {
+      doctorId,
+      WorkingHours,
+      inspectionDuration,
+      inspectionPrice,
+      doctorInfo,
+    } = event.data;
+
+    const slots: Partial<AppointmentSlot>[] = [];
+    const today = getSyriaDate();
+
+    for (let week = 0; week < this.SLOT_GENERATION_WEEKS; week++) {
+      for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
+        const currentDate = new Date(today);
+        currentDate.setDate(today.getDate() + week * 7 + dayOffset);
+
+        // ✅ Always calculate day from the SAME date object
+        const dayOfWeek = this.getDayName(currentDate.getUTCDay());
+
+        const dayWorkingHours = WorkingHours.filter(
+          (wh) => wh.day.toLowerCase() === dayOfWeek.toLowerCase(),
+        );
+
+        const doctorObjectId = new Types.ObjectId(doctorId);
+
+        for (const wh of dayWorkingHours) {
+          slots.push(
+            ...this.generateSlotsForDay(
+              doctorObjectId,
+              currentDate,
+              dayOfWeek as Days,
+              wh.startTime,
+              wh.endTime,
+              inspectionDuration,
+              wh.location,
+              inspectionPrice,
+              doctorInfo,
+            ),
+          );
         }
       }
     }
+
+    const createdSlots = await this.batchInsertSlots(slots);
+    await this.invalidateSlotCaches(doctorId);
+    return createdSlots;
   }
 
-  private getNext12WeeksDatesForDay(day: Days): Date[] {
-    const dayMap: Record<Days, number> = {
-      [Days.SUNDAY]: 7,
-      [Days.MONDAY]: 1,
-      [Days.TUESDAY]: 2,
-      [Days.WEDNESDAY]: 3,
-      [Days.THURSDAY]: 4,
-      [Days.FRIDAY]: 5,
-      [Days.SATURDAY]: 6,
-    };
+  /* -------------------------------------------------------------------------- */
+  /*                          DAILY SLOT GENERATION                              */
+  /* -------------------------------------------------------------------------- */
 
-    const target = dayMap[day];
-    let dt = DateTime.now().setZone('Asia/Damascus').startOf('day');
-
-    while (dt.weekday !== target) {
-      dt = dt.plus({ days: 1 });
-    }
-
-    const dates: Date[] = [];
-    for (let i = 0; i < 12; i++) {
-      const d = dt.plus({ weeks: i });
-      // ✅ Saturday Syria = 2026-02-21T00:00:00.000Z correct
-      dates.push(new Date(Date.UTC(d.year, d.month - 1, d.day, 0, 0, 0, 0)));
-    }
-
-    return dates;
-  }
-  private slotFitsRanges(
-    slot: AppointmentSlotDocument,
-    ranges: WorkingHourRange[],
-  ): boolean {
-    const slotStart = this.timeToMinutes(slot.startTime);
-    const slotEnd = this.timeToMinutes(slot.endTime);
-
-    for (const range of ranges) {
-      const rangeStart = this.timeToMinutes(range.startTime);
-      const rangeEnd = this.timeToMinutes(range.endTime);
-
-      if (slotStart >= rangeStart && slotEnd <= rangeEnd) {
-        return true;
-      }
-    }
-
-    return false;
-  }
-
-  private timeToMinutes(time: string): number {
-    const [hours, minutes] = time.split(':').map(Number);
-    return hours * 60 + minutes;
-  }
-
-  private minutesToTime(minutes: number): string {
-    const h = Math.floor(minutes / 60);
-    const m = minutes % 60;
-
-    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
-  }
-  private buildSlotsFromRange(
+  private generateSlotsForDay(
     doctorId: Types.ObjectId,
     date: Date,
+    dayOfWeek: Days,
     startTime: string,
     endTime: string,
-    dayOfWeek: Days,
-    location: {
-      type: WorkigEntity;
-      entity_name: string;
-      address: string;
-    },
     duration: number,
-    price: number,
-    version: number,
-  ): Partial<AppointmentSlotDocument>[] {
-    const slots: Partial<AppointmentSlotDocument>[] = [];
+    location: any,
+    price: number | undefined,
+    doctorInfo: any,
+  ): Partial<AppointmentSlot>[] {
+    const slots: Partial<AppointmentSlot>[] = [];
 
-    let startMinutes = this.timeToMinutes(startTime);
-    const endMinutes = this.timeToMinutes(endTime);
+    const [startHour, startMin] = startTime.split(':').map(Number);
+    const [endHour, endMin] = endTime.split(':').map(Number);
 
-    while (startMinutes + duration <= endMinutes) {
-      const slotStart = this.minutesToTime(startMinutes);
-      const slotEnd = this.minutesToTime(startMinutes + duration);
-      // const today = getSyriaDate();
-      // const slotDate = new Date(today);
+    let currentMinutes = startHour * 60 + startMin;
+    const endMinutes = endHour * 60 + endMin;
+
+    while (currentMinutes + duration <= endMinutes) {
+      const slotStartHour = Math.floor(currentMinutes / 60);
+      const slotStartMin = currentMinutes % 60;
+      const slotEndMinutes = currentMinutes + duration;
+      const slotEndHour = Math.floor(slotEndMinutes / 60);
+      const slotEndMin = slotEndMinutes % 60;
+
+      // ✅ Date is normalized and UTC-safe
       const slotDate = new Date(date);
+      slotDate.setUTCHours(0, 0, 0, 0);
 
       slots.push({
-        doctorId,
-        date: slotDate,
-        startTime: slotStart,
-        endTime: slotEnd,
+        doctorId: doctorId,
         status: SlotStatus.AVAILABLE,
-        workingHoursVersion: version,
-        duration: duration,
-        price: price,
-        dayOfWeek: dayOfWeek,
-        location: location,
+        date: slotDate,
+        startTime: `${String(slotStartHour).padStart(2, '0')}:${String(
+          slotStartMin,
+        ).padStart(2, '0')}`,
+        endTime: `${String(slotEndHour).padStart(2, '0')}:${String(
+          slotEndMin,
+        ).padStart(2, '0')}`,
+        dayOfWeek,
+        duration,
+        price,
+        location,
+        doctorInfo: {
+          fullName: doctorInfo.fullName,
+        },
+        isRecurring: true,
+        workingHoursVersion: 0,
       });
 
-      startMinutes += duration;
+      currentMinutes += duration;
     }
 
     return slots;
   }
 
-  async sendPersonalizedNotifications(
-    affectedBookings: Array<{
-      bookingId: string;
-      fcmToken: string;
-      doctorName: string;
-      appointmentDate: Date;
-      appointmentTime: string;
-    }>,
-  ): Promise<void> {
-    this.logger.log(
-      `📱 Sending personalized FCM to ${affectedBookings.length} patients`,
-    );
+  /* -------------------------------------------------------------------------- */
+  /*                              BATCH INSERT                                   */
+  /* -------------------------------------------------------------------------- */
 
-    let successCount = 0;
-    let failureCount = 0;
-    const invalidTokens: string[] = [];
+  private async batchInsertSlots(
+    slots: Partial<AppointmentSlot>[],
+  ): Promise<AppointmentSlot[]> {
+    if (slots.length === 0) return [];
 
-    // Process in parallel batches of 10 to avoid overwhelming Firebase
-    const PARALLEL_LIMIT = 10;
+    const BATCH_SIZE = 100;
+    const createdSlots: AppointmentSlot[] = [];
 
-    for (let i = 0; i < affectedBookings.length; i += PARALLEL_LIMIT) {
-      const batch = affectedBookings.slice(i, i + PARALLEL_LIMIT);
-
-      const promises = batch.map(async (booking) => {
-        try {
-          const sent =
-            await this.fcmService.sendBookingCancellationNotification(
-              booking.fcmToken,
-              {
-                bookingId: booking.bookingId,
-                doctorName: booking.doctorName,
-                appointmentDate: this.formatDate(booking.appointmentDate),
-                appointmentTime: booking.appointmentTime,
-                reason: 'Doctor updated working hours. Please reschedule.',
-                type: 'DOCTOR_CANCELLED',
-              },
-            );
-
-          return { success: sent, token: booking.fcmToken };
-        } catch (error) {
-          const err = error as Error;
-          this.logger.error(
-            `Failed to send notification for booking ${booking.bookingId}: ${err.message}`,
-          );
-          return { success: false, token: booking.fcmToken };
+    for (let i = 0; i < slots.length; i += BATCH_SIZE) {
+      const batch = slots.slice(i, i + BATCH_SIZE);
+      try {
+        const inserted = await this.slotModel.insertMany(batch, {
+          ordered: false, // continue on duplicate key errors
+        });
+        createdSlots.push(...(inserted as unknown as AppointmentSlot[]));
+      } catch (error: any) {
+        // Ignore duplicate key errors (code 11000), re-throw others
+        if (error?.code !== 11000) {
+          throw error;
         }
-      });
-
-      const results = await Promise.all(promises);
-
-      results.forEach((result) => {
-        if (result.success) {
-          successCount++;
-        } else {
-          failureCount++;
-          invalidTokens.push(result.token);
-        }
-      });
-
-      this.logger.debug(
-        `Progress: ${i + batch.length}/${affectedBookings.length} processed`,
-      );
+        this.logger.warn(
+          `[Slot Generation] Skipped duplicate slots in batch ${i / BATCH_SIZE + 1}`,
+        );
+      }
     }
 
-    this.logger.log(
-      `✅ Personalized notifications: ${successCount} success, ${failureCount} failed`,
-    );
+    return createdSlots;
+  }
 
-    // Clean up invalid tokens
-    if (invalidTokens.length > 0) {
-      this.logger.warn(`Found ${invalidTokens.length} invalid tokens`);
-      // You can call removeInvalidTokens here if needed
+  /* -------------------------------------------------------------------------- */
+  /*                            CACHE INVALIDATION                               */
+  /* -------------------------------------------------------------------------- */
+
+  private async invalidateSlotCaches(doctorId: string): Promise<void> {
+    try {
+      // Invalidate all cache keys related to this doctor's slots
+      // Adjust these keys to match whatever your service uses
+      const keysToDelete = [
+        `slots:doctor:${doctorId}`,
+        `slots:available:${doctorId}`,
+        `slots:generated:${doctorId}`,
+      ];
+
+      await Promise.all(keysToDelete.map((key) => this.cacheManager.del(key)));
+
+      this.logger.debug(
+        `[Slot Generation] Cache invalidated for doctor ${doctorId}`,
+      );
+    } catch (error) {
+      const err = error as Error;
+      // Cache invalidation failure should not fail the job
+      this.logger.warn(
+        `[Slot Generation] Cache invalidation warning: ${err.message}`,
+      );
     }
   }
 
-  private formatDate(date: Date): string {
-    return new Intl.DateTimeFormat('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    }).format(new Date(date));
+  /* -------------------------------------------------------------------------- */
+  /*                              HELPERS                                        */
+  /* -------------------------------------------------------------------------- */
+
+  private getDayName(utcDay: number): string {
+    const days = [
+      'sunday',
+      'monday',
+      'tuesday',
+      'wednesday',
+      'thursday',
+      'friday',
+      'saturday',
+    ];
+    return days[utcDay];
   }
 }
