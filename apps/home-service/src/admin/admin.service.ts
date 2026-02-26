@@ -20,7 +20,6 @@ import { Hospital } from '@app/common/database/schemas/hospital.schema';
 import { Center } from '@app/common/database/schemas/center.schema';
 import { AuthAccount } from '@app/common/database/schemas/auth.schema';
 
-
 import { AdminSignInDto } from './dto/admin-signin.dto';
 import {
   ApprovalStatus,
@@ -30,6 +29,7 @@ import {
 import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
 import { KafkaService } from '@app/common/kafka/kafka.service';
 import { PostModule } from 'apps/social-service/src/content/post.module';
+import { Post } from '@app/common/database/schemas/post.schema';
 
 @Injectable()
 export class AdminService {
@@ -37,12 +37,12 @@ export class AdminService {
   constructor(
     @InjectModel(Admin.name) private adminModel: Model<AdminDocument>,
     @InjectModel(Doctor.name) private doctorModel: Model<Doctor>,
-    @InjectModel(PostModule.name) private postModel: Model<Post>,
+    @InjectModel(Post.name) private readonly postModel: Model<Post>,
     @InjectModel(Hospital.name) private hospitalModel: Model<Hospital>,
     @InjectModel(Center.name) private centerModel: Model<Center>,
     @InjectModel(AuthAccount.name) private authAccountModel: Model<AuthAccount>,
     private kafkaProducer: KafkaService,
-  ) { }
+  ) {}
 
   // Admin Sign In
   async signIn(dto: AdminSignInDto): Promise<AdminDocument> {
@@ -365,22 +365,33 @@ export class AdminService {
       throw new NotFoundException('post.INVALID_ID');
     }
 
-    const post = await this.postModel.findById(postId);
-    if (!post) {
-      throw new NotFoundException('post.NOT_FOUND');
-    }
+    const validStatuses = [
+      PostStatus.PENDING,
+      PostStatus.APPROVED,
+      PostStatus.REJECTED,
+      PostStatus.PUBLISHED,
+      PostStatus.DELETED,
+    ];
 
-    // Only allow status changes if post is pending, approved, or rejected
-    const validStatuses = [PostStatus.PENDING, PostStatus.APPROVED, PostStatus.REJECTED, PostStatus.PUBLISHED, PostStatus.DELETED];
     if (!validStatuses.includes(status)) {
       throw new BadRequestException('post.INVALID_STATUS');
     }
 
-    post.status = status;
-    post.updatedByAdminId = adminId; 
-    post.updatedAt = new Date();
+    const updated = await this.postModel.findByIdAndUpdate(
+      postId,
+      {
+        $set: {
+          status,
+          updatedAt: new Date(),
+        },
+      },
+      { new: true },
+    );
 
-    await post.save();
-    return post;
+    if (!updated) {
+      throw new NotFoundException('post.NOT_FOUND');
+    }
+
+    return updated;
   }
 }

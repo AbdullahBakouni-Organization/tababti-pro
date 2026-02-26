@@ -8,7 +8,7 @@ import { AuthValidateModule } from '@app/common/auth-validate';
 import { KafkaModule } from '@app/common/kafka/kafka.module';
 
 @Module({
-  imports: [DatabaseModule, AuthModule, AuthValidateModule, KafkaModule],
+  imports: [DatabaseModule, AuthModule, AuthValidateModule, KafkaModule ],
   providers: [AdminService],
   controllers: [AdminController],
 })

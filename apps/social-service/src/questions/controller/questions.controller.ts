@@ -7,9 +7,9 @@ import {
   Query,
   Param,
   UseGuards,
-  BadRequestException,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+
 import { QuestionsService } from '../service/questions.service';
 import { CreateQuestionDto } from '../dto/create-question.dto';
 import { FilterQuestionDto } from '../dto/filter-question.dto';
@@ -22,55 +22,76 @@ import { Roles } from '@app/common/decorator/role.decorator';
 import { UserRole } from '@app/common/database/schemas/common.enums';
 
 @ApiTags('Questions')
+@ApiBearerAuth()
 @Controller('questions')
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class QuestionsController {
-  constructor(private readonly service: QuestionsService) { }
+  constructor(private readonly service: QuestionsService) {}
+
+  // ── POST / ─────────────────────────────────────────────────────────────────
 
   @Post()
-  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.USER)
   async create(
     @Body() dto: CreateQuestionDto,
-    @CurrentUser('accountId') userId: string,
+    @CurrentUser('accountId') accountId: string,
     @Headers('accept-language') lang: 'en' | 'ar' = 'en',
   ) {
-    if (!dto.content || !dto.specializationId?.length) {
-      throw new BadRequestException('common.VALIDATION_ERROR');
-    }
+    const data = await this.service.create(dto, accountId, lang);
+    return ApiResponse.success({ lang, messageKey: 'question.CREATED', data });
+  }
 
-    const data = await this.service.create(dto, userId, lang);
+  // ── GET / ──────────────────────────────────────────────────────────────────
+  // NOTE: /doctor must be declared BEFORE /:questionId so it is not swallowed
+  // by the param route. Keep this ordering intentional.
 
-    return ApiResponse.success({
-      lang,
-      messageKey: 'question.CREATED',
-      data,
-    });
+  @Get('doctor')
+  @Roles(UserRole.DOCTOR)
+  async getDoctorQuestions(
+    @CurrentUser('accountId') accountId: string,
+    @Query('filter') filter: 'all' | 'specialization' | 'myAnswers' = 'all',
+    @Query('page') page = '1',
+    @Query('limit') limit = '10',
+    @Headers('accept-language') lang: 'en' | 'ar' = 'en',
+  ) {
+    const pageNumber = Math.max(1, parseInt(page, 10));
+    const limitNumber = Math.min(Math.max(1, parseInt(limit, 10)), 50);
+
+    const data = await this.service.getDoctorQuestions(
+      accountId,
+      filter,
+      pageNumber,
+      limitNumber,
+    );
+    return ApiResponse.success({ lang, messageKey: 'question.LIST', data });
   }
 
   @Get()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.DOCTOR, UserRole.HOSPITAL, UserRole.CENTER, UserRole.USER)
+  @Roles(UserRole.USER, UserRole.DOCTOR, UserRole.HOSPITAL, UserRole.CENTER)
   async getQuestions(
-    @CurrentUser('id') userId: string,
+    @CurrentUser('accountId') accountId: string,
     @Query() query: FilterQuestionDto,
+    @Query('page') page = '1',
+    @Query('limit') limit = '10',
     @Headers('accept-language') lang: 'en' | 'ar' = 'en',
   ) {
+    const pageNumber = Math.max(1, parseInt(page, 10));
+    const limitNumber = Math.min(Math.max(1, parseInt(limit, 10)), 50);
+
     const data = await this.service.getQuestions(
-      userId,
-      query.filter || 'allQuestions',
+      accountId,
+      query.filter ?? 'allQuestions',
       query.publicSpecializationId,
       query.privateSpecializationIds,
+      pageNumber,
+      limitNumber,
     );
-
-    return ApiResponse.success({
-      lang,
-      messageKey: 'question.LIST',
-      data,
-    });
+    return ApiResponse.success({ lang, messageKey: 'question.LIST', data });
   }
 
+  // ── POST /:questionId/answer ────────────────────────────────────────────────
+
   @Post(':questionId/answer')
-  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.DOCTOR, UserRole.HOSPITAL, UserRole.CENTER)
   async answerQuestion(
     @Param('questionId') questionId: string,
@@ -79,40 +100,16 @@ export class QuestionsController {
     @CurrentUser('role') role: UserRole,
     @Headers('accept-language') lang: 'en' | 'ar' = 'en',
   ) {
-    if (!dto.content) {
-      throw new BadRequestException('common.VALIDATION_ERROR');
-    }
-
     const answer = await this.service.answerQuestion({
       questionId,
       responderId,
       responderType: role,
       content: dto.content,
     });
-
     return ApiResponse.success({
       lang,
       messageKey: 'question.ANSWERED',
       data: answer,
-    });
-  }
-
-  @Get('doctor')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.DOCTOR)
-  async getDoctorQuestions(
-    @CurrentUser('accountId') accountId: string,
-    @Query('filter') filter: 'all' | 'specialization' | 'myAnswers' = 'all',
-    @Query('page') page = 1,
-    @Query('limit') limit = 10,
-    @Headers('accept-language') lang: 'en' | 'ar' = 'en',
-  ) {
-    const data = await this.service.getDoctorQuestions(accountId, filter, page, limit);
-
-    return ApiResponse.success({
-      lang,
-      messageKey: 'question.LIST',
-      data,
     });
   }
 }
