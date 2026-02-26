@@ -19,8 +19,11 @@ import {
   BookingDocument,
 } from '@app/common/database/schemas/booking.schema';
 import { FcmService } from 'apps/home-service/src/fcm/fcm.service';
-import { User } from '@app/common/database/schemas/user.schema';
+import { User, UserDocument } from '@app/common/database/schemas/user.schema';
 import { Doctor } from '@app/common/database/schemas/doctor.schema';
+import { KafkaService } from '@app/common/kafka/kafka.service';
+import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
+import { formatDate } from '@app/common/utils/get-syria-date';
 
 export interface WorkingHoursUpdateJobData {
   doctorId: string;
@@ -71,6 +74,7 @@ export class WorkingHoursUpdateProcessorV2 {
     @InjectConnection() private readonly connection: Connection,
     @InjectModel(Booking.name) private bookingModel: Model<BookingDocument>,
     private readonly fcmService: FcmService,
+    private kafkaProducer: KafkaService,
   ) {}
 
   /**
@@ -123,7 +127,9 @@ export class WorkingHoursUpdateProcessorV2 {
 
     const affectedBookings: Array<{
       bookingId: string;
+      doctorId: string;
       fcmToken: string;
+      patientId: string;
       doctorName: string;
       appointmentDate: Date;
       appointmentTime: string;
@@ -169,6 +175,8 @@ export class WorkingHoursUpdateProcessorV2 {
                 if (patient?.fcmToken) {
                   affectedBookings.push({
                     bookingId: booking._id.toString(),
+                    patientId: patient._id.toString(),
+                    doctorId: doctor._id.toString(),
                     fcmToken: patient.fcmToken,
                     doctorName: `${doctor.firstName} ${doctor.lastName}`,
                     appointmentDate: booking.bookingDate,
@@ -367,9 +375,86 @@ export class WorkingHoursUpdateProcessorV2 {
     return slots;
   }
 
+  // async sendPersonalizedNotifications(
+  //   affectedBookings: Array<{
+  //     bookingId: string;
+  //     fcmToken: string;
+  //     doctorName: string;
+  //     appointmentDate: Date;
+  //     appointmentTime: string;
+  //   }>,
+  // ): Promise<void> {
+  //   this.logger.log(
+  //     `📱 Sending personalized FCM to ${affectedBookings.length} patients`,
+  //   );
+
+  //   let successCount = 0;
+  //   let failureCount = 0;
+  //   const invalidTokens: string[] = [];
+
+  //   // Process in parallel batches of 10 to avoid overwhelming Firebase
+  //   const PARALLEL_LIMIT = 10;
+
+  //   for (let i = 0; i < affectedBookings.length; i += PARALLEL_LIMIT) {
+  //     const batch = affectedBookings.slice(i, i + PARALLEL_LIMIT);
+
+  //     const promises = batch.map(async (booking) => {
+  //       try {
+  //         const sent =
+  //           await this.fcmService.sendBookingCancellationNotification(
+  //             booking.fcmToken,
+  //             {
+  //               bookingId: booking.bookingId,
+  //               doctorName: booking.doctorName,
+  //               appointmentDate: this.formatDate(booking.appointmentDate),
+  //               appointmentTime: booking.appointmentTime,
+  //               reason: 'Doctor updated working hours. Please reschedule.',
+  //               type: 'DOCTOR_CANCELLED',
+  //             },
+  //           );
+
+  //         return { success: sent, token: booking.fcmToken };
+  //       } catch (error) {
+  //         const err = error as Error;
+  //         this.logger.error(
+  //           `Failed to send notification for booking ${booking.bookingId}: ${err.message}`,
+  //         );
+  //         return { success: false, token: booking.fcmToken };
+  //       }
+  //     });
+
+  //     const results = await Promise.all(promises);
+
+  //     results.forEach((result) => {
+  //       if (result.success) {
+  //         successCount++;
+  //       } else {
+  //         failureCount++;
+  //         invalidTokens.push(result.token);
+  //       }
+  //     });
+
+  //     this.logger.debug(
+  //       `Progress: ${i + batch.length}/${affectedBookings.length} processed`,
+  //     );
+  //   }
+
+  //   this.logger.log(
+  //     `✅ Personalized notifications: ${successCount} success, ${failureCount} failed`,
+  //   );
+
+  //   // Clean up invalid tokens
+  //   if (invalidTokens.length > 0) {
+  //     this.logger.warn(`Found ${invalidTokens.length} invalid tokens`);
+  //     // You can call removeInvalidTokens here if needed
+  //   }
+  // }
+
   async sendPersonalizedNotifications(
     affectedBookings: Array<{
       bookingId: string;
+      doctorId: string;
+      patientId: string;
       fcmToken: string;
       doctorName: string;
       appointmentDate: Date;
@@ -392,18 +477,16 @@ export class WorkingHoursUpdateProcessorV2 {
 
       const promises = batch.map(async (booking) => {
         try {
-          const sent =
-            await this.fcmService.sendBookingCancellationNotification(
-              booking.fcmToken,
-              {
-                bookingId: booking.bookingId,
-                doctorName: booking.doctorName,
-                appointmentDate: this.formatDate(booking.appointmentDate),
-                appointmentTime: booking.appointmentTime,
-                reason: 'Doctor updated working hours. Please reschedule.',
-                type: 'DOCTOR_CANCELLED',
-              },
-            );
+          const sent = await this.sendDisplacementNotification({
+            patientId: booking.patientId,
+            fcmToken: booking.fcmToken,
+            bookingId: booking.bookingId,
+            doctorId: booking.doctorId,
+            doctorName: booking.doctorName,
+            appointmentDate: booking.appointmentDate,
+            appointmentTime: booking.appointmentTime,
+            reason: 'Doctor updated working hours. Please reschedule.',
+          });
 
           return { success: sent, token: booking.fcmToken };
         } catch (error) {
@@ -442,12 +525,58 @@ export class WorkingHoursUpdateProcessorV2 {
     }
   }
 
-  private formatDate(date: Date): string {
-    return new Intl.DateTimeFormat('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    }).format(new Date(date));
+  private async sendDisplacementNotification(data: {
+    patientId: string;
+    fcmToken: string;
+    bookingId: string;
+    doctorId: string;
+    doctorName: string;
+    appointmentDate: Date;
+    appointmentTime: string;
+    reason: string;
+  }): Promise<boolean> {
+    if (!data.fcmToken) {
+      this.logger.warn(
+        `Patient ${data.patientId} has no FCM token. Notification not sent.`,
+      );
+      return false;
+    }
+
+    const event = {
+      eventType: 'BOOKING_CANCELLED_NOTIFICATION',
+      timestamp: new Date(),
+      data: {
+        patientId: data.patientId,
+        doctorId: data.doctorId,
+        doctorName: data.doctorName,
+        fcmToken: data.fcmToken,
+        bookingId: data.bookingId,
+        appointmentDate: formatDate(data.appointmentDate),
+        appointmentTime: data.appointmentTime,
+        reason: data.reason,
+        type: 'DOCTOR_CANCELLED',
+      },
+      metadata: {
+        source: 'notification-service',
+        version: '1.0',
+      },
+    };
+
+    try {
+      await this.kafkaProducer.emit(
+        KAFKA_TOPICS.BOOKING_CANCELLED_NOTIFICATION,
+        event,
+      );
+      this.logger.log(
+        `📱 Notification event published for patient ${data.patientId}`,
+      );
+      return true;
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `Failed to send displacement notification: ${err.message}`,
+      );
+      return false;
+    }
   }
 }

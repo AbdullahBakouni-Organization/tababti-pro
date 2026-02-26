@@ -1,6 +1,5 @@
 import { Injectable, Inject, OnModuleInit } from '@nestjs/common';
 import { ClientKafka } from '@nestjs/microservices';
-import { KAFKA_TOPICS } from './events/topics';
 import { firstValueFrom } from 'rxjs';
 
 @Injectable()
@@ -10,10 +9,6 @@ export class KafkaService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    // Object.values(KAFKA_TOPICS).forEach((topic) => {
-    //   this.kafkaClient.subscribeToResponseOf(topic);
-    // });
-
     await this.kafkaClient.connect();
   }
 

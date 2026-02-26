@@ -32,6 +32,7 @@ import {
   CancellationResponseDto,
   BookingValidationResponseDto,
 } from './dto/patient-booking.dto';
+import { formatDate } from '@app/common/utils/get-syria-date';
 
 @Injectable()
 export class UsersService {
@@ -272,8 +273,8 @@ export class UsersService {
         doctorId: doctor._id.toString(),
         doctorName,
         fcmToken: doctor.fcmToken,
-        bookingId: booking._id.toString(),
-        appointmentDate: booking.bookingDate,
+        bookingId: booking._id?.toString(),
+        appointmentDate: formatDate(booking.bookingDate),
         appointmentTime: booking.bookingTime,
         reason: `المريض ألغى الحجز`,
         type: 'USER_CANCELLED' as const,

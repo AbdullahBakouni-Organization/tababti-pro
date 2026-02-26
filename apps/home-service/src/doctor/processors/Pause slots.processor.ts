@@ -20,6 +20,7 @@ import { KafkaService } from '@app/common/kafka/kafka.service';
 import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
 import { PauseSlotsJobData } from '../dto/slot-management.dto';
 import { FcmService } from '../../fcm/fcm.service';
+import { formatDate } from '@app/common/utils/get-syria-date';
 
 @Processor('pause-slots')
 export class PauseSlotsProcessor {
@@ -179,7 +180,7 @@ export class PauseSlotsProcessor {
           data: {
             bookingId: booking._id.toString(),
             doctorName,
-            appointmentDate: this.formatDate(booking.bookingDate),
+            appointmentDate: formatDate(booking.bookingDate),
             appointmentTime: booking.bookingTime,
             reason,
             type: 'SLOT_PAUSED' as const,
@@ -193,10 +194,20 @@ export class PauseSlotsProcessor {
       if (!notification) continue;
 
       try {
-        const sent = await this.fcmService.sendBookingCancellationNotification(
-          notification.fcmToken,
-          notification.data,
-        );
+        // const sent = await this.fcmService.sendBookingCancellationNotification(
+        //   notification.fcmToken,
+        //   notification.data,
+        // );
+        const sent = await this.sendDisplacementNotification({
+          patientId: notification.patientId,
+          fcmToken: notification.fcmToken,
+          bookingId: booking.bookingId,
+          doctorId: booking.doctorId,
+          doctorName: booking.doctorName,
+          appointmentDate: booking.appointmentDate,
+          appointmentTime: booking.appointmentTime,
+          reason: 'Doctor updated working hours. Please reschedule.',
+        });
 
         if (sent) {
           this.logger.log(
@@ -253,15 +264,58 @@ export class PauseSlotsProcessor {
     }
   }
 
-  /**
-   * Format date for display
-   */
-  private formatDate(date: Date): string {
-    return new Intl.DateTimeFormat('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    }).format(new Date(date));
+  private async sendDisplacementNotification(data: {
+    patientId: string;
+    fcmToken: string;
+    bookingId: string;
+    doctorId: string;
+    doctorName: string;
+    appointmentDate: Date;
+    appointmentTime: string;
+    reason: string;
+  }): Promise<boolean> {
+    if (!data.fcmToken) {
+      this.logger.warn(
+        `Patient ${data.patientId} has no FCM token. Notification not sent.`,
+      );
+      return false;
+    }
+
+    const event = {
+      eventType: 'BOOKING_CANCELLED_NOTIFICATION',
+      timestamp: new Date(),
+      data: {
+        patientId: data.patientId,
+        doctorId: data.doctorId,
+        doctorName: data.doctorName,
+        fcmToken: data.fcmToken,
+        bookingId: data.bookingId,
+        appointmentDate: formatDate(data.appointmentDate),
+        appointmentTime: data.appointmentTime,
+        reason: data.reason,
+        type: 'DOCTOR_CANCELLED',
+      },
+      metadata: {
+        source: 'notification-service',
+        version: '1.0',
+      },
+    };
+
+    try {
+      await this.kafkaService.emit(
+        KAFKA_TOPICS.BOOKING_CANCELLED_NOTIFICATION,
+        event,
+      );
+      this.logger.log(
+        `📱 Notification event published for patient ${data.patientId}`,
+      );
+      return true;
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `Failed to send displacement notification: ${err.message}`,
+      );
+      return false;
+    }
   }
 }
