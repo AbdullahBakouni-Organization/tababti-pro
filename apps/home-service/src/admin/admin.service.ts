@@ -2,10 +2,11 @@ import {
   BadRequestException,
   Injectable,
   Logger,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import * as bcrypt from 'bcrypt';
 import {
   Admin,
@@ -22,10 +23,13 @@ import { AuthAccount } from '@app/common/database/schemas/auth.schema';
 import { AdminSignInDto } from './dto/admin-signin.dto';
 import {
   ApprovalStatus,
+  PostStatus,
   UserRole,
 } from '@app/common/database/schemas/common.enums';
 import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
 import { KafkaService } from '@app/common/kafka/kafka.service';
+import { PostModule } from 'apps/social-service/src/content/post.module';
+import { Post } from '@app/common/database/schemas/post.schema';
 
 @Injectable()
 export class AdminService {
@@ -33,6 +37,7 @@ export class AdminService {
   constructor(
     @InjectModel(Admin.name) private adminModel: Model<AdminDocument>,
     @InjectModel(Doctor.name) private doctorModel: Model<Doctor>,
+    @InjectModel(Post.name) private readonly postModel: Model<Post>,
     @InjectModel(Hospital.name) private hospitalModel: Model<Hospital>,
     @InjectModel(Center.name) private centerModel: Model<Center>,
     @InjectModel(AuthAccount.name) private authAccountModel: Model<AuthAccount>,
@@ -353,5 +358,40 @@ export class AdminService {
       );
       this.logger.error(err.message);
     }
+  }
+
+  async updatePostStatus(postId: string, status: PostStatus, adminId: string) {
+    if (!Types.ObjectId.isValid(postId)) {
+      throw new NotFoundException('post.INVALID_ID');
+    }
+
+    const validStatuses = [
+      PostStatus.PENDING,
+      PostStatus.APPROVED,
+      PostStatus.REJECTED,
+      PostStatus.PUBLISHED,
+      PostStatus.DELETED,
+    ];
+
+    if (!validStatuses.includes(status)) {
+      throw new BadRequestException('post.INVALID_STATUS');
+    }
+
+    const updated = await this.postModel.findByIdAndUpdate(
+      postId,
+      {
+        $set: {
+          status,
+          updatedAt: new Date(),
+        },
+      },
+      { new: true },
+    );
+
+    if (!updated) {
+      throw new NotFoundException('post.NOT_FOUND');
+    }
+
+    return updated;
   }
 }

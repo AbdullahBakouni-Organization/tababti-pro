@@ -1,19 +1,43 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
+
 import { QuestionsController } from './controller/questions.controller';
 import { QuestionsService } from './service/questions.service';
 import { QuestionsRepository } from './repository/questions.repository';
+
 import {
   Question,
   QuestionSchema,
-} from '../../../../libs/common/src/database/schemas/question.schema';
+} from '@app/common/database/schemas/question.schema';
+import {
+  Answer,
+  AnswerSchema,
+} from '@app/common/database/schemas/answer.schema';
 import { User, UserSchema } from '@app/common/database/schemas/user.schema';
+import {
+  Doctor,
+  DoctorSchema,
+} from '@app/common/database/schemas/doctor.schema';
+import {
+  Hospital,
+  HospitalSchema,
+} from '@app/common/database/schemas/hospital.schema';
+import {
+  Center,
+  CenterSchema,
+} from '@app/common/database/schemas/center.schema';
+
 import { SpecializationsModule } from '../specializations/specializations.module';
+
 @Module({
   imports: [
     MongooseModule.forFeature([
       { name: Question.name, schema: QuestionSchema },
+      { name: Answer.name, schema: AnswerSchema },
       { name: User.name, schema: UserSchema },
+      { name: Doctor.name, schema: DoctorSchema },
+      { name: Hospital.name, schema: HospitalSchema },
+      { name: Center.name, schema: CenterSchema },
     ]),
     SpecializationsModule,
   ],

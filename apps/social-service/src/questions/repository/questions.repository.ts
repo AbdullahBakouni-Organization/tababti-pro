@@ -1,23 +1,44 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, PipelineStage, Types } from 'mongoose';
 import { Question } from '@app/common/database/schemas/question.schema';
+
+export interface QuestionPage {
+  questions: any[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
 
 @Injectable()
 export class QuestionsRepository {
   constructor(
-    @InjectModel(Question.name)
-    private readonly questionModel: Model<Question>,
+    @InjectModel(Question.name) private readonly questionModel: Model<Question>,
   ) {}
 
-  create(data: any) {
+  // ── Create ────────────────────────────────────────────────────────────────
+
+  create(data: Partial<Question>) {
     return this.questionModel.create(data);
   }
 
-  async findQuestionsWithAnswers(match: any = {}) {
-    return this.questionModel.aggregate([
-      { $match: match },
+  // ── Find with answers & responder lookup ──────────────────────────────────
 
+  /**
+   * Aggregates questions with their answers, responders, asker, and
+   * specialization details. Returns a paginated result.
+   */
+  async findQuestionsWithAnswers(
+    match: Record<string, any> = {},
+    skip = 0,
+    limit = 10,
+  ): Promise<QuestionPage> {
+    const pipeline: PipelineStage[] = [
+      { $match: match },
+      { $sort: { createdAt: -1 } },
+
+      // ── Specializations ──────────────────────────────────────────────────
       {
         $lookup: {
           from: 'privatespecializations',
@@ -27,6 +48,23 @@ export class QuestionsRepository {
         },
       },
 
+      // ── Asker (User) ─────────────────────────────────────────────────────
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'userId',
+          foreignField: '_id',
+          as: 'askerArr',
+        },
+      },
+      {
+        $addFields: {
+          asker: { $arrayElemAt: ['$askerArr', 0] },
+        },
+      },
+      { $project: { askerArr: 0 } },
+
+      // ── Answers ───────────────────────────────────────────────────────────
       {
         $lookup: {
           from: 'answers',
@@ -36,158 +74,116 @@ export class QuestionsRepository {
         },
       },
 
+      // ── Responders for each answer ────────────────────────────────────────
+      // We unwind, look up responder (doctor / hospital / center share the
+      // same _id namespace so we try all three and pick whichever matched),
+      // then group back.
       { $unwind: { path: '$answers', preserveNullAndEmptyArrays: true } },
 
       {
         $lookup: {
           from: 'doctors',
-          let: { rid: '$answers.responderId', type: '$answers.responderType' },
-          pipeline: [
-            {
-              $match: {
-                $expr: {
-                  $and: [
-                    { $eq: ['$_id', '$$rid'] },
-                    { $eq: ['$$type', 'doctor'] },
-                  ],
-                },
-              },
-            },
-          ],
-          as: 'doctorResponder',
+          localField: 'answers.responderId',
+          foreignField: '_id',
+          as: 'answers.responderDoctor',
         },
       },
-
       {
         $lookup: {
           from: 'hospitals',
-          let: { rid: '$answers.responderId', type: '$answers.responderType' },
-          pipeline: [
-            {
-              $match: {
-                $expr: {
-                  $and: [
-                    { $eq: ['$_id', '$$rid'] },
-                    { $eq: ['$$type', 'hospital'] },
-                  ],
-                },
-              },
-            },
-          ],
-          as: 'hospitalResponder',
+          localField: 'answers.responderId',
+          foreignField: '_id',
+          as: 'answers.responderHospital',
         },
       },
-
       {
         $lookup: {
           from: 'centers',
-          let: { rid: '$answers.responderId', type: '$answers.responderType' },
-          pipeline: [
-            {
-              $match: {
-                $expr: {
-                  $and: [
-                    { $eq: ['$_id', '$$rid'] },
-                    { $eq: ['$$type', 'center'] },
-                  ],
-                },
-              },
-            },
-          ],
-          as: 'centerResponder',
+          localField: 'answers.responderId',
+          foreignField: '_id',
+          as: 'answers.responderCenter',
         },
       },
 
+      // Collapse the three lookup arrays into a single `answers.responder`
       {
         $addFields: {
-          responder: {
+          'answers.responder': {
             $ifNull: [
-              { $arrayElemAt: ['$doctorResponder', 0] },
+              { $arrayElemAt: ['$answers.responderDoctor', 0] },
               {
                 $ifNull: [
-                  { $arrayElemAt: ['$hospitalResponder', 0] },
-                  { $arrayElemAt: ['$centerResponder', 0] },
+                  { $arrayElemAt: ['$answers.responderHospital', 0] },
+                  { $arrayElemAt: ['$answers.responderCenter', 0] },
                 ],
               },
             ],
           },
         },
       },
-
-      {
-        $lookup: {
-          from: 'users',
-          localField: 'userId',
-          foreignField: '_id',
-          as: 'asker',
-        },
-      },
-
-      {
-        $addFields: {
-          asker: { $arrayElemAt: ['$asker', 0] },
-        },
-      },
-
       {
         $project: {
-          content: 1,
-          status: 1,
-          specializations: 1,
-          asker: {
-            name: { $ifNull: ['$asker.username', 'Unknown'] },
-            image: '$asker.image',
-          },
-
-          answer: {
-            $cond: [
-              { $ifNull: ['$answers._id', false] },
-              {
-                _id: '$answers._id',
-                content: '$answers.content',
-                createdAt: '$answers.createdAt',
-                responder: '$responder',
-              },
-              null,
-            ],
-          },
-          createdAt: 1,
-          updatedAt: 1,
+          'answers.responderDoctor': 0,
+          'answers.responderHospital': 0,
+          'answers.responderCenter': 0,
         },
       },
 
+      // Re-group answers back onto the question
       {
         $group: {
           _id: '$_id',
           content: { $first: '$content' },
           status: { $first: '$status' },
+          userId: { $first: '$userId' },
+          specializationId: { $first: '$specializationId' },
           specializations: { $first: '$specializations' },
+          asker: { $first: '$asker' },
+          answers: { $push: '$answers' },
           createdAt: { $first: '$createdAt' },
           updatedAt: { $first: '$updatedAt' },
-          asker: { $first: '$asker' },
-          answers: {
-            $push: '$answer',
-          },
         },
       },
 
+      // Clean up empty answer objects created by preserveNullAndEmpty
       {
         $addFields: {
           answers: {
             $filter: {
               input: '$answers',
               as: 'a',
-              cond: { $ne: ['$$a', null] },
+              cond: { $ifNull: ['$$a._id', false] },
             },
           },
         },
       },
 
       { $sort: { createdAt: -1 } },
+      { $skip: skip },
+      { $limit: limit },
+    ];
+
+    const [questions, total] = await Promise.all([
+      this.questionModel.aggregate(pipeline),
+      this.questionModel.countDocuments(match),
     ]);
+
+    const page = Math.floor(skip / limit) + 1;
+
+    return {
+      questions,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 
-  async findById(id: string) {
+  // ── Find by ID ────────────────────────────────────────────────────────────
+
+  async findById(id: string): Promise<Question | null> {
+    if (!Types.ObjectId.isValid(id))
+      throw new BadRequestException('question.INVALID_ID');
     return this.questionModel.findById(id);
   }
 }

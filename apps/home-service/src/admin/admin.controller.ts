@@ -12,6 +12,7 @@ import {
   HttpStatus,
   Req,
   Patch,
+  BadRequestException,
 } from '@nestjs/common';
 import { AdminService } from './admin.service';
 
@@ -24,7 +25,7 @@ import type { Request } from 'express';
 import { JwtAuthGuard } from '@app/common/guards/jwt.guard';
 import { RolesGuard } from '@app/common/guards/role.guard';
 import { Roles } from '@app/common/decorator/role.decorator';
-import { UserRole } from '@app/common/database/schemas/common.enums';
+import { PostStatus, UserRole } from '@app/common/database/schemas/common.enums';
 import { JwtRefreshGuard } from '@app/common/guards/jwt-refresh.guard';
 
 @Controller('admin')
@@ -32,7 +33,7 @@ export class AdminController {
   constructor(
     private readonly adminService: AdminService,
     private authService: AuthValidateService,
-  ) {}
+  ) { }
 
   // Admin Sign In
   @Post('signin')
@@ -182,6 +183,32 @@ export class AdminController {
     return {
       success: true,
       message: 'Doctor rejected successfully',
+    };
+  }
+
+  @Patch('posts/:postId/status')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Change status of a post (Admin)' })
+  @HttpCode(HttpStatus.OK)
+  async changePostStatus(
+    @Param('postId') postId: string,
+    @Body('status') status: PostStatus,
+    @Req() req: any,
+  ): Promise<{ success: boolean; message: string }> {
+    const adminId: string = req.user.accountId;
+
+    // Validate status
+    if (!Object.values(PostStatus).includes(status)) {
+      throw new BadRequestException('post.INVALID_STATUS');
+    }
+
+    await this.adminService.updatePostStatus(postId, status, adminId);
+
+    return {
+      success: true,
+      message: `Post status changed to ${status}`,
     };
   }
 }
