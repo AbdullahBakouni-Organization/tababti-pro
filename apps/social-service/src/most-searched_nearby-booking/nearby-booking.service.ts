@@ -6,10 +6,13 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
+
 import { Booking } from '@app/common/database/schemas/booking.schema';
 import { Doctor } from '@app/common/database/schemas/doctor.schema';
 import { User } from '@app/common/database/schemas/user.schema';
-import { BookingStatus, UserRole } from '@app/common/database/schemas/common.enums';
+import { BookingStatus } from '@app/common/database/schemas/common.enums';
+import { GetDoctorPatientsDto } from './dto/get-doctor-patients.dto';
+import { GetMyAppointmentsDto } from './dto/get-my-appointments.dto';
 
 @Injectable()
 export class NearbyBookingService {
@@ -17,346 +20,280 @@ export class NearbyBookingService {
     @InjectModel(Booking.name) private readonly bookingModel: Model<Booking>,
     @InjectModel(Doctor.name) private readonly doctorModel: Model<Doctor>,
     @InjectModel(User.name) private readonly userModel: Model<User>,
-  ) { }
+  ) {}
 
-  // ================= GET NEXT BOOKING FOR USER =================
+  // ── Get Next Booking For User ─────────────────────────────────────────────
+
   async getNextBookingForUser(authAccountId: string, doctorId?: string) {
-    try {
-      if (!Types.ObjectId.isValid(authAccountId)) {
-        throw new BadRequestException('common.VALIDATION_ERROR');
-      }
+    this.assertValidObjectId(authAccountId, 'common.VALIDATION_ERROR');
 
-      const user = await this.userModel.findOne({
-        authAccountId: new Types.ObjectId(authAccountId),
-      });
+    const user = await this.userModel
+      .findOne({ authAccountId: new Types.ObjectId(authAccountId) })
+      .lean();
+    if (!user) throw new NotFoundException('user.NOT_FOUND');
 
-      if (!user) {
-        throw new NotFoundException('user.NOT_FOUND');
-      }
+    const query: Record<string, any> = {
+      userId: user._id,
+      status: BookingStatus.PENDING,
+      bookingDate: { $gte: new Date() },
+    };
 
-      const today = new Date();
-
-      const query: any = {
-        userId: user._id,
-        status: BookingStatus.PENDING,
-        bookingDate: { $gte: today },
-      };
-
-      if (doctorId) {
-        if (!Types.ObjectId.isValid(doctorId)) {
-          throw new BadRequestException('common.VALIDATION_ERROR');
-        }
-        query.doctorId = new Types.ObjectId(doctorId);
-      }
-
-      const booking = await this.bookingModel
-        .findOne(query)
-        .sort({ bookingDate: 1, bookingTime: 1 })
-        .populate('doctorId', 'firstName lastName middleName image');
-
-      if (!booking) {
-        throw new NotFoundException('booking.NOT_FOUND_USER');
-      }
-
-      return booking;
-    } catch (error) {
-      if (
-        error instanceof NotFoundException ||
-        error instanceof BadRequestException
-      ) {
-        throw error;
-      }
-
-      console.error('❌ getNextBookingForUser error:', error);
-      throw new InternalServerErrorException('common.ERROR');
+    if (doctorId) {
+      this.assertValidObjectId(doctorId, 'common.VALIDATION_ERROR');
+      query.doctorId = new Types.ObjectId(doctorId);
     }
+
+    const booking = await this.bookingModel
+      .findOne(query)
+      .sort({ bookingDate: 1, bookingTime: 1 })
+      .populate('doctorId', 'firstName lastName middleName image')
+      .lean();
+
+    if (!booking) throw new NotFoundException('booking.NOT_FOUND_USER');
+
+    return booking;
   }
 
-  // ================= GET NEXT BOOKING FOR DOCTOR =================
+  // ── Get Next Booking For Doctor ───────────────────────────────────────────
+
   async getNextBookingForDoctor(authAccountId: string) {
-    try {
-      if (!Types.ObjectId.isValid(authAccountId)) {
-        throw new BadRequestException('common.VALIDATION_ERROR');
-      }
+    this.assertValidObjectId(authAccountId, 'common.VALIDATION_ERROR');
 
-      const doctor = await this.doctorModel.findOne({
-        authAccountId: new Types.ObjectId(authAccountId),
-      });
+    const doctor = await this.doctorModel
+      .findOne({ authAccountId: new Types.ObjectId(authAccountId) })
+      .lean();
+    if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
 
-      if (!doctor) {
-        throw new NotFoundException('doctor.NOT_FOUND');
-      }
+    const booking = await this.bookingModel
+      .findOne({
+        doctorId: doctor._id,
+        status: BookingStatus.PENDING,
+        bookingDate: { $gte: new Date() },
+      })
+      .sort({ bookingDate: 1, bookingTime: 1 })
+      .populate('userId', 'username phone image')
+      .lean();
 
-      const today = new Date();
+    if (!booking) throw new NotFoundException('booking.NOT_FOUND_DOCTOR');
 
-      const booking = await this.bookingModel
-        .findOne({
-          doctorId: doctor._id,
-          status: BookingStatus.PENDING,
-          bookingDate: { $gte: today },
-        })
-        .sort({ bookingDate: 1, bookingTime: 1 })
-        .populate('userId', 'username phone image');
-
-      if (!booking) {
-        throw new NotFoundException('booking.NOT_FOUND_DOCTOR');
-      }
-
-      return booking;
-    } catch (error) {
-      if (
-        error instanceof NotFoundException ||
-        error instanceof BadRequestException
-      ) {
-        throw error;
-      }
-
-      console.error('❌ getNextBookingForDoctor error:', error);
-      throw new InternalServerErrorException('common.ERROR');
-    }
+    return booking;
   }
 
-  // ================= GET TOP DOCTORS =================
-  async getTopDoctors(limit: number = 10) {
-    try {
-      if (!limit || limit <= 0) {
-        throw new BadRequestException('common.VALIDATION_ERROR');
-      }
+  // ── Get Top Doctors ───────────────────────────────────────────────────────
 
-      return await this.doctorModel
-        .find()
-        .sort({ searchCount: -1 })
-        .limit(limit)
-        .select('firstName lastName middleName image searchCount');
-    } catch (error) {
-      console.error('❌ getTopDoctors error:', error);
-      throw new InternalServerErrorException('common.ERROR');
-    }
+  async getTopDoctors(limit = 10) {
+    const safeLimit = Math.min(Math.max(limit, 1), 50);
+
+    return this.doctorModel
+      .find()
+      .sort({ searchCount: -1 })
+      .limit(safeLimit)
+      .select('firstName lastName middleName image searchCount')
+      .lean();
   }
 
-  // ================= GET ALL BOOKINGS =================
+  // ── Get All Bookings For User ─────────────────────────────────────────────
+
   async getAllBookingsForUser(authAccountId: string, status?: string) {
-    try {
-      if (!Types.ObjectId.isValid(authAccountId)) {
-        throw new BadRequestException('common.VALIDATION_ERROR');
+    this.assertValidObjectId(authAccountId, 'common.VALIDATION_ERROR');
+
+    const user = await this.userModel
+      .findOne({ authAccountId: new Types.ObjectId(authAccountId) })
+      .lean();
+    if (!user) throw new NotFoundException('user.NOT_FOUND');
+
+    const query: Record<string, any> = { userId: user._id };
+
+    if (status) {
+      if (!Object.values(BookingStatus).includes(status as BookingStatus)) {
+        throw new BadRequestException('booking.INVALID_STATUS');
       }
-
-      const user = await this.userModel.findOne({
-        authAccountId: new Types.ObjectId(authAccountId),
-      });
-
-      if (!user) {
-        throw new NotFoundException('user.NOT_FOUND');
-      }
-
-      const query: any = { userId: user._id };
-
-      if (status) {
-        const validStatuses = Object.values(BookingStatus);
-
-        if (!validStatuses.includes(status as BookingStatus)) {
-          throw new BadRequestException('booking.INVALID_STATUS');
-        }
-
-        query.status = status;
-      }
-
-      return await this.bookingModel
-        .find(query)
-        .sort({ bookingDate: -1, bookingTime: -1 })
-        .populate('doctorId', 'firstName lastName middleName image');
-    } catch (error) {
-      if (
-        error instanceof NotFoundException ||
-        error instanceof BadRequestException
-      ) {
-        throw error;
-      }
-
-      console.error('❌ getAllBookingsForUser error:', error);
-      throw new InternalServerErrorException('common.ERROR');
+      query.status = status;
     }
+
+    return this.bookingModel
+      .find(query)
+      .sort({ bookingDate: -1, bookingTime: -1 })
+      .populate('doctorId', 'firstName lastName middleName image')
+      .lean();
   }
 
-  // ================= GET DOCTOR PATIENTS =================
-  async getDoctorPatients(authAccountId: string, filters: any) {
-    try {
-      if (!Types.ObjectId.isValid(authAccountId)) {
-        throw new BadRequestException('common.VALIDATION_ERROR');
-      }
+  // ── Get Doctor Patients ───────────────────────────────────────────────────
 
-      const doctor = await this.doctorModel.findOne({
-        authAccountId: new Types.ObjectId(authAccountId),
+  async getDoctorPatients(
+    authAccountId: string,
+    filters: GetDoctorPatientsDto,
+  ) {
+    this.assertValidObjectId(authAccountId, 'common.VALIDATION_ERROR');
+
+    const doctor = await this.doctorModel
+      .findOne({ authAccountId: new Types.ObjectId(authAccountId) })
+      .lean();
+    if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
+
+    const { page, limit, skip } = this.paginate(filters.page, filters.limit);
+
+    const matchStage: Record<string, any> = {
+      doctorId: doctor._id,
+      $or: [
+        { status: BookingStatus.COMPLETED },
+        { completedAt: { $ne: null } },
+      ],
+    };
+
+    if (filters.fromDate || filters.toDate) {
+      matchStage.bookingDate = {};
+      if (filters.fromDate)
+        matchStage.bookingDate.$gte = new Date(filters.fromDate);
+      if (filters.toDate)
+        matchStage.bookingDate.$lte = new Date(filters.toDate);
+    }
+
+    const pipeline: any[] = [
+      { $match: matchStage },
+      {
+        $lookup: {
+          from: this.userModel.collection.name,
+          localField: 'userId',
+          foreignField: '_id',
+          as: 'patient',
+        },
+      },
+      { $unwind: '$patient' },
+    ];
+
+    if (filters.search) {
+      pipeline.push({
+        $match: {
+          $or: [
+            { 'patient.username': { $regex: filters.search, $options: 'i' } },
+            { 'patient.phone': { $regex: filters.search, $options: 'i' } },
+          ],
+        },
       });
+    }
 
-      if (!doctor) {
-        throw new NotFoundException('doctor.NOT_FOUND');
-      }
+    pipeline.push(
+      {
+        $group: {
+          _id: '$patient._id',
+          username: { $first: '$patient.username' },
+          phone: { $first: '$patient.phone' },
+          image: { $first: '$patient.image' },
+          totalVisits: { $sum: 1 },
+          lastVisit: { $max: '$bookingDate' },
+        },
+      },
+      { $sort: { lastVisit: -1 } },
+      {
+        $facet: {
+          data: [{ $skip: skip }, { $limit: limit }],
+          totalCount: [{ $count: 'count' }],
+        },
+      },
+    );
 
-      const page = Math.max(Number(filters.page) || 1, 1);
-      const limit = Math.max(Number(filters.limit) || 10, 1);
-      const skip = (page - 1) * limit;
+    const result = await this.bookingModel.aggregate(pipeline);
 
-      const matchStage: any = {
-        doctorId: doctor._id,
-        $or: [
-          { status: BookingStatus.COMPLETED },
-          { completedAt: { $ne: null } },
+    return {
+      patients: result[0]?.data ?? [],
+      total: result[0]?.totalCount?.[0]?.count ?? 0,
+      page,
+      limit,
+      totalPages: Math.ceil((result[0]?.totalCount?.[0]?.count ?? 0) / limit),
+    };
+  }
+
+  // ── Get My Appointments (Doctor) ──────────────────────────────────────────
+
+  async getMyAppointments(
+    authAccountId: string,
+    filters: GetMyAppointmentsDto,
+  ) {
+    this.assertValidObjectId(authAccountId, 'common.VALIDATION_ERROR');
+
+    const doctor = await this.doctorModel
+      .findOne({ authAccountId: new Types.ObjectId(authAccountId) })
+      .lean();
+    if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
+
+    const { page, limit, skip } = this.paginate(filters.page, filters.limit);
+
+    const matchStage: Record<string, any> = {
+      doctorId: doctor._id,
+      status: {
+        $in: [
+          BookingStatus.PENDING,
+          BookingStatus.CONFIRMED,
+          BookingStatus.COMPLETED,
         ],
-      };
+      },
+    };
 
-      if (filters.fromDate || filters.toDate) {
-        matchStage.bookingDate = {};
-        if (filters.fromDate) matchStage.bookingDate.$gte = new Date(filters.fromDate);
-        if (filters.toDate) matchStage.bookingDate.$lte = new Date(filters.toDate);
-      }
-
-      const pipeline: any[] = [
-        { $match: matchStage },
-
-        {
-          $lookup: {
-            from: this.userModel.collection.name,
-            localField: 'userId',
-            foreignField: '_id',
-            as: 'patient',
-          },
-        },
-        { $unwind: '$patient' },
-      ];
-
-      if (filters.search) {
-        pipeline.push({
-          $match: {
-            $or: [
-              { 'patient.username': { $regex: filters.search, $options: 'i' } },
-              { 'patient.phone': { $regex: filters.search, $options: 'i' } },
-            ],
-          },
-        });
-      }
-
-      pipeline.push(
-        {
-          $group: {
-            _id: '$patient._id',
-            username: { $first: '$patient.username' },
-            phone: { $first: '$patient.phone' },
-            image: { $first: '$patient.image' },
-            totalVisits: { $sum: 1 },
-            lastVisit: { $max: '$bookingDate' },
-          },
-        },
-        { $sort: { lastVisit: -1 } },
-        {
-          $facet: {
-            data: [{ $skip: skip }, { $limit: limit }],
-            totalCount: [{ $count: 'count' }],
-          },
-        },
-      );
-
-      const result = await this.bookingModel.aggregate(pipeline);
-
-      const data = result[0]?.data || [];
-      const total = result[0]?.totalCount?.[0]?.count || 0;
-
-      return {
-        patients: data,
-        total,
-        page,
-        limit,
-      };
-    } catch (error) {
-      if (error instanceof NotFoundException || error instanceof BadRequestException) {
-        throw error;
-      }
-
-      console.error('❌ getDoctorPatients error:', error);
-      throw new InternalServerErrorException('common.ERROR');
+    if (filters.fromDate || filters.toDate) {
+      matchStage.bookingDate = {};
+      if (filters.fromDate)
+        matchStage.bookingDate.$gte = new Date(filters.fromDate);
+      if (filters.toDate)
+        matchStage.bookingDate.$lte = new Date(filters.toDate);
     }
+
+    const pipeline: any[] = [
+      { $match: matchStage },
+      {
+        $lookup: {
+          from: this.userModel.collection.name,
+          localField: 'userId',
+          foreignField: '_id',
+          as: 'patient',
+        },
+      },
+      { $unwind: '$patient' },
+    ];
+
+    if (filters.search) {
+      pipeline.push({
+        $match: {
+          $or: [
+            { 'patient.username': { $regex: filters.search, $options: 'i' } },
+            { 'patient.phone': { $regex: filters.search, $options: 'i' } },
+          ],
+        },
+      });
+    }
+
+    pipeline.push(
+      { $sort: { bookingDate: -1, bookingTime: -1 } },
+      {
+        $facet: {
+          data: [{ $skip: skip }, { $limit: limit }],
+          totalCount: [{ $count: 'count' }],
+        },
+      },
+    );
+
+    const result = await this.bookingModel.aggregate(pipeline);
+    const total = result[0]?.totalCount?.[0]?.count ?? 0;
+
+    return {
+      appointments: result[0]?.data ?? [],
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 
-  // ================= GET MY APPOINTMENTS =================
-  async getMyAppointments(authAccountId: string, filters?: any) {
-    try {
-      if (!Types.ObjectId.isValid(authAccountId)) {
-        throw new BadRequestException('common.VALIDATION_ERROR');
-      }
+  // ── Private Helpers ───────────────────────────────────────────────────────
 
-      const doctor = await this.doctorModel.findOne({
-        authAccountId: new Types.ObjectId(authAccountId),
-      });
+  private assertValidObjectId(id: string, messageKey: string): void {
+    if (!Types.ObjectId.isValid(id)) throw new BadRequestException(messageKey);
+  }
 
-      if (!doctor) {
-        throw new NotFoundException('doctor.NOT_FOUND');
-      }
-
-      const page = Math.max(Number(filters?.page) || 1, 1);
-      const limit = Math.max(Number(filters?.limit) || 10, 1);
-      const skip = (page - 1) * limit;
-
-      const matchStage: any = {
-        doctorId: doctor._id,
-        status: { $in: [BookingStatus.PENDING, BookingStatus.CONFIRMED, BookingStatus.COMPLETED] },
-      };
-
-      if (filters?.fromDate || filters?.toDate) {
-        matchStage.bookingDate = {};
-        if (filters.fromDate) matchStage.bookingDate.$gte = new Date(filters.fromDate);
-        if (filters.toDate) matchStage.bookingDate.$lte = new Date(filters.toDate);
-      }
-
-      const pipeline: any[] = [
-        { $match: matchStage },
-        {
-          $lookup: {
-            from: this.userModel.collection.name,
-            localField: 'userId',
-            foreignField: '_id',
-            as: 'patient',
-          },
-        },
-        { $unwind: '$patient' },
-      ];
-
-      if (filters?.search) {
-        pipeline.push({
-          $match: {
-            $or: [
-              { 'patient.username': { $regex: filters.search, $options: 'i' } },
-              { 'patient.phone': { $regex: filters.search, $options: 'i' } },
-            ],
-          },
-        });
-      }
-
-      pipeline.push(
-        {
-          $sort: { bookingDate: -1, bookingTime: -1 },
-        },
-        {
-          $facet: {
-            data: [{ $skip: skip }, { $limit: limit }],
-            totalCount: [{ $count: 'count' }],
-          },
-        },
-      );
-
-      const result = await this.bookingModel.aggregate(pipeline);
-
-      return {
-        appointments: result[0]?.data || [],
-        total: result[0]?.totalCount?.[0]?.count || 0,
-        page,
-        limit,
-      };
-    } catch (error) {
-      if (error instanceof NotFoundException || error instanceof BadRequestException) {
-        throw error;
-      }
-      console.error('❌ getMyAppointments error:', error);
-      throw new InternalServerErrorException('common.ERROR');
-    }
+  private paginate(pageStr?: string, limitStr?: string) {
+    const page = Math.max(Number(pageStr) || 1, 1);
+    const limit = Math.min(Math.max(Number(limitStr) || 10, 1), 50);
+    const skip = (page - 1) * limit;
+    return { page, limit, skip };
   }
 }
