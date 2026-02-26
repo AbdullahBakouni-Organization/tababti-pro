@@ -8,17 +8,19 @@ import { I18nExceptionFilter } from './common/filters/i18n-exception.filter';
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
 
-  // Mongoose Debug with formatted output
-  mongoose.set('debug', function (collectionName, method, query, doc) {
-    logger.debug(
-      `MongoDB ${collectionName}.${method} → ${JSON.stringify(query)} ${
-        doc ? JSON.stringify(doc) : ''
-      }`,
-    );
-  });
+  // ── Mongoose debug logging ────────────────────────────────────────────────
+  mongoose.set(
+    'debug',
+    (collectionName: string, method: string, query: any, doc: any) => {
+      logger.debug(
+        `MongoDB ${collectionName}.${method} → ${JSON.stringify(query)}${doc ? ' ' + JSON.stringify(doc) : ''}`,
+      );
+    },
+  );
 
   const app = await NestFactory.create(SocialServiceModule);
 
+  // ── Global pipes ──────────────────────────────────────────────────────────
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -27,10 +29,16 @@ async function bootstrap() {
     }),
   );
 
+  // ── Global exception filter ───────────────────────────────────────────────
+  // Handles both REST (HTTP) and GraphQL contexts
   app.useGlobalFilters(new I18nExceptionFilter());
 
-  app.setGlobalPrefix('api/v1');
+  // ── Global prefix (REST only — GraphQL uses /graphql automatically) ───────
+  app.setGlobalPrefix('api/v1', {
+    exclude: ['graphql'], // ← prevent /api/v1/graphql — keep it at /graphql
+  });
 
+  // ── Kafka microservice ────────────────────────────────────────────────────
   app.connectMicroservice<MicroserviceOptions>({
     transport: Transport.KAFKA,
     options: {
@@ -45,10 +53,13 @@ async function bootstrap() {
   });
 
   await app.startAllMicroservices();
-  await app.listen(process.env.SOCIAL_PORT || 3001);
 
-  logger.log(
-    `Social Service running on port ${process.env.SOCIAL_PORT || 3001}`,
-  );
+  const port = process.env.SOCIAL_PORT || 3002;
+  await app.listen(port);
+
+  logger.log(`🚀 Social Service running on port ${port}`);
+  logger.log(`📡 REST   → http://localhost:${port}/api/v1`);
+  logger.log(`🔷 GraphQL → http://localhost:${port}/graphql`);
 }
+
 bootstrap();

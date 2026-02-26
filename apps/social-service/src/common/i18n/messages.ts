@@ -30,7 +30,18 @@ export const messages = {
       NOT_FOUND: 'Doctor not found',
       INVALID_ID: 'Invalid doctor ID',
       TOP_SEARCHED: 'Top searched doctors',
+    },
 
+    // ================= BOOKINGS =================
+    booking: {
+      NEXT_FOR_USER: 'Next upcoming booking',
+      NEXT_FOR_DOCTOR: 'Next upcoming booking',
+      ALL_FOR_USER: 'Bookings list',
+      NOT_FOUND_USER: 'No upcoming booking found for user',
+      NOT_FOUND_DOCTOR: 'No upcoming booking found for doctor',
+      INVALID_STATUS: 'Invalid booking status',
+      DOCTOR_PATIENTS: 'Doctor patients list',
+      MY_APPOINTMENTS: 'Doctor appointments list',
     },
 
     // ================= POSTS =================
@@ -46,15 +57,15 @@ export const messages = {
       FETCHED: 'Posts fetched successfully',
       INVALID_ID: 'Invalid ID',
     },
-    booking: {
-      NEXT_FOR_USER: 'Next upcoming booking',
-      NEXT_FOR_DOCTOR: 'Next upcoming booking',
-      ALL_FOR_USER: 'Bookings list',
-      NOT_FOUND_USER: 'No upcoming booking found for user',
-      NOT_FOUND_DOCTOR: 'No upcoming booking found for doctor',
-      INVALID_STATUS: 'Invalid booking status',
-      DOCTOR_PATIENTS: 'Doctor patients list',
-      MY_APPOINTMENTS: 'Doctor Appointments List',
+
+    // ================= DASHBOARD =================
+    dashboard: {
+      STATS: 'Dashboard statistics',
+      CALENDAR: 'Appointment calendar',
+      APPOINTMENTS: 'Appointments list',
+      REVENUE: 'Revenue chart data',
+      PATIENTS: 'Recent patients',
+      FULL: 'Dashboard loaded successfully',
     },
 
     // ================= COMMON =================
@@ -98,9 +109,9 @@ export const messages = {
       NOT_FOUND: 'الطبيب غير موجود',
       INVALID_ID: 'معرّف الطبيب غير صالح',
       TOP_SEARCHED: 'الأطباء الأكثر بحثاً',
-
     },
 
+    // ================= BOOKINGS =================
     booking: {
       NEXT_FOR_USER: 'أقرب حجز قادم',
       NEXT_FOR_DOCTOR: 'أقرب حجز قادم',
@@ -111,6 +122,7 @@ export const messages = {
       DOCTOR_PATIENTS: 'قائمة مرضى الطبيب',
       MY_APPOINTMENTS: 'قائمة حجوزات الطبيب',
     },
+
     // ================= POSTS =================
     post: {
       CREATED: 'تم إنشاء المنشور بنجاح',
@@ -123,6 +135,16 @@ export const messages = {
       INVALID_CONTENT: 'يجب أن يحتوي المنشور على نص أو صور',
       FETCHED: 'تم جلب المنشورات بنجاح',
       INVALID_ID: 'معرّف غير صالح',
+    },
+
+    // ================= DASHBOARD =================
+    dashboard: {
+      STATS: 'إحصائيات لوحة التحكم',
+      CALENDAR: 'تقويم المواعيد',
+      APPOINTMENTS: 'قائمة المواعيد',
+      REVENUE: 'بيانات الإيرادات',
+      PATIENTS: 'آخر المرضى',
+      FULL: 'تم تحميل لوحة التحكم بنجاح',
     },
 
     // ================= COMMON =================
