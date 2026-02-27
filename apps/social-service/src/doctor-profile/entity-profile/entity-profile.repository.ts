@@ -63,4 +63,141 @@ export class EntityProfileRepository {
       { $inc: { profileViews: 1 } },
     );
   }
+
+  // ── Gallery — Get ───────────────────────────────────────────────────────────
+
+  async getDoctorGallery(id: string): Promise<string[]> {
+    this.assertValidId(id);
+    const doc = await this.doctorModel
+      .findOne({ _id: new Types.ObjectId(id) })
+      .select('gallery')
+      .lean();
+    return doc?.gallery ?? [];
+  }
+
+  async getHospitalGallery(id: string): Promise<string[]> {
+    this.assertValidId(id);
+    const doc = await this.hospitalModel
+      .findOne({ _id: new Types.ObjectId(id) })
+      .select('gallery')
+      .lean();
+    return doc?.gallery ?? [];
+  }
+
+  async getCenterGallery(id: string): Promise<string[]> {
+    this.assertValidId(id);
+    const doc = await this.centerModel
+      .findOne({ _id: new Types.ObjectId(id) })
+      .select('gallery')
+      .lean();
+    return doc?.gallery ?? [];
+  }
+
+  // ── Gallery — Add ───────────────────────────────────────────────────────────
+
+  async addDoctorGallery(id: string, images: string[]): Promise<string[]> {
+    this.assertValidId(id);
+    const doc = await this.doctorModel
+      .findOneAndUpdate(
+        { _id: new Types.ObjectId(id) },
+        { $addToSet: { gallery: { $each: images } } }, // $addToSet prevents duplicates
+        { new: true },
+      )
+      .select('gallery')
+      .lean();
+    return doc?.gallery ?? [];
+  }
+
+  async addHospitalGallery(id: string, images: string[]): Promise<string[]> {
+    this.assertValidId(id);
+    const doc = await this.hospitalModel
+      .findOneAndUpdate(
+        { _id: new Types.ObjectId(id) },
+        { $addToSet: { gallery: { $each: images } } },
+        { new: true },
+      )
+      .select('gallery')
+      .lean();
+    return doc?.gallery ?? [];
+  }
+
+  async addCenterGallery(id: string, images: string[]): Promise<string[]> {
+    this.assertValidId(id);
+    const doc = await this.centerModel
+      .findOneAndUpdate(
+        { _id: new Types.ObjectId(id) },
+        { $addToSet: { gallery: { $each: images } } },
+        { new: true },
+      )
+      .select('gallery')
+      .lean();
+    return doc?.gallery ?? [];
+  }
+
+  // ── Gallery — Remove ────────────────────────────────────────────────────────
+
+  async removeDoctorGallery(id: string, images: string[]): Promise<string[]> {
+    this.assertValidId(id);
+    const doc = await this.doctorModel
+      .findOneAndUpdate(
+        { _id: new Types.ObjectId(id) },
+        { $pullAll: { gallery: images } },
+        { new: true },
+      )
+      .select('gallery')
+      .lean();
+    return doc?.gallery ?? [];
+  }
+
+  async removeHospitalGallery(id: string, images: string[]): Promise<string[]> {
+    this.assertValidId(id);
+    const doc = await this.hospitalModel
+      .findOneAndUpdate(
+        { _id: new Types.ObjectId(id) },
+        { $pullAll: { gallery: images } },
+        { new: true },
+      )
+      .select('gallery')
+      .lean();
+    return doc?.gallery ?? [];
+  }
+
+  async removeCenterGallery(id: string, images: string[]): Promise<string[]> {
+    this.assertValidId(id);
+    const doc = await this.centerModel
+      .findOneAndUpdate(
+        { _id: new Types.ObjectId(id) },
+        { $pullAll: { gallery: images } },
+        { new: true },
+      )
+      .select('gallery')
+      .lean();
+    return doc?.gallery ?? [];
+  }
+
+  // ── Gallery — Clear All ─────────────────────────────────────────────────────
+
+  async clearDoctorGallery(id: string): Promise<void> {
+    this.assertValidId(id);
+    await this.doctorModel.updateOne(
+      { _id: new Types.ObjectId(id) },
+      { $set: { gallery: [] } },
+    );
+  }
+
+  async clearHospitalGallery(id: string): Promise<void> {
+    this.assertValidId(id);
+    await this.hospitalModel.updateOne(
+      { _id: new Types.ObjectId(id) },
+      { $set: { gallery: [] } },
+    );
+  }
+
+  async clearCenterGallery(id: string): Promise<void> {
+    this.assertValidId(id);
+    await this.centerModel.updateOne(
+      { _id: new Types.ObjectId(id) },
+      { $set: { gallery: [] } },
+    );
+  }
 }

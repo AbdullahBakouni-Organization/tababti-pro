@@ -68,11 +68,21 @@ export const messages = {
       FULL: 'Dashboard loaded successfully',
     },
 
+    // ================= ENTITY PROFILE =================
+    entity: {
+      PROFILE_FETCHED: 'Entity profile fetched successfully',
+      GALLERY_FETCHED: 'Gallery fetched successfully',
+      GALLERY_UPDATED: 'Gallery updated successfully',
+      GALLERY_CLEARED: 'Gallery cleared successfully',
+      NOT_FOUND: 'Entity not found',
+    },
+
     // ================= COMMON =================
     common: {
       SUCCESS: 'Success',
       ERROR: 'Something went wrong',
       VALIDATION_ERROR: 'Validation error',
+      INVALID_ID: 'Invalid ID',
     },
   },
 
@@ -147,11 +157,21 @@ export const messages = {
       FULL: 'تم تحميل لوحة التحكم بنجاح',
     },
 
+    // ================= ENTITY PROFILE =================
+    entity: {
+      PROFILE_FETCHED: 'تم جلب الملف الشخصي بنجاح',
+      GALLERY_FETCHED: 'تم جلب معرض الصور بنجاح',
+      GALLERY_UPDATED: 'تم تحديث معرض الصور بنجاح',
+      GALLERY_CLEARED: 'تم مسح معرض الصور بنجاح',
+      NOT_FOUND: 'الكيان غير موجود',
+    },
+
     // ================= COMMON =================
     common: {
       SUCCESS: 'تم بنجاح',
       ERROR: 'حدث خطأ ما',
       VALIDATION_ERROR: 'خطأ في التحقق من البيانات',
+      INVALID_ID: 'معرّف غير صالح',
     },
   },
 };

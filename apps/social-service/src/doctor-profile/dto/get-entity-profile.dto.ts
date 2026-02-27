@@ -1,5 +1,6 @@
-// dto/get-entity-profile.dto.ts
-import { IsEnum, IsMongoId } from 'class-validator';
+
+import { ApiProperty } from '@nestjs/swagger';
+import { IsEnum, IsMongoId, IsArray, IsString } from 'class-validator';
 
 export enum EntityType {
   DOCTOR = 'doctor',
@@ -13,4 +14,21 @@ export class GetEntityProfileDto {
 
   @IsEnum(EntityType)
   type: EntityType;
+}
+
+export class AddGalleryDto {
+  @ApiProperty({
+    type: 'string',
+    format: 'binary',
+    isArray: true,
+    description: 'Upload multiple image files',
+  })
+  images: any;
+}
+
+export class RemoveGalleryDto {
+  @ApiProperty({ type: [String] })
+  @IsArray()
+  @IsString({ each: true })
+  images: string[];
 }

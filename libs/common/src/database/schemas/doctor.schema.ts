@@ -206,10 +206,11 @@ export class Doctor extends Document {
   @Prop({ default: 5 }) // Max 5 concurrent sessions
   maxSessions: number;
 
-
   @Prop({ type: Date })
   yearsOfExperience: Date;
 
+  @Prop({ type: [String], default: [] })
+  gallery: string[];
   // ==================== SECURITY ====================
 
   @Prop({ default: 0 })

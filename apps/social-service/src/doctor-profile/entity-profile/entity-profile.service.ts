@@ -53,8 +53,8 @@ export class EntityProfileService {
       phones: doctor.phones,
       city: doctor.city,
       subcity: doctor.subcity,
-      latitude:doctor.latitude || null,
-      longitude:doctor.longitude||null,
+      latitude: doctor.latitude || null,
+      longitude: doctor.longitude || null,
       gender: doctor.gender,
       publicSpecialization: doctor.publicSpecialization,
       privateSpecialization: doctor.privateSpecialization,
@@ -63,6 +63,7 @@ export class EntityProfileService {
       yearsOfExperience: this.calculateYears(doctor.yearsOfExperience),
       experienceStartDate: doctor.yearsOfExperience || null,
       rating: doctor.rating || 0,
+      gallery: doctor.gallery ?? [],
       workingHours: doctor.workingHours || [],
       profileViews: doctor.profileViews || 0,
       isSubscribed: doctor.isSubscribed,
@@ -102,6 +103,7 @@ export class EntityProfileService {
       name: hospital.name,
       bio: hospital.bio || null,
       image: hospital.image || null,
+      gallery: hospital.gallery ?? [],
       address: hospital.address,
       phones: hospital.phones,
       city: hospital.cityId,
@@ -148,6 +150,7 @@ export class EntityProfileService {
       bio: center.bio || null,
       image: center.image || null,
       address: center.address || null,
+      gallery: center.gallery ?? [],
       phones: center.phones,
       city: center.cityId,
       centerSpecialization: center.centerSpecialization,
@@ -178,5 +181,64 @@ export class EntityProfileService {
     if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < start.getDate()))
       years--;
     return years;
+  }
+
+  // ── Gallery — Get ─────────────────────────────────────────────────────────
+
+  async getGallery(id: string, type: EntityType): Promise<string[]> {
+    switch (type) {
+      case EntityType.DOCTOR:
+        return this.repo.getDoctorGallery(id);
+      case EntityType.HOSPITAL:
+        return this.repo.getHospitalGallery(id);
+      case EntityType.CENTER:
+        return this.repo.getCenterGallery(id);
+    }
+  }
+  // ── Gallery — Add ─────────────────────────────────────────────────────────
+
+  async addGallery(
+    id: string,
+    type: EntityType,
+    images: string[],
+  ): Promise<string[]> {
+    switch (type) {
+      case EntityType.DOCTOR:
+        return this.repo.addDoctorGallery(id, images);
+      case EntityType.HOSPITAL:
+        return this.repo.addHospitalGallery(id, images);
+      case EntityType.CENTER:
+        return this.repo.addCenterGallery(id, images);
+    }
+  }
+
+  // ── Gallery — Remove specific images ─────────────────────────────────────
+
+  async removeGallery(
+    id: string,
+    type: EntityType,
+    images: string[],
+  ): Promise<string[]> {
+    switch (type) {
+      case EntityType.DOCTOR:
+        return this.repo.removeDoctorGallery(id, images);
+      case EntityType.HOSPITAL:
+        return this.repo.removeHospitalGallery(id, images);
+      case EntityType.CENTER:
+        return this.repo.removeCenterGallery(id, images);
+    }
+  }
+
+  // ── Gallery — Clear all ───────────────────────────────────────────────────
+
+  async clearGallery(id: string, type: EntityType): Promise<void> {
+    switch (type) {
+      case EntityType.DOCTOR:
+        return this.repo.clearDoctorGallery(id);
+      case EntityType.HOSPITAL:
+        return this.repo.clearHospitalGallery(id);
+      case EntityType.CENTER:
+        return this.repo.clearCenterGallery(id);
+    }
   }
 }
