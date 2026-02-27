@@ -6,6 +6,7 @@ import { GetNextBookingDto } from './dto/get-next-booking.dto';
 import { GetTopDoctorsDto } from './dto/get-top-doctors.dto';
 import { GetDoctorPatientsDto } from './dto/get-doctor-patients.dto';
 import { GetMyAppointmentsDto } from './dto/get-my-appointments.dto';
+import { SearchPatientsDto } from './dto/search-patients.dto';
 
 import { JwtAuthGuard } from '@app/common/guards/jwt.guard';
 import { RolesGuard } from '@app/common/guards/role.guard';
@@ -73,7 +74,7 @@ export class NearbyBookingController {
   }
 
   // ── GET /bookings/all ─────────────────────────────────────────────────────
-  @Get('all')
+  @Get('all-bookings')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.USER)
   @ApiBearerAuth()
@@ -122,6 +123,24 @@ export class NearbyBookingController {
     return ApiResponse.success({
       lang,
       messageKey: 'booking.MY_APPOINTMENTS',
+      data,
+    });
+  }
+
+  // ── GET /bookings/doctor/search-patients ──────────────────────────────────
+  @Get('doctor/search-patients')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
+  @ApiBearerAuth()
+  async searchDoctorPatients(
+    @CurrentUser('accountId') accountId: string,
+    @Query() query: SearchPatientsDto,
+    @Headers('accept-language') lang: 'en' | 'ar' = 'en',
+  ) {
+    const data = await this.service.searchDoctorPatients(accountId, query);
+    return ApiResponse.success({
+      lang,
+      messageKey: 'booking.DOCTOR_PATIENTS',
       data,
     });
   }

@@ -91,7 +91,7 @@ export const BookingSchema = SchemaFactory.createForClass(Booking);
 BookingSchema.index(
   {
     doctorId: 1,
-    userId: 1,
+    patientId: 1,
     bookingDate: 1,
     bookingTime: 1,
     bookingEndTime: 1,

@@ -5,19 +5,37 @@ import {
   Min,
   Max,
   IsDateString,
-  IsString,
+  IsIn,
 } from 'class-validator';
+
+// ─── Helper ───────────────────────────────────────────────────────────────────
+
+export function resolveRefDate(selectedDate?: string): Date {
+  if (!selectedDate) return new Date();
+  const d = new Date(selectedDate);
+  return isNaN(d.getTime()) ? new Date() : d;
+}
+
+// ─── DashboardArgs ────────────────────────────────────────────────────────────
 
 @ArgsType()
 export class DashboardArgs {
-  @Field({ description: 'Doctor authAccountId from JWT' })
-  @IsString()
-  doctorAccountId: string;
-
-  @Field({ nullable: true, description: 'YYYY-MM-DD — defaults to today' })
+  @Field({
+    nullable: true,
+    description: 'YYYY-MM-DD — sets reference month for all sections',
+  })
   @IsOptional()
   @IsDateString()
   selectedDate?: string;
+
+  // ✅ period for locationChart inside full dashboard
+  @Field({
+    nullable: true,
+    description: 'week | month — controls locationChart range. Default: week',
+  })
+  @IsOptional()
+  @IsIn(['week', 'month'])
+  period?: 'week' | 'month';
 
   @Field(() => Int, { nullable: true, defaultValue: 1 })
   @IsOptional()
@@ -33,12 +51,10 @@ export class DashboardArgs {
   limit?: number;
 }
 
+// ─── CalendarArgs ─────────────────────────────────────────────────────────────
+
 @ArgsType()
 export class CalendarArgs {
-  @Field()
-  @IsString()
-  doctorAccountId: string;
-
   @Field(() => Int, { description: 'Full year e.g. 2026' })
   @IsInt()
   year: number;
@@ -48,31 +64,45 @@ export class CalendarArgs {
   month: number;
 }
 
-@ArgsType()
-export class RevenueChartArgs {
-  @Field()
-  @IsString()
-  doctorAccountId: string;
+// ─── LocationChartArgs ────────────────────────────────────────────────────────
 
-  @Field({ nullable: true, description: 'day | week | month — default: week' })
+@ArgsType()
+export class LocationChartArgs {
+  @Field({ nullable: true, description: 'week | month — default: week' })
   @IsOptional()
-  period?: 'day' | 'week' | 'month';
+  @IsIn(['week', 'month'])
+  period?: 'week' | 'month';
+
+  @Field({
+    nullable: true,
+    description: 'YYYY-MM-DD — reference point for the period',
+  })
+  @IsOptional()
+  @IsDateString()
+  selectedDate?: string;
 }
+
+// ─── AppointmentsArgs ─────────────────────────────────────────────────────────
 
 @ArgsType()
 export class AppointmentsArgs {
-  @Field()
-  @IsString()
-  doctorAccountId: string;
-
-  @Field({ nullable: true })
+  // Filter by exact day — used by standalone appointmentsTable query
+  @Field({ nullable: true, description: 'YYYY-MM-DD — filter by a single day' })
   @IsOptional()
   @IsDateString()
   date?: string;
 
+  // ✅ Filter by whole month — used internally by doctorDashboard
+  @Field({
+    nullable: true,
+    description: 'YYYY-MM-DD — filter all appointments in that month',
+  })
+  @IsOptional()
+  @IsDateString()
+  monthDate?: string;
+
   @Field({ nullable: true })
   @IsOptional()
-  @IsString()
   status?: string;
 
   @Field(() => Int, { nullable: true, defaultValue: 1 })
@@ -87,4 +117,24 @@ export class AppointmentsArgs {
   @Min(1)
   @Max(50)
   limit?: number;
+}
+
+// ─── StatsArgs ────────────────────────────────────────────────────────────────
+
+@ArgsType()
+export class StatsArgs {
+  @Field({ nullable: true, description: 'YYYY-MM-DD — defaults to today' })
+  @IsOptional()
+  @IsDateString()
+  selectedDate?: string;
+}
+
+// ─── GenderStatsArgs ──────────────────────────────────────────────────────────
+
+@ArgsType()
+export class GenderStatsArgs {
+  @Field({ nullable: true, description: 'YYYY-MM-DD — defaults to today' })
+  @IsOptional()
+  @IsDateString()
+  selectedDate?: string;
 }

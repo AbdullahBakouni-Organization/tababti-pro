@@ -436,6 +436,7 @@ export enum WorkigEntity {
   CLINIC = 'clinic',
   HOSPITAL = 'hospital',
   CENTER = 'center',
+  PHARMACY = 'pharmacy',
   OTHER = 'other',
 }
 

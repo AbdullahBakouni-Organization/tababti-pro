@@ -1,4 +1,4 @@
-import { Field, Float, Int, ObjectType } from '@nestjs/graphql';
+import { ObjectType, Field, Int, Float } from '@nestjs/graphql';
 
 // ── Stats Cards ───────────────────────────────────────────────────────────────
 
@@ -16,8 +16,8 @@ export class DashboardStats {
   @Field(() => Float)
   estimatedRevenue: number;
 
-  @Field(() => Float)
-  revenueChangePercent: number; // vs previous period
+  @Field(() => Int)
+  revenueChangePercent: number;
 }
 
 // ── Recent Patients ───────────────────────────────────────────────────────────
@@ -34,10 +34,10 @@ export class RecentPatient {
   image?: string;
 
   @Field()
-  locationName: string; // عيادة / مشفى المجتهد / مركز
+  locationName: string;
 
   @Field()
-  status: string; // مكتمل / غير مكتمل
+  status: string;
 
   @Field()
   bookingDate: Date;
@@ -48,7 +48,7 @@ export class RecentPatient {
 @ObjectType()
 export class CalendarDay {
   @Field()
-  date: string; // YYYY-MM-DD
+  date: string;
 
   @Field(() => Int)
   appointmentCount: number;
@@ -86,13 +86,13 @@ export class AppointmentRow {
   gender: string;
 
   @Field()
-  time: string; // "10:00 مساء"
+  time: string;
 
   @Field()
-  date: string; // "2026/2/22"
+  date: string;
 
   @Field()
-  locationName: string; // مشفى المجتهد / العيادة
+  locationName: string;
 
   @Field()
   status: string;
@@ -113,30 +113,68 @@ export class AppointmentsTableResult {
   totalPages: number;
 }
 
-// ── Revenue Chart ─────────────────────────────────────────────────────────────
+// ── Gender Donut Chart ────────────────────────────────────────────────────────
 
 @ObjectType()
-export class RevenueDataPoint {
+export class GenderStats {
+  @Field(() => Int)
+  maleCount: number;
+
+  @Field(() => Int)
+  femaleCount: number;
+
+  @Field(() => Int)
+  totalPatients: number;
+
+  @Field(() => Float)
+  malePercent: number;
+
+  @Field(() => Float)
+  femalePercent: number;
+
+  @Field(() => Float)
+  completionPercent: number;
+}
+
+// ── Location Chart ────────────────────────────────────────────────────────────
+// One data point per day — counts per location type
+// ✅ Simplified: no thisMonth/lastMonth comparison — just current period
+
+@ObjectType()
+export class LocationChartDataPoint {
   @Field()
-  label: string; // Day label e.g. "Mon", "15"
+  label: string; // "Sat" / "Sun" ... or "1".."31"
 
-  @Field(() => Float)
-  thisMonth: number;
+  @Field()
+  date: string; // ✅ "2026-03-21" — actual ISO date for this point
 
-  @Field(() => Float)
-  lastMonth: number;
+  @Field(() => Int)
+  clinic: number; // عيادة
+
+  @Field(() => Int)
+  hospital: number; // مشفى
+
+  @Field(() => Int)
+  center: number; // مركز
 }
 
 @ObjectType()
-export class RevenueChart {
-  @Field(() => [RevenueDataPoint])
-  data: RevenueDataPoint[];
+export class LocationChart {
+  @Field(() => [LocationChartDataPoint])
+  data: LocationChartDataPoint[];
 
-  @Field(() => Float)
-  totalThisMonth: number;
+  @Field(() => Int)
+  totalClinic: number;
 
-  @Field(() => Float)
-  totalLastMonth: number;
+  @Field(() => Int)
+  totalHospital: number;
+
+  @Field(() => Int)
+  totalCenter: number;
+
+  // ✅ Handy totals for frontend tooltip/legend
+  @Field(() => Int)
+  totalAppointments: number;
 }
 
 // ── Full Dashboard ────────────────────────────────────────────────────────────
@@ -164,6 +202,9 @@ export class DoctorDashboard {
   @Field(() => AppointmentsTableResult)
   appointments: AppointmentsTableResult;
 
-  @Field(() => RevenueChart)
-  revenueChart: RevenueChart;
+  @Field(() => GenderStats)
+  genderStats: GenderStats;
+
+  @Field(() => LocationChart)
+  locationChart: LocationChart;
 }

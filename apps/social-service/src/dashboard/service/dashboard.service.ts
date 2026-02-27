@@ -9,7 +9,10 @@ import { Model, Types } from 'mongoose';
 import { Booking } from '@app/common/database/schemas/booking.schema';
 import { Doctor } from '@app/common/database/schemas/doctor.schema';
 import { User } from '@app/common/database/schemas/user.schema';
-import { BookingStatus } from '@app/common/database/schemas/common.enums';
+import {
+  BookingStatus,
+  WorkigEntity,
+} from '@app/common/database/schemas/common.enums';
 
 import {
   DoctorDashboard,
@@ -19,85 +22,133 @@ import {
   CalendarDay,
   AppointmentsTableResult,
   AppointmentRow,
-  RevenueChart,
-  RevenueDataPoint,
+  GenderStats,
+  LocationChart,
+  LocationChartDataPoint,
 } from '../types/dashboard.types';
 
 import {
   DashboardArgs,
   CalendarArgs,
-  RevenueChartArgs,
+  LocationChartArgs,
   AppointmentsArgs,
+  StatsArgs,
+  GenderStatsArgs,
+  resolveRefDate,
 } from '../dto/dashboard.args';
+
+// ─── Location type mapping ────────────────────────────────────────────────────
+// Maps WorkigEntity enum values (whatever they are) to our three buckets.
+// $toLower is applied on DB side so comparison is always lowercase.
+// If your enum values change, only this map needs updating.
+const LOCATION_BUCKETS: Record<string, 'clinic' | 'hospital' | 'center'> = {
+  // WorkigEntity.CLINIC variants
+  [WorkigEntity.CLINIC?.toLowerCase?.() ?? 'clinic']: 'clinic',
+  clinic: 'clinic',
+  عيادة: 'clinic',
+
+  // WorkigEntity.HOSPITAL variants
+  [WorkigEntity.HOSPITAL?.toLowerCase?.() ?? 'hospital']: 'hospital',
+  hospital: 'hospital',
+  مشفى: 'hospital',
+  مستشفى: 'hospital',
+
+  // WorkigEntity.CENTER variants
+  [WorkigEntity.CENTER?.toLowerCase?.() ?? 'center']: 'center',
+  center: 'center',
+  مركز: 'center',
+};
+
+function toBucket(raw: string): 'clinic' | 'hospital' | 'center' | null {
+  return LOCATION_BUCKETS[(raw ?? '').toLowerCase().trim()] ?? null;
+}
 
 @Injectable()
 export class DashboardService {
   constructor(
-    @InjectModel(Booking.name) private readonly bookingModel: Model<Booking>,
-    @InjectModel(Doctor.name) private readonly doctorModel: Model<Doctor>,
-    @InjectModel(User.name) private readonly userModel: Model<User>,
+    @InjectModel(Booking.name)
+    private readonly bookingModel: Model<Booking>,
+    @InjectModel(Doctor.name)
+    private readonly doctorModel: Model<Doctor>,
+    @InjectModel(User.name)
+    private readonly userModel: Model<User>,
   ) {}
 
-  // ── Full Dashboard ────────────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════
+  // FULL DASHBOARD
+  // ═══════════════════════════════════════════════════════════════
 
-  async getDoctorDashboard(args: DashboardArgs): Promise<DoctorDashboard> {
-    const doctor = await this.resolveDoctor(args.doctorAccountId);
+  async getDoctorDashboard(
+    accountId: string,
+    args: DashboardArgs,
+  ): Promise<DoctorDashboard> {
+    const doctor = await this.resolveDoctor(accountId);
+    const doctorId = doctor._id as Types.ObjectId;
+    const refDate = resolveRefDate(args.selectedDate);
 
-    const selectedDate = args.selectedDate
-      ? new Date(args.selectedDate)
-      : new Date();
-
-    const [stats, recentPatients, calendar, appointments, revenueChart] =
-      await Promise.all([
-        this.getStats(doctor._id as Types.ObjectId),
-        this.getRecentPatients(doctor._id as Types.ObjectId),
-        this.getCalendar({
-          doctorAccountId: args.doctorAccountId,
-          year: selectedDate.getFullYear(),
-          month: selectedDate.getMonth() + 1,
-        }),
-        this.getAppointments({
-          doctorAccountId: args.doctorAccountId,
-          date: args.selectedDate,
-          page: args.page ?? 1,
-          limit: args.limit ?? 10,
-        }),
-        this.getRevenueChart({
-          doctorAccountId: args.doctorAccountId,
-          period: 'week',
-        }),
-      ]);
+    const [
+      stats,
+      recentPatients,
+      calendar,
+      appointments,
+      genderStats,
+      locationChart,
+    ] = await Promise.all([
+      this.getStats(doctorId, refDate),
+      this.getRecentPatients(doctorId),
+      this.getCalendar(accountId, {
+        year: refDate.getFullYear(),
+        month: refDate.getMonth() + 1,
+      }),
+      this.getAppointments(accountId, {
+        //date: args.selectedDate,
+        monthDate: args.selectedDate,
+        page: args.page ?? 1,
+        limit: args.limit ?? 10,
+      }),
+      this.getGenderStats(doctorId, refDate),
+      this._buildLocationChart(doctorId, args.period ?? 'week', refDate),
+    ]);
 
     const fullName = [doctor.firstName, doctor.middleName, doctor.lastName]
       .filter(Boolean)
       .join(' ');
 
     return {
-      doctorId: (doctor._id as Types.ObjectId).toString(),
+      doctorId: doctorId.toString(),
       doctorName: fullName,
       doctorImage: doctor.image ?? undefined,
       stats,
       recentPatients,
       calendar,
       appointments,
-      revenueChart,
+      genderStats,
+      locationChart,
     };
   }
 
-  // ── Stats Cards ───────────────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════
+  // STATS
+  // ═══════════════════════════════════════════════════════════════
 
-  async getStats(doctorId: Types.ObjectId): Promise<DashboardStats> {
-    const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+  async getStats(
+    doctorId: Types.ObjectId,
+    refDate: Date = new Date(),
+  ): Promise<DashboardStats> {
+    const y = refDate.getFullYear();
+    const m = refDate.getMonth();
 
-    const [currentMonthAgg, lastMonthRevenue] = await Promise.all([
+    const startOfMonth = new Date(y, m, 1, 0, 0, 0, 0);
+    const endOfMonth = new Date(y, m + 1, 0, 23, 59, 59, 999);
+    const startOfLastMonth = new Date(y, m - 1, 1, 0, 0, 0, 0);
+    const endOfLastMonth = new Date(y, m, 0, 23, 59, 59, 999);
+
+    const [currentAgg, lastAgg] = await Promise.all([
       this.bookingModel.aggregate([
         {
           $match: {
             doctorId,
-            bookingDate: { $gte: startOfMonth, $lte: now },
+            bookingDate: { $gte: startOfMonth, $lte: endOfMonth },
           },
         },
         {
@@ -108,7 +159,6 @@ export class DashboardService {
           },
         },
       ]),
-
       this.bookingModel.aggregate([
         {
           $match: {
@@ -121,11 +171,10 @@ export class DashboardService {
       ]),
     ]);
 
-    let total = 0;
-    let completed = 0;
-    let revenue = 0;
-
-    for (const row of currentMonthAgg) {
+    let total = 0,
+      completed = 0,
+      revenue = 0;
+    for (const row of currentAgg) {
       total += row.count;
       if (row._id === BookingStatus.COMPLETED) {
         completed += row.count;
@@ -133,7 +182,7 @@ export class DashboardService {
       }
     }
 
-    const lastRevenue = lastMonthRevenue[0]?.total ?? 0;
+    const lastRevenue = lastAgg[0]?.total ?? 0;
     const revenueChangePercent =
       lastRevenue > 0
         ? Math.round(((revenue - lastRevenue) / lastRevenue) * 100)
@@ -148,7 +197,9 @@ export class DashboardService {
     };
   }
 
-  // ── Recent Patients ───────────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════
+  // RECENT PATIENTS
+  // ═══════════════════════════════════════════════════════════════
 
   async getRecentPatients(doctorId: Types.ObjectId): Promise<RecentPatient[]> {
     const bookings = await this.bookingModel.aggregate([
@@ -157,9 +208,9 @@ export class DashboardService {
           doctorId,
           status: {
             $in: [
-              BookingStatus.COMPLETED,
+              //BookingStatus.COMPLETED,
               BookingStatus.PENDING,
-              BookingStatus.CONFIRMED,
+              //BookingStatus.CONFIRMED,
             ],
           },
         },
@@ -197,43 +248,47 @@ export class DashboardService {
     }));
   }
 
-  // ── Calendar ──────────────────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════
+  // CALENDAR
+  // ═══════════════════════════════════════════════════════════════
 
-  async getCalendar(args: CalendarArgs): Promise<CalendarMonth> {
-    const doctor = await this.resolveDoctor(args.doctorAccountId);
+  async getCalendar(
+    accountId: string,
+    args: CalendarArgs,
+  ): Promise<CalendarMonth> {
+    const doctor = await this.resolveDoctor(accountId);
     const doctorId = doctor._id as Types.ObjectId;
 
-    const start = new Date(args.year, args.month - 1, 1);
-    const end = new Date(args.year, args.month, 0, 23, 59, 59);
+    const start = new Date(args.year, args.month - 1, 1, 0, 0, 0, 0);
+    const end = new Date(args.year, args.month, 0, 23, 59, 59, 999);
 
-    const bookings = await this.bookingModel.aggregate([
+    const rows = await this.bookingModel.aggregate([
       {
         $match: {
           doctorId,
           bookingDate: { $gte: start, $lte: end },
-          status: { $ne: BookingStatus.CANCELLED_BY_PATIENT },
+          status: {
+            $nin: [
+              BookingStatus.CANCELLED_BY_PATIENT,
+              BookingStatus.CANCELLED_BY_DOCTOR,
+            ],
+          },
         },
       },
       {
         $group: {
-          _id: {
-            $dateToString: { format: '%Y-%m-%d', date: '$bookingDate' },
-          },
+          _id: { $dateToString: { format: '%Y-%m-%d', date: '$bookingDate' } },
           count: { $sum: 1 },
         },
       },
     ]);
 
-    // Build a map of date → count
     const countMap = new Map<string, number>(
-      bookings.map((b) => [b._id as string, b.count as number]),
+      rows.map((r) => [r._id as string, r.count as number]),
     );
 
-    // Build all days in the month
-    const daysInMonth = end.getDate();
     const days: CalendarDay[] = [];
-
-    for (let d = 1; d <= daysInMonth; d++) {
+    for (let d = 1; d <= end.getDate(); d++) {
       const dateStr = `${args.year}-${String(args.month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
       const count = countMap.get(dateStr) ?? 0;
       days.push({
@@ -246,12 +301,15 @@ export class DashboardService {
     return { year: args.year, month: args.month, days };
   }
 
-  // ── Appointments Table ────────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════
+  // APPOINTMENTS TABLE
+  // ═══════════════════════════════════════════════════════════════
 
   async getAppointments(
+    accountId: string,
     args: AppointmentsArgs,
   ): Promise<AppointmentsTableResult> {
-    const doctor = await this.resolveDoctor(args.doctorAccountId);
+    const doctor = await this.resolveDoctor(accountId);
     const doctorId = doctor._id as Types.ObjectId;
 
     const page = Math.max(args.page ?? 1, 1);
@@ -262,16 +320,27 @@ export class DashboardService {
 
     if (args.date) {
       const day = new Date(args.date);
-      const nextDay = new Date(day);
+      const nextDay = new Date(args.date);
       nextDay.setDate(nextDay.getDate() + 1);
       match.bookingDate = { $gte: day, $lt: nextDay };
     }
-
-    if (args.status) {
-      match.status = args.status;
+    if (args.monthDate) {
+      const d = new Date(args.monthDate);
+      const start = new Date(d.getFullYear(), d.getMonth(), 1);
+      const end = new Date(
+        d.getFullYear(),
+        d.getMonth() + 1,
+        0,
+        23,
+        59,
+        59,
+        999,
+      );
+      match.bookingDate = { $gte: start, $lte: end };
     }
+    if (args.status) match.status = args.status;
 
-    const pipeline: any[] = [
+    const result = await this.bookingModel.aggregate([
       { $match: match },
       { $sort: { bookingDate: -1, bookingTime: 1 } },
       {
@@ -306,125 +375,150 @@ export class DashboardService {
           totalCount: [{ $count: 'count' }],
         },
       },
-    ];
+    ]);
 
-    const result = await this.bookingModel.aggregate(pipeline);
     const raw = result[0]?.data ?? [];
     const total = result[0]?.totalCount?.[0]?.count ?? 0;
 
-    const appointments: AppointmentRow[] = raw.map((r: any) => ({
-      bookingId: r.bookingId?.toString() ?? '',
-      patientName: r.patientName ?? 'Unknown',
-      patientImage: r.patientImage ?? undefined,
-      gender: r.gender ?? '',
-      time: r.time ?? '',
-      date: r.date ?? '',
-      locationName: r.locationName ?? '',
-      status: r.status ?? '',
-    }));
-
     return {
-      appointments,
+      appointments: raw.map((r: any) => ({
+        bookingId: r.bookingId?.toString() ?? '',
+        patientName: r.patientName ?? 'Unknown',
+        patientImage: r.patientImage ?? undefined,
+        gender: r.gender ?? '',
+        time: r.time ?? '',
+        date: r.date ?? '',
+        locationName: r.locationName ?? '',
+        status: r.status ?? '',
+      })),
       total,
       page,
       totalPages: Math.ceil(total / limit),
     };
   }
 
-  // ── Revenue Chart ─────────────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════
+  // GENDER DONUT
+  // ═══════════════════════════════════════════════════════════════
 
-  async getRevenueChart(args: RevenueChartArgs): Promise<RevenueChart> {
-    const doctor = await this.resolveDoctor(args.doctorAccountId);
-    const doctorId = doctor._id as Types.ObjectId;
-    const period = args.period ?? 'week';
+  async getGenderStats(
+    doctorId: Types.ObjectId,
+    refDate: Date = new Date(),
+  ): Promise<GenderStats> {
+    const y = refDate.getFullYear();
+    const m = refDate.getMonth();
 
-    const now = new Date();
-    const { thisStart, thisEnd, lastStart, lastEnd, labels } =
-      this.buildPeriodRanges(period, now);
+    const startOfMonth = new Date(y, m, 1, 0, 0, 0, 0);
+    const endOfMonth = new Date(y, m + 1, 0, 23, 59, 59, 999);
 
-    const [thisMonthData, lastMonthData] = await Promise.all([
-      this.fetchRevenueByPeriod(doctorId, thisStart, thisEnd, period),
-      this.fetchRevenueByPeriod(doctorId, lastStart, lastEnd, period),
+    const rows = await this.bookingModel.aggregate([
+      {
+        $match: {
+          doctorId,
+          bookingDate: { $gte: startOfMonth, $lte: endOfMonth },
+          status: {
+            $nin: [
+              BookingStatus.CANCELLED_BY_PATIENT,
+              BookingStatus.CANCELLED_BY_DOCTOR,
+            ],
+          },
+        },
+      },
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'patientId',
+          foreignField: '_id',
+          as: 'patient',
+        },
+      },
+      { $unwind: { path: '$patient', preserveNullAndEmptyArrays: true } },
+      {
+        $group: {
+          _id: { $toLower: { $ifNull: ['$patient.gender', 'unknown'] } },
+          count: { $sum: 1 },
+        },
+      },
     ]);
 
-    const data: RevenueDataPoint[] = labels.map((label, i) => ({
-      label,
-      thisMonth: thisMonthData[i] ?? 0,
-      lastMonth: lastMonthData[i] ?? 0,
-    }));
+    let maleCount = 0,
+      femaleCount = 0;
+    for (const row of rows) {
+      const g = (row._id ?? '').toLowerCase();
+      if (g === 'male' || g === 'm') maleCount = row.count;
+      if (g === 'female' || g === 'f') femaleCount = row.count;
+    }
+
+    const totalPatients = maleCount + femaleCount;
+    const malePercent =
+      totalPatients > 0
+        ? Math.round((maleCount / totalPatients) * 1000) / 10
+        : 0;
+    const femalePercent =
+      totalPatients > 0
+        ? Math.round((femaleCount / totalPatients) * 1000) / 10
+        : 0;
+
+    const stats = await this.getStats(doctorId, refDate);
+    const completionPercent =
+      stats.totalAppointments > 0
+        ? Math.round(
+            (stats.completedAppointments / stats.totalAppointments) * 1000,
+          ) / 10
+        : 0;
 
     return {
-      data,
-      totalThisMonth: thisMonthData.reduce((a, b) => a + b, 0),
-      totalLastMonth: lastMonthData.reduce((a, b) => a + b, 0),
+      maleCount,
+      femaleCount,
+      totalPatients,
+      malePercent,
+      femalePercent,
+      completionPercent,
     };
   }
 
-  // ── Private Helpers ───────────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════
+  // LOCATION CHART (public — called from resolver standalone)
+  // ═══════════════════════════════════════════════════════════════
 
-  public  async resolveDoctor(authAccountId: string) {
-    if (!Types.ObjectId.isValid(authAccountId)) {
+  async getLocationChart(
+    accountId: string,
+    args: LocationChartArgs,
+  ): Promise<LocationChart> {
+    const doctor = await this.resolveDoctor(accountId);
+    const doctorId = doctor._id as Types.ObjectId;
+    const refDate = resolveRefDate(args.selectedDate);
+    return this._buildLocationChart(doctorId, args.period ?? 'week', refDate);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // RESOLVE DOCTOR (public — used by resolver for standalone queries)
+  // ═══════════════════════════════════════════════════════════════
+
+  public async resolveDoctor(authAccountId: string) {
+    if (!Types.ObjectId.isValid(authAccountId))
       throw new BadRequestException('doctor.INVALID_ID');
-    }
 
     const doctor = await this.doctorModel
       .findOne({ authAccountId: new Types.ObjectId(authAccountId) })
       .lean();
 
     if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
-
     return doctor;
   }
 
-  private buildPeriodRanges(period: string, now: Date) {
-    if (period === 'week') {
-      // Last 7 days vs 7 days before that
-      const thisStart = new Date(now);
-      thisStart.setDate(now.getDate() - 6);
-      thisStart.setHours(0, 0, 0, 0);
-      const thisEnd = new Date(now);
-      thisEnd.setHours(23, 59, 59, 999);
+  // ═══════════════════════════════════════════════════════════════
+  // PRIVATE — build location chart
+  // ═══════════════════════════════════════════════════════════════
 
-      const lastEnd = new Date(thisStart);
-      lastEnd.setDate(lastEnd.getDate() - 1);
-      lastEnd.setHours(23, 59, 59, 999);
-      const lastStart = new Date(lastEnd);
-      lastStart.setDate(lastStart.getDate() - 6);
-      lastStart.setHours(0, 0, 0, 0);
-
-      const labels = Array.from({ length: 7 }, (_, i) => {
-        const d = new Date(thisStart);
-        d.setDate(d.getDate() + i);
-        return d.toLocaleDateString('en', { weekday: 'short' });
-      });
-
-      return { thisStart, thisEnd, lastStart, lastEnd, labels };
-    }
-
-    // Default: current month vs last month, grouped by day
-    const thisStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const thisEnd = new Date(
-      now.getFullYear(),
-      now.getMonth() + 1,
-      0,
-      23,
-      59,
-      59,
-    );
-    const lastStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const lastEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
-    const daysInMonth = thisEnd.getDate();
-    const labels = Array.from({ length: daysInMonth }, (_, i) => String(i + 1));
-
-    return { thisStart, thisEnd, lastStart, lastEnd, labels };
-  }
-
-  private async fetchRevenueByPeriod(
+  private async _buildLocationChart(
     doctorId: Types.ObjectId,
-    start: Date,
-    end: Date,
-    period: string,
-  ): Promise<number[]> {
+    period: 'week' | 'month',
+    refDate: Date,
+  ): Promise<LocationChart> {
+    const { start, end, labels } = this._periodBounds(period, refDate);
+
+    // ── Aggregate: group by day + location.type ───────────────────
     const format = period === 'week' ? '%Y-%m-%d' : '%d';
 
     const rows = await this.bookingModel.aggregate([
@@ -432,35 +526,98 @@ export class DashboardService {
         $match: {
           doctorId,
           bookingDate: { $gte: start, $lte: end },
-          status: BookingStatus.COMPLETED,
+          status: {
+            $nin: [
+              BookingStatus.CANCELLED_BY_PATIENT,
+              BookingStatus.CANCELLED_BY_DOCTOR,
+            ],
+          },
         },
       },
       {
         $group: {
-          _id: { $dateToString: { format, date: '$bookingDate' } },
-          revenue: { $sum: '$price' },
+          _id: {
+            day: { $dateToString: { format, date: '$bookingDate' } },
+            // ✅ Normalize to lowercase so CLINIC == clinic == Clinic
+            loc: { $toLower: { $ifNull: ['$location.type', ''] } },
+          },
+          count: { $sum: 1 },
         },
       },
     ]);
 
-    const map = new Map(
-      rows.map((r) => [r._id as string, r.revenue as number]),
-    );
-
-    // Build ordered array matching the labels
-    if (period === 'week') {
-      return Array.from({ length: 7 }, (_, i) => {
-        const d = new Date(start);
-        d.setDate(d.getDate() + i);
-        const key = d.toISOString().split('T')[0];
-        return map.get(key) ?? 0;
-      });
+    // ── Build lookup map: "2026-03-21|clinic" → count ─────────────
+    const map = new Map<string, number>();
+    for (const r of rows) {
+      const bucket = toBucket(r._id.loc);
+      if (bucket) {
+        const key = `${r._id.day}|${bucket}`;
+        map.set(key, (map.get(key) ?? 0) + r.count);
+      }
     }
 
-    const days = end.getDate();
-    return Array.from(
-      { length: days },
-      (_, i) => map.get(String(i + 1).padStart(2, '0')) ?? 0,
+    // ── Build data points ─────────────────────────────────────────
+    let totalClinic = 0,
+      totalHospital = 0,
+      totalCenter = 0;
+
+    const data: LocationChartDataPoint[] = labels.map((label, i) => {
+      const d = new Date(start);
+      d.setDate(d.getDate() + i);
+
+      // dayKey format matches what MongoDB returned
+      const dayKey =
+        period === 'week'
+          ? d.toISOString().split('T')[0] // "2026-03-21"
+          : String(i + 1).padStart(2, '0'); // "01".."31"
+
+      const isoDate = d.toISOString().split('T')[0]; // always full ISO date
+
+      const clinic = map.get(`${dayKey}|clinic`) ?? 0;
+      const hospital = map.get(`${dayKey}|hospital`) ?? 0;
+      const center = map.get(`${dayKey}|center`) ?? 0;
+
+      totalClinic += clinic;
+      totalHospital += hospital;
+      totalCenter += center;
+
+      return { label, date: isoDate, clinic, hospital, center };
+    });
+
+    return {
+      data,
+      totalClinic,
+      totalHospital,
+      totalCenter,
+      totalAppointments: totalClinic + totalHospital + totalCenter,
+    };
+  }
+
+  // ── Period bounds helper ──────────────────────────────────────────────────
+
+  private _periodBounds(period: 'week' | 'month', refDate: Date) {
+    if (period === 'week') {
+      const end = new Date(refDate);
+      end.setHours(23, 59, 59, 999);
+      const start = new Date(refDate);
+      start.setDate(refDate.getDate() - 6);
+      start.setHours(0, 0, 0, 0);
+      const labels = Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(start);
+        d.setDate(d.getDate() + i);
+        return d.toLocaleDateString('en', { weekday: 'short' }); // "Sat", "Sun"...
+      });
+      return { start, end, labels };
+    }
+
+    // month
+    const y = refDate.getFullYear(),
+      m = refDate.getMonth();
+    const start = new Date(y, m, 1, 0, 0, 0, 0);
+    const end = new Date(y, m + 1, 0, 23, 59, 59, 999);
+    const labels = Array.from({ length: end.getDate() }, (_, i) =>
+      String(i + 1),
     );
+    return { start, end, labels };
   }
 }

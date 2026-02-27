@@ -1,5 +1,6 @@
 import { Resolver, Query, Args } from '@nestjs/graphql';
 import { UseGuards } from '@nestjs/common';
+import { Types } from 'mongoose';
 
 import { DashboardService } from '../service/dashboard.service';
 import {
@@ -7,85 +8,150 @@ import {
   DashboardStats,
   CalendarMonth,
   AppointmentsTableResult,
-  RevenueChart,
+  GenderStats,
+  LocationChart,
   RecentPatient,
 } from '../types/dashboard.types';
 import {
   DashboardArgs,
   CalendarArgs,
-  RevenueChartArgs,
+  LocationChartArgs,
   AppointmentsArgs,
+  StatsArgs,
+  GenderStatsArgs,
+  resolveRefDate,
 } from '../dto/dashboard.args';
 
-// GraphQL-specific guards — no Passport, no crash
-import { GqlJwtGuard } from '../../common/guards/gql-jwt.guard';
-import { GqlRolesGuard } from '../../common/guards/gql-roles.guard';
+import { GqlJwtAuthGuard } from '@app/common/guards/gql-jwt-auth.guard';
+import { GqlRolesGuard } from '@app/common/guards/gql-roles.guard';
+import { GqlCurrentUser } from '@app/common/decorator/gql-current-user.decorator';
 import { Roles } from '@app/common/decorator/role.decorator';
 import { UserRole } from '@app/common/database/schemas/common.enums';
 
 @Resolver()
-@UseGuards(GqlJwtGuard, GqlRolesGuard)
+@UseGuards(GqlJwtAuthGuard, GqlRolesGuard)
 @Roles(UserRole.DOCTOR)
 export class DashboardResolver {
   constructor(private readonly dashboardService: DashboardService) {}
 
+  // ═══════════════════════════════════════════════════════════════
+  // FULL DASHBOARD — everything in one shot
+  // selectedDate drives ALL sub-sections
+  // ═══════════════════════════════════════════════════════════════
+
   @Query(() => DoctorDashboard, {
     name: 'doctorDashboard',
-    description: 'Full dashboard — all sections in one query',
+    description:
+      'Full dashboard. selectedDate (YYYY-MM-DD) sets the reference month for all sections.',
   })
   async getDoctorDashboard(
+    @GqlCurrentUser('accountId') accountId: string,
     @Args() args: DashboardArgs,
   ): Promise<DoctorDashboard> {
-    return this.dashboardService.getDoctorDashboard(args);
+    return this.dashboardService.getDoctorDashboard(accountId, args);
   }
+
+  // ═══════════════════════════════════════════════════════════════
+  // STATS CARDS
+  // ═══════════════════════════════════════════════════════════════
 
   @Query(() => DashboardStats, {
     name: 'dashboardStats',
-    description: 'Stats cards: totals + revenue',
+    description: 'Stats cards. selectedDate sets the reference month.',
   })
-  async getStats(@Args() args: DashboardArgs): Promise<DashboardStats> {
-    const doctor = await this.dashboardService.resolveDoctor(
-      args.doctorAccountId,
+  async getStats(
+    @GqlCurrentUser('accountId') accountId: string,
+    @Args() args: StatsArgs,
+  ): Promise<DashboardStats> {
+    const doctor = await this.dashboardService.resolveDoctor(accountId);
+    const refDate = resolveRefDate(args.selectedDate);
+    return this.dashboardService.getStats(
+      doctor._id as Types.ObjectId,
+      refDate,
     );
-    return this.dashboardService.getStats(doctor._id);
   }
+
+  // ═══════════════════════════════════════════════════════════════
+  // RECENT PATIENTS — no date filter, always latest 10
+  // ═══════════════════════════════════════════════════════════════
 
   @Query(() => [RecentPatient], {
     name: 'recentPatients',
-    description: 'Last 10 patients in the sidebar',
+    description: 'Last 10 patients regardless of month.',
   })
   async getRecentPatients(
-    @Args() args: DashboardArgs,
+    @GqlCurrentUser('accountId') accountId: string,
   ): Promise<RecentPatient[]> {
-    const doctor = await this.dashboardService.resolveDoctor(
-      args.doctorAccountId,
+    const doctor = await this.dashboardService.resolveDoctor(accountId);
+    return this.dashboardService.getRecentPatients(
+      doctor._id as Types.ObjectId,
     );
-    return this.dashboardService.getRecentPatients(doctor._id);
   }
+
+  // ═══════════════════════════════════════════════════════════════
+  // CALENDAR
+  // ═══════════════════════════════════════════════════════════════
 
   @Query(() => CalendarMonth, {
     name: 'appointmentCalendar',
-    description: 'Calendar heatmap — which days have appointments',
+    description: 'Calendar heatmap. Pass year and month explicitly.',
   })
-  async getCalendar(@Args() args: CalendarArgs): Promise<CalendarMonth> {
-    return this.dashboardService.getCalendar(args);
+  async getCalendar(
+    @GqlCurrentUser('accountId') accountId: string,
+    @Args() args: CalendarArgs,
+  ): Promise<CalendarMonth> {
+    return this.dashboardService.getCalendar(accountId, args);
   }
+
+  // ═══════════════════════════════════════════════════════════════
+  // APPOINTMENTS TABLE
+  // ═══════════════════════════════════════════════════════════════
 
   @Query(() => AppointmentsTableResult, {
     name: 'appointmentsTable',
-    description: 'Paginated appointments table with optional filters',
+    description: 'Paginated appointments. Filter by date, status, page, limit.',
   })
   async getAppointments(
+    @GqlCurrentUser('accountId') accountId: string,
     @Args() args: AppointmentsArgs,
   ): Promise<AppointmentsTableResult> {
-    return this.dashboardService.getAppointments(args);
+    return this.dashboardService.getAppointments(accountId, args);
   }
 
-  @Query(() => RevenueChart, {
-    name: 'revenueChart',
-    description: 'Revenue chart — this period vs last period',
+  // ═══════════════════════════════════════════════════════════════
+  // GENDER STATS (DONUT)
+  // ═══════════════════════════════════════════════════════════════
+
+  @Query(() => GenderStats, {
+    name: 'genderStats',
+    description:
+      'Male/female patient counts + completion % for the donut chart. selectedDate sets the reference month.',
   })
-  async getRevenueChart(@Args() args: RevenueChartArgs): Promise<RevenueChart> {
-    return this.dashboardService.getRevenueChart(args);
+  async getGenderStats(
+    @GqlCurrentUser('accountId') accountId: string,
+    @Args() args: GenderStatsArgs,
+  ): Promise<GenderStats> {
+    const doctor = await this.dashboardService.resolveDoctor(accountId);
+    const refDate = resolveRefDate(args.selectedDate);
+    return this.dashboardService.getGenderStats(
+      doctor._id as Types.ObjectId,
+      refDate,
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // LOCATION CHART (WAVE)
+  // ═══════════════════════════════════════════════════════════════
+
+  @Query(() => LocationChart, {
+    name: 'locationChart',
+    description:
+      'Appointment counts per day per location type. period: week|month. selectedDate sets the reference point.',
+  })
+  async getLocationChart(
+    @GqlCurrentUser('accountId') accountId: string,
+    @Args() args: LocationChartArgs,
+  ): Promise<LocationChart> {
+    return this.dashboardService.getLocationChart(accountId, args);
   }
 }
