@@ -15,6 +15,7 @@ import {
   CancellationResponseDto,
   BookingValidationResponseDto,
 } from './dto/patient-booking.dto';
+import { RemoveFCMTokenDto, UpdateFCMTokenDto } from './dto/update-fcm.dto';
 
 @ApiTags('Patient Bookings')
 @Controller('users')
@@ -115,5 +116,32 @@ export class UsersController {
   })
   async getCancellationsToday(@Param('patientId') patientId: string) {
     return this.patientBookingService.getCancellationsToday(patientId);
+  }
+  @Post(':userId/fcm-token')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Update FCM token',
+    description:
+      'Updates the FCM token for a user. This should be called whenever the user logs in or when the token is refreshed by Firebase.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'FCM token updated successfully',
+  })
+  async updateFCMToken(
+    @Param('userId') userId: string,
+    @Body() dto: UpdateFCMTokenDto,
+  ) {
+    return this.patientBookingService.updateFCMToken(userId, dto.fcmToken);
+  }
+
+  @Post(':userId/fcm-token/remove')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Remove FCM token',
+    description: 'Removes FCM token when user logs out',
+  })
+  async removeFCMToken(@Param('userId') dto: RemoveFCMTokenDto) {
+    return this.patientBookingService.removeFCMToken(dto.userId);
   }
 }

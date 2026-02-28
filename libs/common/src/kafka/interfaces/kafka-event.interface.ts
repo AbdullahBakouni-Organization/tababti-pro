@@ -164,3 +164,24 @@ export interface BookingCancelledNotificationEventByUser {
     version: '1.0';
   };
 }
+
+export interface BookingCompletedNotificationEvent {
+  eventType: 'BOOKING_COMPLETED';
+  timestamp: Date;
+  data: {
+    patientId: string;
+    patientName: string;
+    doctorId: string;
+    doctorName: string;
+    fcmToken: string;
+    bookingId: string;
+    appointmentDate: Date;
+    appointmentTime: string;
+    notes?: string;
+    type: 'BOOKING_COMPLETED';
+  };
+  metadata: {
+    source: string;
+    version: string;
+  };
+}

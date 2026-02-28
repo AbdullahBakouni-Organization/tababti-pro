@@ -10,6 +10,7 @@ import {
 import {
   BookingCancelledNotificationEvent,
   BookingCancelledNotificationEventByUser,
+  BookingCompletedNotificationEvent,
 } from '@app/common/kafka/interfaces/kafka-event.interface';
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
@@ -132,6 +133,70 @@ export class NotificationService {
           status: NotificationStatus.FAILED,
           bookingId: event.data.bookingId,
           patientId: event.data.patientId,
+        });
+      } catch (dbError) {
+        const err = dbError as Error;
+        this.logger.error(
+          `Failed to save notification to database: ${err.message}`,
+        );
+      }
+    }
+  }
+
+  async sendCompletedNotificationToPatient(
+    event: BookingCompletedNotificationEvent,
+  ): Promise<void> {
+    try {
+      // Send FCM notification
+      const sent = await this.fcmService.sendBookingCompletionNotification(
+        event.data.fcmToken,
+        event.data,
+      );
+
+      // Determine notification status
+      const notificationStatus = sent
+        ? NotificationStatus.SENT
+        : NotificationStatus.FAILED;
+
+      // Create notification in database
+      await this.createNotificationRecord({
+        recipientType: UserRole.USER, // Patient is a USER
+        recipientId: new Types.ObjectId(event.data.patientId),
+        notificationType: NotificationTypes.BOOKING_COMPLETED,
+        title: '✅ تم إنجاز الموعد',
+        message: `تم إنجاز موعدك مع ${event.data.doctorName} بنجاح. ${event.data.notes ? `ملاحظات: ${event.data.notes}` : ''}`,
+        status: notificationStatus,
+        bookingId: event.data.bookingId,
+        doctorId: event.data.doctorId,
+      });
+
+      if (sent) {
+        this.logger.log(
+          `✅ FCM completion notification sent and saved for booking ${event.data.bookingId}`,
+        );
+      } else {
+        this.logger.warn(
+          `⚠️ Failed to send FCM but notification saved for booking ${event.data.bookingId}`,
+        );
+      }
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `❌ Error sending FCM completion notification: ${err.message}`,
+        err.stack,
+      );
+
+      // Save as failed notification
+      try {
+        await this.createNotificationRecord({
+          recipientType: UserRole.USER,
+          recipientId: new Types.ObjectId(event.data.patientId),
+          notificationType: NotificationTypes.BOOKING_COMPLETED,
+          title: '✅ تم إنجاز الموعد',
+          message: `تم إنجاز موعدك مع ${event.data.doctorName}.`,
+          status: NotificationStatus.FAILED,
+          bookingId: event.data.bookingId,
+          doctorId: event.data.doctorId,
         });
       } catch (dbError) {
         const err = dbError as Error;

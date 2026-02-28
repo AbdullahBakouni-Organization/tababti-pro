@@ -50,7 +50,9 @@ export class SlotGenerationProcessor {
     @InjectModel(AppointmentSlot.name)
     private slotModel: Model<AppointmentSlotDocument>,
     private readonly cacheManager: CacheService,
-  ) {}
+  ) {
+    this.logger.log(`[Slot Generation Job] Processing for doctor`);
+  }
 
   /* -------------------------------------------------------------------------- */
   /*                              BULL JOB HANDLER                               */

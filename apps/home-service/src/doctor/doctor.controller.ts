@@ -71,6 +71,16 @@ import {
   VIPBookingConflictResponseDto,
 } from './dto/vibbooking.dto';
 import { CheckDoctorByPhoneDto } from './dto/check-doctor-by-phone.dto';
+import { UpdateFCMTokenDto } from './dto/update-fcm.dto';
+import {
+  BookingCompletionResponseDto,
+  DoctorCompleteBookingDto,
+} from './dto/complete-booking.dto';
+import {
+  SearchPatientsDto,
+  SearchPatientsResponseDto,
+} from './dto/search-patients.dto';
+import { DoctorPatientStatsDto } from './dto/doctor-patient-stats.dto';
 
 // ============================================
 // Login DTO
@@ -746,5 +756,79 @@ export class DoctorController {
     const exists = await this.DoctorService.isApprovedDoctorByPhone(dto.phone);
 
     return exists;
+  }
+
+  /**
+   * Update doctor FCM token
+   */
+  @Post(':doctorId/fcm-token')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Update doctor FCM token',
+    description: 'Updates the FCM token for the specified doctor.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'FCM token updated successfully',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid doctor ID or FCM token',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Doctor not found',
+  })
+  async updateDoctorFCMToken(
+    @Param('doctorId') doctorId: string,
+    @Body() dto: UpdateFCMTokenDto,
+  ) {
+    return this.DoctorService.updateDoctorFCMToken(doctorId, dto.fcmToken);
+  }
+
+  @Post('complete')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Doctor completes a booking',
+    description:
+      'Marks booking as completed. Patient receives FCM notification via Kafka event.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Booking completed successfully',
+    type: BookingCompletionResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Booking not found or already completed',
+  })
+  async completeBooking(
+    @Body() dto: DoctorCompleteBookingDto,
+  ): Promise<BookingCompletionResponseDto> {
+    return this.DoctorService.completeBooking(dto);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
+  @ApiBearerAuth()
+  @Get('patients/search')
+  async searchPatients(
+    @Query() dto: SearchPatientsDto,
+    @Req() req: any,
+  ): Promise<SearchPatientsResponseDto> {
+    return this.DoctorService.searchPatients(
+      req.user.entity._id.toString(),
+      dto,
+    );
+  }
+
+  @Get('stats/patients/gender')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
+  @ApiBearerAuth()
+  async getPatientGenderStats(@Req() req: any): Promise<DoctorPatientStatsDto> {
+    return this.DoctorService.getDoctorPatientGenderStats(
+      req.user.entity._id.toString(),
+    );
   }
 }

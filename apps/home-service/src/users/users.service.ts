@@ -418,4 +418,64 @@ export class UsersService {
       limit: this.MAX_CANCELLATIONS_PER_DAY,
     };
   }
+
+  async updateFCMToken(
+    userId: string,
+    fcmToken: string,
+  ): Promise<{
+    message: string;
+    userId: string;
+    tokenUpdated: boolean;
+  }> {
+    if (!Types.ObjectId.isValid(userId)) {
+      throw new BadRequestException('Invalid user ID');
+    }
+
+    if (!fcmToken || fcmToken.trim().length === 0) {
+      throw new BadRequestException('FCM token is required');
+    }
+
+    const user = await this.userModel.findById(userId).exec();
+
+    if (!user) {
+      throw new NotFoundException(`User with ID ${userId} not found`);
+    }
+
+    // Update FCM token
+    user.fcmToken = fcmToken;
+    await user.save();
+
+    this.logger.log(`FCM token updated for user ${userId}`);
+
+    return {
+      message: 'FCM token updated successfully',
+      userId: user._id.toString(),
+      tokenUpdated: true,
+    };
+  }
+
+  async removeFCMToken(userId: string): Promise<{
+    message: string;
+    userId: string;
+  }> {
+    if (!Types.ObjectId.isValid(userId)) {
+      throw new BadRequestException('Invalid user ID');
+    }
+
+    const user = await this.userModel.findById(userId).exec();
+
+    if (!user) {
+      throw new NotFoundException(`User with ID ${userId} not found`);
+    }
+
+    user.fcmToken = undefined;
+    await user.save();
+
+    this.logger.log(`FCM token removed for user ${userId}`);
+
+    return {
+      message: 'FCM token removed successfully',
+      userId: user._id.toString(),
+    };
+  }
 }

@@ -281,8 +281,8 @@ export interface VIPBookingJobData {
 export interface HolidayBlockJobData {
   doctorId: string;
   doctorName: string;
-  startDate: Date;
-  endDate: Date;
+  startDate?: Date;
+  endDate?: Date;
   reason: string;
   affectedBookingIds: string[];
   affectedSlotIds: string[];

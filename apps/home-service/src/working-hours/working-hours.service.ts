@@ -24,6 +24,7 @@ import {
   SlotGenerationEvent,
   WorkingHoursAddedEvent,
 } from '@app/common/kafka/interfaces/kafka-event.interface';
+import { WorkingHoursValidator } from './working-hours.validator';
 interface WorkingHour {
   day: string;
   startTime: string;
@@ -80,6 +81,10 @@ export class WorkingHoursService {
     // Validate working hours don't overlap
     this.validateWorkingHours(addWorkingHoursDto.workingHours);
     this.checkIfSameAsExisting(
+      addWorkingHoursDto.workingHours,
+      doctor.workingHours,
+    );
+    WorkingHoursValidator.validateUpdate(
       addWorkingHoursDto.workingHours,
       doctor.workingHours,
     );
@@ -155,6 +160,11 @@ export class WorkingHoursService {
 
     // Validate working hours format
     this.validateWorkingHours(updateDto.workingHours);
+    this.checkIfSameAsExisting(updateDto.workingHours, doctor.workingHours);
+    WorkingHoursValidator.validateUpdate(
+      updateDto.workingHours,
+      doctor.workingHours,
+    );
 
     // Detect conflicts
     const { todayConflicts, futureConflicts } =
@@ -202,25 +212,35 @@ export class WorkingHoursService {
    */
   async updateWorkingHours(doctorId: string, updateDto: UpdateWorkingHoursDto) {
     const doctor = await this.doctorModel.findById(doctorId);
-
     if (!doctor) throw new NotFoundException();
 
     this.validateWorkingHours(updateDto.workingHours);
-
     this.checkIfSameAsExisting(updateDto.workingHours, doctor.workingHours);
+    WorkingHoursValidator.validateUpdate(
+      updateDto.workingHours,
+      doctor.workingHours,
+    );
 
     const oldWorkingHours = doctor.workingHours;
 
-    const updatedDays = [...new Set(updateDto.workingHours.map((w) => w.day))];
-
+    // ✅ احذف فقط نفس الـ day + location + entity_name + type
     const mergedWorkingHours = [
-      ...oldWorkingHours.filter((w) => !updatedDays.includes(w.day)),
+      ...oldWorkingHours.filter((oldWh) => {
+        return !updateDto.workingHours.some(
+          (newWh) =>
+            oldWh.day === newWh.day &&
+            oldWh.location.type === newWh.location.type &&
+            oldWh.location.entity_name === newWh.location.entity_name &&
+            oldWh.location.address === newWh.location.address,
+        );
+      }),
       ...updateDto.workingHours,
     ];
 
+    const updatedDays = [...new Set(updateDto.workingHours.map((w) => w.day))];
+
     doctor.workingHours = mergedWorkingHours;
     doctor.workingHoursVersion += 1;
-    doctor.inspectionDuration = updateDto.inspectionDuration;
     await doctor.save();
 
     this.kafkaProducer.emit(KAFKA_TOPICS.WORKING_HOURS_UPDATED, {
@@ -230,7 +250,7 @@ export class WorkingHoursService {
       newWorkingHours: mergedWorkingHours,
       version: doctor.workingHoursVersion,
       inspectionDuration: updateDto.inspectionDuration,
-      inspectionPrice: updateDto.inspectionPrice,
+      inspectionPrice: doctor.inspectionPrice,
     });
 
     return { message: 'Working hours updated successfully' };

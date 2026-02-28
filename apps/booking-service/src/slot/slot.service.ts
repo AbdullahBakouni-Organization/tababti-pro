@@ -6,7 +6,10 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { SlotStatus } from '@app/common/database/schemas/common.enums';
+import {
+  SlotStatus,
+  WorkigEntity,
+} from '@app/common/database/schemas/common.enums';
 import { CacheService } from '@app/common/cache/cache.service';
 
 import {
@@ -16,6 +19,7 @@ import {
 import {
   AvailableSlotDto,
   GetAvailableSlotsDto,
+  GroupedAvailableSlotsDto,
 } from './dto/get-avalible-slot.dto';
 import {
   Doctor,
@@ -39,44 +43,63 @@ export class SlotGenerationService {
 
   async getAvailableSlots(
     query: GetAvailableSlotsDto,
-  ): Promise<AvailableSlotDto[]> {
+  ): Promise<GroupedAvailableSlotsDto> {
     this.logger.log(`Getting available slots for doctor ${query.doctorId}`);
 
-    // Validate doctor ID
     if (!Types.ObjectId.isValid(query.doctorId)) {
       throw new BadRequestException('Invalid doctor ID');
     }
 
-    // Check cache first
-    const cacheKey = this.generateCacheKey(query);
-    const cached = await this.cacheManager.get<AvailableSlotDto[]>(cacheKey);
-
+    // Cache key based only on doctorId + date range (no location)
+    const cacheKey = `slots:grouped:${query.doctorId}:${query.startDate || 'default'}:${query.endDate || 'default'}`;
+    const cached =
+      await this.cacheManager.get<GroupedAvailableSlotsDto>(cacheKey);
     if (cached) {
-      this.logger.debug(`Returning cached slots for ${query.doctorId}`);
+      this.logger.debug(`Returning cached grouped slots for ${query.doctorId}`);
       return cached;
     }
 
-    // Build query
+    // Build query — NO location filter anymore
     const filter: any = {
       doctorId: new Types.ObjectId(query.doctorId),
       status: SlotStatus.AVAILABLE,
     };
 
-    // Date range filter
     const today = getSyriaDate();
-    const startDate = query.startDate ? new Date(query.startDate) : today;
-    const endDate = query.endDate
-      ? new Date(query.endDate)
-      : new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000); // 30 days
+
+    let startDate: Date;
+    let endDate: Date;
+
+    // ✅ NEW: specific date override
+    if (query.date) {
+      const requestedDate = new Date(query.date);
+      const today = getSyriaDate();
+
+      // Normalize both to start of day (important)
+      requestedDate.setHours(0, 0, 0, 0);
+      today.setHours(0, 0, 0, 0);
+
+      if (requestedDate.getTime() < today.getTime()) {
+        throw new BadRequestException('Date must be today or greater');
+      }
+
+      startDate = requestedDate;
+      endDate = requestedDate;
+    } else {
+      startDate = query.startDate ? new Date(query.startDate) : today;
+      endDate = query.endDate
+        ? new Date(query.endDate)
+        : new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+      if (startDate.getTime() > endDate.getTime()) {
+        throw new BadRequestException(
+          'startDate cannot be greater than endDate',
+        );
+      }
+    }
 
     filter.date = { $gte: startDate, $lte: endDate };
 
-    // Location filter
-    if (query.location) {
-      filter['location.type'] = query.location;
-    }
-
-    // Get doctor info for response
     const doctor = await this.doctorModel.findById(query.doctorId).exec();
     if (!doctor) {
       throw new NotFoundException(`Doctor with ID ${query.doctorId} not found`);
@@ -84,46 +107,51 @@ export class SlotGenerationService {
 
     const doctorName = `${doctor.firstName} ${doctor.middleName} ${doctor.lastName}`;
 
-    // Query slots
     const slots = await this.slotModel
       .find(filter)
       .sort({ date: 1, startTime: 1 })
       .lean()
       .exec();
 
-    // Map to DTO
-    const availableSlots: AvailableSlotDto[] = slots.map((slot) => ({
-      slotId: slot._id.toString(),
-      doctorId: slot.doctorId.toString(),
-      doctorName,
-      date: slot.date,
-      dayOfWeek: slot.dayOfWeek,
-      startTime: slot.startTime,
-      endTime: slot.endTime,
-      duration: slot.duration,
-      price: slot.price || doctor.inspectionPrice || 0,
-      location: slot.location,
-      status: slot.status,
-    }));
+    // Group by location type on the backend
+    const grouped: GroupedAvailableSlotsDto = {
+      clinic: [],
+      hospital: [],
+      center: [],
+    };
 
-    // Cache for 5 minutes
-    await this.cacheManager.set(cacheKey, availableSlots, 300);
+    for (const slot of slots) {
+      const mapped: AvailableSlotDto = {
+        slotId: slot._id.toString(),
+        doctorId: slot.doctorId.toString(),
+        doctorName,
+        date: slot.date,
+        dayOfWeek: slot.dayOfWeek,
+        startTime: slot.startTime,
+        endTime: slot.endTime,
+        duration: slot.duration,
+        price: slot.price || doctor.inspectionPrice || 0,
+        location: slot.location,
+        status: slot.status,
+      };
+
+      const locationType = slot.location?.type as WorkigEntity;
+
+      if (locationType === WorkigEntity.CLINIC) {
+        grouped.clinic.push(mapped);
+      } else if (locationType === WorkigEntity.HOSPITAL) {
+        grouped.hospital.push(mapped);
+      } else if (locationType === WorkigEntity.CENTER) {
+        grouped.center.push(mapped);
+      }
+    }
+
+    await this.cacheManager.set(cacheKey, grouped, 120);
 
     this.logger.log(
-      `Found ${availableSlots.length} available slots for doctor ${query.doctorId}`,
+      `Found slots for doctor ${query.doctorId} — clinic: ${grouped.clinic.length}, hospital: ${grouped.hospital.length}, center: ${grouped.center.length}`,
     );
 
-    return availableSlots;
-  }
-
-  private generateCacheKey(query: GetAvailableSlotsDto): string {
-    const parts = [
-      'slots:available',
-      query.doctorId,
-      query.startDate || 'today',
-      query.endDate || '30d',
-      query.location || 'all',
-    ];
-    return parts.join(':');
+    return grouped;
   }
 }

@@ -2,6 +2,7 @@ import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
 import type {
   BookingCancelledNotificationEvent,
   BookingCancelledNotificationEventByUser,
+  BookingCompletedNotificationEvent,
 } from '@app/common/kafka/interfaces/kafka-event.interface';
 import {
   Controller,
@@ -28,12 +29,12 @@ export class NotificationServiceController {
   async handleBookingCancelledNotification(
     @Payload() event: BookingCancelledNotificationEvent,
   ): Promise<void> {
-    this.logger.log(`🎯 send notification to ${event.data.patientName}`);
+    this.logger.log(`🎯 send notification to ${event.data.patientId}`);
 
     try {
       await this.notificationService.sendCancelledNotification(event);
       this.logger.log(
-        `✅ Successfully send notification to ${event.data.patientName}`,
+        `✅ Successfully send notification to ${event.data.patientId}`,
       );
     } catch (error) {
       const err = error as Error;
@@ -63,7 +64,27 @@ export class NotificationServiceController {
       );
     }
   }
+  @EventPattern(KAFKA_TOPICS.BOOKING_COMPLETED)
+  async handleBookingCompleted(
+    @Payload() event: BookingCompletedNotificationEvent,
+  ): Promise<void> {
+    this.logger.log(
+      `🎯 Received BOOKING_COMPLETED_NOTIFICATION event for patient ${event.data.patientName}`,
+    );
 
+    try {
+      await this.notificationService.sendCompletedNotificationToPatient(event);
+      this.logger.log(
+        `✅ Successfully sent completion notification to patient ${event.data.patientName}`,
+      );
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `❌ Failed to process booking completion notification: ${err.message}`,
+        err.stack,
+      );
+    }
+  }
   /**
    * Get unread notifications for a user
    */

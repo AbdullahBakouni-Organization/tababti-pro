@@ -13,6 +13,7 @@ import { SlotGenerationService } from './slot.service';
 import {
   AvailableSlotDto,
   GetAvailableSlotsDto,
+  GroupedAvailableSlotsDto,
 } from './dto/get-avalible-slot.dto';
 
 @ApiTags('Slot Management')
@@ -73,7 +74,7 @@ export class SlotController {
   })
   async getAvailableSlots(
     @Query() query: GetAvailableSlotsDto,
-  ): Promise<AvailableSlotDto[]> {
+  ): Promise<GroupedAvailableSlotsDto> {
     return this.slotManagementService.getAvailableSlots(query);
   }
 }

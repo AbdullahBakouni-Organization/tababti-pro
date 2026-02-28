@@ -21,6 +21,16 @@ export class GetAvailableSlotsDto {
   doctorId: string;
 
   @ApiProperty({
+    description:
+      'Specific date (YYYY-MM-DD). If provided, startDate and endDate are ignored.',
+    example: '2026-02-20',
+    required: false,
+  })
+  @IsOptional()
+  @IsDateString()
+  date?: string;
+
+  @ApiProperty({
     description: 'Start date (YYYY-MM-DD)',
     example: '2026-02-15',
     required: false,
@@ -67,4 +77,9 @@ export class AvailableSlotDto {
     address: string;
   };
   status: string;
+}
+export interface GroupedAvailableSlotsDto {
+  clinic: AvailableSlotDto[];
+  hospital: AvailableSlotDto[];
+  center: AvailableSlotDto[];
 }

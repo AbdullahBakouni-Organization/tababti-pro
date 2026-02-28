@@ -13,9 +13,12 @@ import { FcmModule } from '../fcm/fcm.module';
 import { PauseSlotsProcessor } from './processors/Pause slots.processor';
 import { VIPBookingProcessor } from './processors/VibBooking.processor';
 import { HolidayBlockProcessor } from './processors/holidayblock.processor';
+import { PatientStatsCron } from './cron/patient-stats.cron';
+import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
   imports: [
+    ScheduleModule.forRoot(),
     ConfigModule.forRoot({
       isGlobal: true,
     }),
@@ -74,6 +77,7 @@ import { HolidayBlockProcessor } from './processors/holidayblock.processor';
     PauseSlotsProcessor,
     VIPBookingProcessor,
     HolidayBlockProcessor,
+    PatientStatsCron,
   ],
   controllers: [DoctorController],
 })

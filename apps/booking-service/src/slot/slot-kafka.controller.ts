@@ -51,9 +51,9 @@ export class SlotKafkaController {
     try {
       await this.workingHoursQueue.add('PROCESS_WORKING_HOURS_UPDATE', {
         doctorId: event.doctorId,
-        updatedDays: event.updatedDays,
         oldWorkingHours: event.oldWorkingHours,
         newWorkingHours: event.newWorkingHours,
+        updatedDays: event.updatedDays,
         version: event.version,
         inspectionDuration: event.inspectionDuration,
         inspectionPrice: event.inspectionPrice,
@@ -75,7 +75,6 @@ export class SlotKafkaController {
     this.logger.log(
       `🎯 Received SLOTS_GENERATE event for doctor ${event.data.doctorId}`,
     );
-    console.log(event);
     try {
       await this.workingHoursQueue_V1.add('PROCESS_WORKING_HOURS_GENERATE', {
         eventType: event.eventType,

@@ -87,9 +87,7 @@ export class FcmService {
 
       const response = await admin.messaging().send(message);
 
-      this.logger.log(
-        `FCM notification sent successfully. Message ID: ${response}`,
-      );
+      this.logger.log(`FCM notification sent successfully`);
 
       return true;
     } catch (error) {
@@ -192,6 +190,78 @@ export class FcmService {
     }
   }
 
+  async sendBookingCompletionNotification(
+    fcmToken: string,
+    data: {
+      bookingId: string;
+      doctorName: string;
+      appointmentDate: Date;
+      appointmentTime: string;
+      notes?: string;
+      type: 'BOOKING_COMPLETED';
+    },
+  ): Promise<boolean> {
+    try {
+      const message: admin.messaging.Message = {
+        token: fcmToken,
+        notification: {
+          title: '✅ تم إنجاز الموعد',
+          body: `تم إنجاز موعدك مع ${data.doctorName} بنجاح. شكراً لثقتك!`,
+        },
+        data: {
+          type: data.type,
+          bookingId: data.bookingId,
+          appointmentDate: data.appointmentDate.toString(),
+          appointmentTime: data.appointmentTime,
+          doctorName: data.doctorName,
+          notes: data.notes || '',
+          action: 'VIEW_COMPLETED_BOOKINGS',
+          timestamp: new Date().toISOString(),
+        },
+        android: {
+          priority: 'high',
+          notification: {
+            channelId: 'booking_updates',
+            priority: 'high',
+            defaultSound: true,
+            defaultVibrateTimings: true,
+            icon: 'ic_notification',
+            color: '#4CAF50', // Green for completed
+          },
+        },
+        apns: {
+          headers: {
+            'apns-priority': '10',
+          },
+          payload: {
+            aps: {
+              alert: {
+                title: '✅ تم إنجاز الموعد',
+                body: `تم إنجاز موعدك مع ${data.doctorName} بنجاح.`,
+              },
+              sound: 'default',
+              badge: 1,
+            },
+          },
+        },
+      };
+
+      const response = await admin.messaging().send(message);
+
+      this.logger.log(
+        `FCM completion notification sent successfully. Message ID: ${response}`,
+      );
+
+      return true;
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `Failed to send FCM completion notification: ${err.message}`,
+        err.stack,
+      );
+      return false;
+    }
+  }
   /**
    * Send notification to multiple users
    */

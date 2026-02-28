@@ -19,8 +19,8 @@ import {
 import { KafkaService } from '@app/common/kafka/kafka.service';
 import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
 import { PauseSlotsJobData } from '../dto/slot-management.dto';
-import { FcmService } from '../../fcm/fcm.service';
 import { formatDate } from '@app/common/utils/get-syria-date';
+import { PopulatedBookingDocument } from './holidayblock.processor';
 
 @Processor('pause-slots')
 export class PauseSlotsProcessor {
@@ -32,8 +32,9 @@ export class PauseSlotsProcessor {
     @InjectModel(AppointmentSlot.name)
     private slotModel: Model<AppointmentSlotDocument>,
     private readonly kafkaService: KafkaService,
-    private readonly fcmService: FcmService,
-  ) {}
+  ) {
+    this.logger.log(`[ Pause Slots Job] Processing for doctor`);
+  }
 
   /**
    * Pause slots and cancel affected bookings
@@ -74,6 +75,7 @@ export class PauseSlotsProcessor {
       if (cancelledBookings.length > 0) {
         await this.sendFCMNotifications(
           cancelledBookings,
+          doctorId,
           doctorInfo.fullName,
           reason,
         );
@@ -116,7 +118,7 @@ export class PauseSlotsProcessor {
           status: BookingStatus.CANCELLED_BY_DOCTOR,
           cancellation: {
             cancelledBy: UserRole.DOCTOR,
-            reason: `Doctor paused slot: ${reason}`,
+            reason: `${reason}`,
             cancelledAt: new Date(),
           },
         },
@@ -153,7 +155,8 @@ export class PauseSlotsProcessor {
    * Send FCM notifications to all affected patients
    */
   private async sendFCMNotifications(
-    cancelledBookings: any[],
+    cancelledBookings: PopulatedBookingDocument[],
+    doctorId: string,
     doctorName: string,
     reason: string,
   ): Promise<void> {
@@ -162,7 +165,7 @@ export class PauseSlotsProcessor {
         const patient = booking.patientId;
 
         if (!patient) {
-          this.logger.warn(`Booking ${booking._id} has no patient`);
+          this.logger.warn(`Booking ${booking._id?.toString()} has no patient`);
           return null;
         }
 
@@ -170,7 +173,7 @@ export class PauseSlotsProcessor {
 
         if (!fcmToken) {
           this.logger.warn(
-            `Patient ${patient._id} has no FCM token. Skipping notification.`,
+            `Patient ${patient._id.toString()} has no FCM token. Skipping notification.`,
           );
           return null;
         }
@@ -178,9 +181,11 @@ export class PauseSlotsProcessor {
         return {
           fcmToken,
           data: {
-            bookingId: booking._id.toString(),
+            bookingId: booking._id?.toString(),
             doctorName,
-            appointmentDate: formatDate(booking.bookingDate),
+            doctorId,
+            patientId: patient._id.toString(),
+            appointmentDate: booking.bookingDate,
             appointmentTime: booking.bookingTime,
             reason,
             type: 'SLOT_PAUSED' as const,
@@ -199,14 +204,14 @@ export class PauseSlotsProcessor {
         //   notification.data,
         // );
         const sent = await this.sendDisplacementNotification({
-          patientId: notification.patientId,
+          patientId: notification.data.patientId,
           fcmToken: notification.fcmToken,
-          bookingId: booking.bookingId,
-          doctorId: booking.doctorId,
-          doctorName: booking.doctorName,
-          appointmentDate: booking.appointmentDate,
-          appointmentTime: booking.appointmentTime,
-          reason: 'Doctor updated working hours. Please reschedule.',
+          bookingId: notification.data.bookingId!,
+          doctorId: notification.data.doctorId,
+          doctorName: notification.data.doctorName,
+          appointmentDate: notification.data.appointmentDate,
+          appointmentTime: notification.data.appointmentTime,
+          reason: notification.data.reason,
         });
 
         if (sent) {
@@ -219,9 +224,10 @@ export class PauseSlotsProcessor {
           );
         }
       } catch (error) {
+        const err = error as Error;
         this.logger.error(
-          `Error sending FCM notification: ${error.message}`,
-          error.stack,
+          `Error sending FCM notification: ${err.message}`,
+          err.stack,
         );
       }
     }
