@@ -21,6 +21,8 @@ import { SearchCountMiddleware } from './search/search-count.middleware';
 import { NearbyBookingModule } from './most-searched_nearby-booking/nearby-booking.module';
 import { DoctorProfileModule } from './doctor-profile/doctor-profile.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { NotificationDisplayController } from './display-notifications/notification-display.controller';
+import { NotificationDisplayService } from './display-notifications/notification-display.service';
 
 // NOTE: NearbyBookingModule likely also uses 'route-processing' / 'matrix-processing'.
 // If so, those queues are already owned by SearchModule (which is global enough
@@ -52,16 +54,15 @@ import { DashboardModule } from './dashboard/dashboard.module';
       secret: process.env.JWT_ACCESS_SECRET,
     }),
 
-    // ── Feature modules ────────────────────────────────────────────────────
     QuestionsModule,
     PostModule,
-    SearchModule, // owns route-processing + matrix-processing queues
+    SearchModule,
     DoctorProfileModule,
     DashboardModule,
     NearbyBookingModule,
   ],
-  controllers: [SocialServiceController],
-  providers: [SocialServiceService],
+  controllers: [SocialServiceController,NotificationDisplayController],
+  providers: [SocialServiceService,NotificationDisplayService],
 })
 export class SocialServiceModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
