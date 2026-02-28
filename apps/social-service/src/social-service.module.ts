@@ -22,9 +22,15 @@ import { NearbyBookingModule } from './most-searched_nearby-booking/nearby-booki
 import { DoctorProfileModule } from './doctor-profile/doctor-profile.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 
+// NOTE: NearbyBookingModule likely also uses 'route-processing' / 'matrix-processing'.
+// If so, those queues are already owned by SearchModule (which is global enough
+// via DatabaseModule).  If NearbyBookingModule is *not* a child of SearchModule,
+// add BullModule.registerQueue() calls inside NearbyBookingModule as well, or
+// move queue registration to a shared QueuesModule and import it in both.
+
 @Module({
   imports: [
-    // ── GraphQL (code-first, auto schema) ──────────────────────────────────
+    // ── GraphQL ────────────────────────────────────────────────────────────
     GraphQLModule.forRoot<ApolloDriverConfig>({
       driver: ApolloDriver,
       autoSchemaFile: join(process.cwd(), 'src/schema.gql'),
@@ -49,7 +55,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
     // ── Feature modules ────────────────────────────────────────────────────
     QuestionsModule,
     PostModule,
-    SearchModule,
+    SearchModule, // owns route-processing + matrix-processing queues
     DoctorProfileModule,
     DashboardModule,
     NearbyBookingModule,
