@@ -7,6 +7,8 @@ import {
   Param,
   HttpCode,
   HttpStatus,
+  Req,
+  UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { UsersService } from './users.service';
@@ -16,6 +18,14 @@ import {
   BookingValidationResponseDto,
 } from './dto/patient-booking.dto';
 import { RemoveFCMTokenDto, UpdateFCMTokenDto } from './dto/update-fcm.dto';
+import {
+  BookingStatus,
+  UserRole,
+} from '@app/common/database/schemas/common.enums';
+import { GetUserBookingsDto } from './dto/get-user-bookings.dto';
+import { JwtAuthGuard } from '@app/common/guards/jwt.guard';
+import { RolesGuard } from '@app/common/guards/role.guard';
+import { Roles } from '@app/common/decorator/role.decorator';
 
 @ApiTags('Patient Bookings')
 @Controller('users')
@@ -143,5 +153,73 @@ export class UsersController {
   })
   async removeFCMToken(@Param('userId') dto: RemoveFCMTokenDto) {
     return this.patientBookingService.removeFCMToken(dto.userId);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.USER)
+  @Get('my-bookings')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get current user bookings',
+    description: `
+       Returns paginated bookings for the authenticated user.
+       - **cancelled**: includes bookings cancelled by patient OR cancelled/rescheduled by doctor
+       - **completed**: appointments that were completed
+       - **pending**: upcoming/pending appointments
+       - If status is omitted, returns all bookings
+       - Cancelled bookings are cached for 1 hour
+     `,
+  })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    enum: BookingStatus,
+    description: 'Filter by booking status group',
+  })
+  @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
+  @ApiQuery({ name: 'limit', required: false, type: Number, example: 10 })
+  @ApiResponse({
+    status: 200,
+    description: 'User bookings retrieved successfully',
+    schema: {
+      example: {
+        data: [
+          {
+            bookingId: '64f1a2b3c4d5e6f7a8b9c0d1',
+            status: 'NEEDS_RESCHEDULE',
+            bookingDate: '2026-03-01T00:00:00.000Z',
+            slot: {
+              startTime: '09:00',
+              endTime: '09:30',
+              location: {
+                type: 'HOSPITAL',
+                entity_name: 'مستشفى دمشق',
+                address: 'شارع بغداد، دمشق',
+              },
+              inspectionPrice: 5000,
+            },
+            doctor: {
+              fullName: 'د. أحمد الخطيب',
+              image: 'https://cdn.example.com/doctors/ahmed.jpg',
+            },
+            cancellation: {
+              cancelledBy: 'SYSTEM',
+              reason: 'Doctor updated working hours',
+            },
+          },
+        ],
+        meta: {
+          total: 25,
+          page: 1,
+          limit: 10,
+          totalPages: 3,
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async getMyBookings(@Query() dto: GetUserBookingsDto, @Req() req: any) {
+    const userId = req.user.entity._id.toString();
+    return this.patientBookingService.getUserBookings(userId, dto);
   }
 }

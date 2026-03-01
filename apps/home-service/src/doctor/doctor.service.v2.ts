@@ -1,0 +1,525 @@
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model, Types } from 'mongoose';
+import {
+  Booking,
+  BookingDocument,
+} from '@app/common/database/schemas/booking.schema';
+import { AppointmentSlot } from '@app/common/database/schemas/slot.schema';
+import { User } from '@app/common/database/schemas/user.schema';
+import {
+  Doctor,
+  DoctorDocument,
+} from '@app/common/database/schemas/doctor.schema';
+import { BookingStatus } from '@app/common/database/schemas/common.enums';
+import { CacheService } from '@app/common/cache/cache.service';
+import {
+  DoctorBookingDetailDto,
+  GetDoctorBookingsDto,
+  GetDoctorBookingsResponseDto,
+} from './dto/get-doctor-booking.dto';
+
+@Injectable()
+export class DoctorBookingsQueryService {
+  private readonly logger = new Logger(DoctorBookingsQueryService.name);
+  private readonly CACHE_TTL = 300; // 5 minutes
+  private readonly CACHE_PREFIX = 'doctor:bookings';
+
+  constructor(
+    @InjectModel(Booking.name)
+    private bookingModel: Model<BookingDocument>,
+    @InjectModel(Doctor.name)
+    private doctorModel: Model<DoctorDocument>,
+    private readonly cacheService: CacheService,
+  ) {}
+
+  /**
+   * Get doctor bookings with advanced filtering, sorting, and caching
+   */
+  async getDoctorBookings(
+    dto: GetDoctorBookingsDto,
+  ): Promise<GetDoctorBookingsResponseDto> {
+    this.logger.log(
+      `Fetching bookings for doctor ${dto.doctorId} with filters: ${JSON.stringify(dto)}`,
+    );
+
+    // Validate doctor ID
+    if (!Types.ObjectId.isValid(dto.doctorId)) {
+      throw new BadRequestException('Invalid doctor ID');
+    }
+
+    // Generate cache key
+    const cacheKey = this.generateCacheKey(dto);
+
+    // Try to get from cache
+    // const cachedResult =
+    //   await this.cacheService.get<GetDoctorBookingsResponseDto>(cacheKey);
+
+    // if (cachedResult) {
+    //   this.logger.debug(`Cache hit for key: ${cacheKey}`);
+    //   return cachedResult;
+    // }
+
+    this.logger.debug(`Cache miss for key: ${cacheKey}`);
+
+    // Get doctor info (for inspection duration)
+    const doctor = await this.doctorModel
+      .findById(dto.doctorId)
+      .select('inspectionDuration firstName lastName')
+      .lean()
+      .exec();
+
+    if (!doctor) {
+      throw new BadRequestException('Doctor not found');
+    }
+
+    const inspectionDuration = doctor.inspectionDuration || 30; // Default 30 mins
+
+    // Build query filters
+    const filters = this.buildFilters(dto);
+
+    // Get total count for pagination
+    const totalItems = await this.bookingModel.countDocuments(filters);
+
+    // Calculate pagination
+    const page = dto.page || 1;
+    const limit = dto.limit || 20;
+    const skip = (page - 1) * limit;
+    const totalPages = Math.ceil(totalItems / limit);
+
+    // Fetch bookings with all related data
+    const bookings = await this.bookingModel
+      .find(filters)
+      .populate<{ patientId: User }>('patientId', 'username phone gender')
+      .populate<{ slotId: AppointmentSlot }>(
+        'slotId',
+        'date startTime endTime status location',
+      )
+      .sort({ bookingTime: 1 }) // Sort by time (small to big)
+      .skip(skip)
+      .limit(limit)
+      .lean()
+      .exec();
+
+    // Transform to DTOs
+    const bookingDetails = await this.transformBookings(
+      bookings,
+      inspectionDuration,
+    );
+
+    // Calculate summary statistics
+    const summary = await this.calculateSummary(dto.doctorId, filters);
+
+    // Build response
+    const response: GetDoctorBookingsResponseDto = {
+      bookings: bookingDetails,
+      pagination: {
+        currentPage: page,
+        totalPages,
+        totalItems,
+        itemsPerPage: limit,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: page > 1,
+      },
+      summary,
+    };
+
+    // Cache the result
+    await this.cacheService.set(cacheKey, response, this.CACHE_TTL);
+
+    this.logger.log(
+      `Fetched ${bookingDetails.length} bookings (page ${page}/${totalPages})`,
+    );
+
+    return response;
+  }
+
+  /**
+   * Build MongoDB query filters
+   */
+  private buildFilters(dto: GetDoctorBookingsDto): any {
+    const filters: any = {
+      doctorId: new Types.ObjectId(dto.doctorId),
+    };
+
+    // Date filters
+    if (dto.date) {
+      // Specific date
+      const date = new Date(dto.date);
+      const startOfDay = new Date(date);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(date);
+      endOfDay.setHours(23, 59, 59, 999);
+
+      filters.bookingDate = {
+        $gte: startOfDay,
+        $lte: endOfDay,
+      };
+    } else if (dto.startDate || dto.endDate) {
+      // Date range
+      filters.bookingDate = {};
+
+      if (dto.startDate) {
+        const startDate = new Date(dto.startDate);
+        startDate.setHours(0, 0, 0, 0);
+        filters.bookingDate.$gte = startDate;
+      }
+
+      if (dto.endDate) {
+        const endDate = new Date(dto.endDate);
+        endDate.setHours(23, 59, 59, 999);
+        filters.bookingDate.$lte = endDate;
+      }
+    }
+
+    // Status filter (can be multiple)
+    if (dto.status && dto.status.length > 0) {
+      filters.status = { $in: dto.status };
+    }
+
+    // Location filters
+    if (dto.locationEntityName || dto.locationType) {
+      // We'll need to join with slots for location filtering
+      // Store these for later use in aggregation
+      filters._locationFilters = {
+        entityName: dto.locationEntityName,
+        locationType: dto.locationType,
+      };
+    }
+
+    return filters;
+  }
+
+  /**
+   * Transform bookings to DTOs
+   */
+  private async transformBookings(
+    bookings: any[],
+    inspectionDuration: number,
+  ): Promise<DoctorBookingDetailDto[]> {
+    return bookings.map((booking) => {
+      const patient = booking.patientId as User;
+      const slot = booking.slotId as AppointmentSlot;
+
+      return {
+        bookingId: booking._id.toString(),
+        status: booking.status,
+        bookingDate: booking.bookingDate,
+        bookingTime: booking.bookingTime,
+        bookingEndTime: booking.bookingEndTime,
+        inspectionDuration,
+        price: booking.price,
+        note: booking.note,
+        createdAt: booking.createdAt,
+        completedAt: booking.completedAt,
+        cancellation: booking.cancellation
+          ? {
+              cancelledBy: booking.cancellation.cancelledBy,
+              reason: booking.cancellation.reason,
+              cancelledAt: booking.cancellation.cancelledAt,
+            }
+          : undefined,
+        patient: {
+          patientId: patient._id.toString(),
+          username: patient.username,
+          phone: patient.phone,
+          gender: patient.gender,
+        },
+        slot: {
+          slotId: slot._id.toString(),
+          date: slot.date,
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+          status: slot.status,
+          location: {
+            type: slot.location.type,
+            entity_name: slot.location.entity_name,
+            address: slot.location.address,
+          },
+        },
+      };
+    });
+  }
+
+  /**
+   * Calculate summary statistics
+   */
+  private async calculateSummary(
+    doctorId: string,
+    filters: any,
+  ): Promise<{
+    totalBookings: number;
+    byStatus: { [key in BookingStatus]?: number };
+    averageDuration: number;
+    totalRevenue: number;
+  }> {
+    const doctor = await this.doctorModel
+      .findById(doctorId)
+      .select('inspectionDuration')
+      .lean()
+      .exec();
+
+    const inspectionDuration = doctor?.inspectionDuration || 30;
+
+    // Aggregate statistics
+    const stats = await this.bookingModel.aggregate([
+      { $match: filters },
+      {
+        $group: {
+          _id: '$status',
+          count: { $sum: 1 },
+          totalRevenue: { $sum: '$price' },
+        },
+      },
+    ]);
+
+    const byStatus: { [key in BookingStatus]?: number } = {};
+    let totalBookings = 0;
+    let totalRevenue = 0;
+
+    stats.forEach((stat) => {
+      byStatus[stat._id as BookingStatus] = stat.count;
+      totalBookings += stat.count;
+      totalRevenue += stat.totalRevenue;
+    });
+
+    return {
+      totalBookings,
+      byStatus,
+      averageDuration: inspectionDuration,
+      totalRevenue,
+    };
+  }
+
+  /**
+   * Generate cache key
+   */
+  private generateCacheKey(dto: GetDoctorBookingsDto): string {
+    const parts = [
+      this.CACHE_PREFIX,
+      dto.doctorId,
+      dto.date || 'all',
+      dto.startDate || '',
+      dto.endDate || '',
+      dto.status?.join('-') || 'all',
+      dto.locationEntityName || '',
+      dto.locationType || '',
+      `page${dto.page || 1}`,
+      `limit${dto.limit || 20}`,
+    ];
+
+    return parts.filter(Boolean).join(':');
+  }
+
+  /**
+   * Get bookings with location filtering (uses aggregation)
+   */
+  async getDoctorBookingsWithLocationFilter(
+    dto: GetDoctorBookingsDto,
+  ): Promise<GetDoctorBookingsResponseDto> {
+    if (!dto.locationEntityName && !dto.locationType) {
+      // No location filter, use regular method
+      return this.getDoctorBookings(dto);
+    }
+
+    this.logger.log(
+      `Fetching bookings with location filter: ${dto.locationEntityName || dto.locationType}`,
+    );
+
+    // Generate cache key
+    const cacheKey = this.generateCacheKey(dto);
+
+    // Try cache
+    const cachedResult =
+      await this.cacheService.get<GetDoctorBookingsResponseDto>(cacheKey);
+
+    if (cachedResult) {
+      this.logger.debug(`Cache hit for location filter: ${cacheKey}`);
+      return cachedResult;
+    }
+
+    // Build aggregation pipeline
+    const pipeline: any[] = [
+      // Match bookings by doctor
+      {
+        $match: {
+          doctorId: new Types.ObjectId(dto.doctorId),
+        },
+      },
+    ];
+
+    // Add date filters
+    if (dto.date) {
+      const date = new Date(dto.date);
+      const startOfDay = new Date(date);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(date);
+      endOfDay.setHours(23, 59, 59, 999);
+
+      pipeline.push({
+        $match: {
+          bookingDate: { $gte: startOfDay, $lte: endOfDay },
+        },
+      });
+    }
+
+    // Add status filter
+    if (dto.status && dto.status.length > 0) {
+      pipeline.push({
+        $match: {
+          status: { $in: dto.status },
+        },
+      });
+    }
+
+    // Lookup slot information
+    pipeline.push({
+      $lookup: {
+        from: 'appointmentslots',
+        localField: 'slotId',
+        foreignField: '_id',
+        as: 'slotInfo',
+      },
+    });
+
+    pipeline.push({
+      $unwind: '$slotInfo',
+    });
+
+    // Filter by location
+    const locationMatch: any = {};
+    if (dto.locationEntityName) {
+      locationMatch['slotInfo.location.entity_name'] = dto.locationEntityName;
+    }
+    if (dto.locationType) {
+      locationMatch['slotInfo.location.type'] = dto.locationType;
+    }
+
+    if (Object.keys(locationMatch).length > 0) {
+      pipeline.push({ $match: locationMatch });
+    }
+
+    // Lookup patient information
+    pipeline.push({
+      $lookup: {
+        from: 'users',
+        localField: 'patientId',
+        foreignField: '_id',
+        as: 'patientInfo',
+      },
+    });
+
+    pipeline.push({
+      $unwind: '$patientInfo',
+    });
+
+    // Sort by time (ascending)
+    pipeline.push({
+      $sort: { bookingTime: 1 },
+    });
+
+    // Get total count
+    const countPipeline = [...pipeline, { $count: 'total' }];
+    const countResult = await this.bookingModel.aggregate(countPipeline);
+    const totalItems = countResult[0]?.total || 0;
+
+    // Add pagination
+    const page = dto.page || 1;
+    const limit = dto.limit || 20;
+    const skip = (page - 1) * limit;
+
+    pipeline.push({ $skip: skip });
+    pipeline.push({ $limit: limit });
+
+    // Execute aggregation
+    const results = await this.bookingModel.aggregate(pipeline);
+
+    // Get doctor for inspection duration
+    const doctor = await this.doctorModel
+      .findById(dto.doctorId)
+      .select('inspectionDuration')
+      .lean()
+      .exec();
+
+    const inspectionDuration = doctor?.inspectionDuration || 30;
+
+    // Transform results
+    const bookingDetails = this.transformAggregatedBookings(
+      results,
+      inspectionDuration,
+    );
+
+    // Calculate summary
+    const summary = await this.calculateSummary(dto.doctorId, {
+      doctorId: new Types.ObjectId(dto.doctorId),
+    });
+
+    const totalPages = Math.ceil(totalItems / limit);
+
+    const response: GetDoctorBookingsResponseDto = {
+      bookings: bookingDetails,
+      pagination: {
+        currentPage: page,
+        totalPages,
+        totalItems,
+        itemsPerPage: limit,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: page > 1,
+      },
+      summary,
+    };
+
+    // Cache result
+    await this.cacheService.set(cacheKey, response, this.CACHE_TTL);
+
+    this.logger.log(
+      `Fetched ${bookingDetails.length} bookings with location filter`,
+    );
+
+    return response;
+  }
+
+  /**
+   * Transform aggregated results to DTOs
+   */
+  private transformAggregatedBookings(
+    results: any[],
+    inspectionDuration: number,
+  ): DoctorBookingDetailDto[] {
+    return results.map((result) => ({
+      bookingId: result._id.toString(),
+      status: result.status,
+      bookingDate: result.bookingDate,
+      bookingTime: result.bookingTime,
+      bookingEndTime: result.bookingEndTime,
+      inspectionDuration,
+      price: result.price,
+      note: result.note,
+      createdAt: result.createdAt,
+      completedAt: result.completedAt,
+      cancellation: result.cancellation,
+      patient: {
+        patientId: result.patientInfo._id.toString(),
+        phone: result.patientInfo.phone,
+        gender: result.patientInfo.gender,
+      },
+      slot: {
+        slotId: result.slotInfo._id.toString(),
+        date: result.slotInfo.date,
+        startTime: result.slotInfo.startTime,
+        endTime: result.slotInfo.endTime,
+        status: result.slotInfo.status,
+        location: result.slotInfo.location,
+      },
+    }));
+  }
+
+  /**
+   * Invalidate cache for a doctor
+   */
+  async invalidateCache(doctorId: string): Promise<void> {
+    const pattern = `${this.CACHE_PREFIX}:${doctorId}:*`;
+    await this.cacheService.del(pattern);
+    this.logger.log(`Cache invalidated for doctor ${doctorId}`);
+  }
+}

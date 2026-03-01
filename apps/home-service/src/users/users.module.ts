@@ -3,9 +3,10 @@ import { UsersService } from './users.service';
 import { UsersController } from './users.controller';
 import { DatabaseModule } from '@app/common/database/database.module';
 import { KafkaModule } from '@app/common/kafka/kafka.module';
+import { CacheModule } from '@app/common/cache/cache.module';
 
 @Module({
-  imports: [DatabaseModule, KafkaModule],
+  imports: [DatabaseModule, KafkaModule, CacheModule],
   providers: [UsersService],
   controllers: [UsersController],
   exports: [UsersService],

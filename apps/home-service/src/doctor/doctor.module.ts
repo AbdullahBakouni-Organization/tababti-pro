@@ -15,6 +15,7 @@ import { VIPBookingProcessor } from './processors/VibBooking.processor';
 import { HolidayBlockProcessor } from './processors/holidayblock.processor';
 import { PatientStatsCron } from './cron/patient-stats.cron';
 import { ScheduleModule } from '@nestjs/schedule';
+import { DoctorBookingsQueryService } from './doctor.service.v2';
 
 @Module({
   imports: [
@@ -78,6 +79,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     VIPBookingProcessor,
     HolidayBlockProcessor,
     PatientStatsCron,
+    DoctorBookingsQueryService,
   ],
   controllers: [DoctorController],
 })

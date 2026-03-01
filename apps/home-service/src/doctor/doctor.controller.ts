@@ -27,6 +27,7 @@ import {
   ApiBadRequestResponse,
   ApiUnauthorizedResponse,
   ApiQuery,
+  ApiParam,
 } from '@nestjs/swagger';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { DoctorService } from './doctor.service';
@@ -46,7 +47,10 @@ import { DocumentUrlInterceptor } from '../../../../libs/common/src/interceptors
 import type { Request, Response } from 'express';
 import { JwtRefreshGuard } from '@app/common/guards/jwt-refresh.guard';
 import { RolesGuard } from '@app/common/guards/role.guard';
-import { UserRole } from '@app/common/database/schemas/common.enums';
+import {
+  BookingStatus,
+  UserRole,
+} from '@app/common/database/schemas/common.enums';
 import { Roles } from '@app/common/decorator/role.decorator';
 import { DoctorLoginDto } from './dto/login.dto';
 import {
@@ -81,6 +85,11 @@ import {
   SearchPatientsResponseDto,
 } from './dto/search-patients.dto';
 import { DoctorPatientStatsDto } from './dto/doctor-patient-stats.dto';
+import {
+  GetDoctorBookingsDto,
+  GetDoctorBookingsResponseDto,
+} from './dto/get-doctor-booking.dto';
+import { DoctorBookingsQueryService } from './doctor.service.v2';
 
 // ============================================
 // Login DTO
@@ -106,6 +115,7 @@ export class LoginDto {
 export class DoctorController {
   constructor(
     private DoctorService: DoctorService,
+    private DoctorServiceV2: DoctorBookingsQueryService,
     private authService: AuthValidateService,
   ) {}
 
@@ -808,20 +818,6 @@ export class DoctorController {
     return this.DoctorService.completeBooking(dto);
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.DOCTOR)
-  @ApiBearerAuth()
-  @Get('patients/search')
-  async searchPatients(
-    @Query() dto: SearchPatientsDto,
-    @Req() req: any,
-  ): Promise<SearchPatientsResponseDto> {
-    return this.DoctorService.searchPatients(
-      req.user.entity._id.toString(),
-      dto,
-    );
-  }
-
   @Get('stats/patients/gender')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.DOCTOR)
@@ -830,5 +826,179 @@ export class DoctorController {
     return this.DoctorService.getDoctorPatientGenderStats(
       req.user.entity._id.toString(),
     );
+  }
+
+  @Get(':doctorId/bookings')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get doctor bookings with advanced filters',
+    description: `
+       Retrieves doctor's bookings with comprehensive filtering and sorting capabilities.
+
+       **Features:**
+       - Filter by date (specific date or date range)
+       - Filter by status (single or multiple statuses)
+       - Filter by location (entity name or type)
+       - Sorted by inspection time (ascending)
+       - Includes full patient and slot information
+       - Pagination support
+       - Response is cached for 5 minutes
+
+       **Sorting:**
+       Bookings are automatically sorted by inspection time from earliest to latest based on doctor's inspection duration.
+
+       **Caching:**
+       Results are cached for 5 minutes. Cache key includes all filter parameters.
+     `,
+  })
+  @ApiParam({
+    name: 'doctorId',
+    description: 'Doctor MongoDB ObjectId',
+    example: '507f1f77bcf86cd799439010',
+  })
+  @ApiQuery({
+    name: 'date',
+    required: false,
+    description: 'Filter by specific date (YYYY-MM-DD)',
+    example: '2026-02-25',
+  })
+  @ApiQuery({
+    name: 'startDate',
+    required: false,
+    description: 'Start date for range filter (YYYY-MM-DD)',
+    example: '2026-02-20',
+  })
+  @ApiQuery({
+    name: 'endDate',
+    required: false,
+    description: 'End date for range filter (YYYY-MM-DD)',
+    example: '2026-02-28',
+  })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    description:
+      'Filter by status (can specify multiple by repeating parameter)',
+    enum: BookingStatus,
+    isArray: true,
+    example: ['PENDING', 'CONFIRMED'],
+  })
+  @ApiQuery({
+    name: 'locationEntityName',
+    required: false,
+    description: 'Filter by location entity name (hospital/clinic name)',
+    example: 'City Medical Center',
+  })
+  @ApiQuery({
+    name: 'locationType',
+    required: false,
+    description: 'Filter by location type',
+    example: 'HOSPITAL',
+  })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    description: 'Page number',
+    example: 1,
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: 'Items per page',
+    example: 20,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Bookings retrieved successfully',
+    type: GetDoctorBookingsResponseDto,
+    schema: {
+      example: {
+        bookings: [
+          {
+            bookingId: '507f1f77bcf86cd799439015',
+            status: 'CONFIRMED',
+            bookingDate: '2026-02-25T00:00:00.000Z',
+            bookingTime: '09:00',
+            bookingEndTime: '09:30',
+            inspectionDuration: 30,
+            price: 150,
+            note: 'Regular checkup',
+            createdAt: '2026-02-20T10:00:00.000Z',
+            patient: {
+              patientId: '507f1f77bcf86cd799439011',
+              firstName: 'Ahmed',
+              lastName: 'Hassan',
+              username: 'ahmed.hassan',
+              phoneNumber: '+966501234567',
+              email: 'ahmed@example.com',
+              dateOfBirth: '1990-05-15T00:00:00.000Z',
+              gender: 'MALE',
+            },
+            slot: {
+              slotId: '507f1f77bcf86cd799439020',
+              date: '2026-02-25T00:00:00.000Z',
+              startTime: '09:00',
+              endTime: '09:30',
+              status: 'BOOKED',
+              location: {
+                type: 'HOSPITAL',
+                entity_name: 'City Medical Center',
+                address: '123 Main St',
+                city: 'Riyadh',
+                coordinates: {
+                  latitude: 24.7136,
+                  longitude: 46.6753,
+                },
+              },
+            },
+          },
+        ],
+        pagination: {
+          currentPage: 1,
+          totalPages: 5,
+          totalItems: 100,
+          itemsPerPage: 20,
+          hasNextPage: true,
+          hasPreviousPage: false,
+        },
+        summary: {
+          totalBookings: 100,
+          byStatus: {
+            PENDING: 30,
+            CONFIRMED: 45,
+            COMPLETED: 20,
+            CANCELLED: 5,
+          },
+          averageDuration: 30,
+          totalRevenue: 15000,
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid doctor ID or query parameters',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Doctor not found',
+  })
+  async getDoctorBookings(
+    @Param('doctorId') doctorId: string,
+    @Query() query: GetDoctorBookingsDto,
+  ): Promise<GetDoctorBookingsResponseDto> {
+    // Merge doctorId from path param
+    const dto: GetDoctorBookingsDto = {
+      ...query,
+      doctorId,
+    };
+
+    // Use location filtering method if location filters are present
+    if (dto.locationEntityName || dto.locationType) {
+      return this.DoctorServiceV2.getDoctorBookingsWithLocationFilter(dto);
+    }
+
+    // Otherwise use regular method
+    return this.DoctorServiceV2.getDoctorBookings(dto);
   }
 }

@@ -16,10 +16,7 @@ import {
   AppointmentSlotDocument,
 } from '@app/common/database/schemas/slot.schema';
 import { User, UserDocument } from '@app/common/database/schemas/user.schema';
-import {
-  Doctor,
-  DoctorDocument,
-} from '@app/common/database/schemas/doctor.schema';
+import { Doctor } from '@app/common/database/schemas/doctor.schema';
 import {
   BookingStatus,
   SlotStatus,
@@ -33,6 +30,12 @@ import {
   BookingValidationResponseDto,
 } from './dto/patient-booking.dto';
 import { formatDate } from '@app/common/utils/get-syria-date';
+import { GetUserBookingsDto } from './dto/get-user-bookings.dto';
+import {
+  BookingResponseItem,
+  UserBookingsResponse,
+} from './interfaces/user-bookings-response.interface';
+import { CacheService } from '@app/common/cache/cache.service';
 
 @Injectable()
 export class UsersService {
@@ -42,7 +45,7 @@ export class UsersService {
   private readonly MAX_BOOKINGS_PER_DOCTOR = 1; // One booking per doctor at a time
   private readonly MAX_BOOKINGS_PER_DAY = 3; // Maximum 3 bookings in one day
   private readonly MAX_CANCELLATIONS_PER_DAY = 5; // Maximum 5 cancellations per day
-
+  private readonly CACHE_TTL = 60 * 60 * 1000; // 1 hour in ms
   constructor(
     @InjectModel(Booking.name)
     private bookingModel: Model<BookingDocument>,
@@ -50,9 +53,8 @@ export class UsersService {
     private slotModel: Model<AppointmentSlotDocument>,
     @InjectModel(User.name)
     private userModel: Model<UserDocument>,
-    @InjectModel(Doctor.name)
-    private doctorModel: Model<DoctorDocument>,
     private readonly kafkaService: KafkaService,
+    private readonly cacheManager: CacheService,
   ) {}
 
   /**
@@ -477,5 +479,200 @@ export class UsersService {
       message: 'FCM token removed successfully',
       userId: user._id.toString(),
     };
+  }
+
+  async getUserBookings(
+    userId: string,
+    dto: GetUserBookingsDto,
+  ): Promise<UserBookingsResponse> {
+    const { status, page = 1, limit = 10 } = dto;
+    if (!Types.ObjectId.isValid(userId)) {
+      throw new BadRequestException('Invalid user ID');
+    }
+    // ✅ Cache key unique per user + filter + page
+    const cacheKey = `user_bookings:${userId}:${status ?? 'all'}:page${page}:limit${limit}`;
+
+    // ✅ Try cache first — only for cancelled bookings
+    if (status === BookingStatus.CANCELLED) {
+      const cached =
+        await this.cacheManager.get<UserBookingsResponse>(cacheKey);
+      if (cached) {
+        this.logger.log(`✅ Cache HIT for ${cacheKey}`);
+        return cached;
+      }
+      this.logger.log(`❌ Cache MISS for ${cacheKey}`);
+    }
+
+    // ✅ Build status filter
+    const statusFilter = this.buildStatusFilter(status);
+
+    const skip = (page - 1) * limit;
+
+    // ✅ Aggregate for full data
+    const [result] = await this.bookingModel.aggregate([
+      {
+        $match: {
+          patientId: new Types.ObjectId(userId),
+          status: { $in: statusFilter },
+        },
+      },
+      {
+        $facet: {
+          // Total count for pagination
+          totalCount: [{ $count: 'count' }],
+
+          // Paginated data
+          data: [
+            { $sort: { createdAt: -1 } },
+            { $skip: skip },
+            { $limit: limit },
+
+            // Join slot
+            {
+              $lookup: {
+                from: 'appointment_slots',
+                localField: 'slotId',
+                foreignField: '_id',
+                as: 'slot',
+              },
+            },
+            { $unwind: { path: '$slot', preserveNullAndEmptyArrays: false } },
+
+            // Join doctor
+            {
+              $lookup: {
+                from: 'doctors',
+                localField: 'doctorId',
+                foreignField: '_id',
+                pipeline: [
+                  {
+                    $project: {
+                      firstName: 1,
+                      lastName: 1,
+                      image: 1,
+                    },
+                  },
+                ],
+                as: 'doctor',
+              },
+            },
+            { $unwind: { path: '$doctor', preserveNullAndEmptyArrays: false } },
+
+            // Project only needed fields
+            {
+              $project: {
+                _id: 1,
+                status: 1,
+                bookingDate: 1,
+                cancellation: 1,
+                'slot.startTime': 1,
+                'slot.endTime': 1,
+                'slot.location': 1,
+                'slot.price': 1,
+                'doctor.firstName': 1,
+                'doctor.lastName': 1,
+                'doctor.image': 1,
+              },
+            },
+          ],
+        },
+      },
+    ]);
+
+    const total = result.totalCount[0]?.count ?? 0;
+    const totalPages = Math.ceil(total / limit);
+
+    // ✅ Format response
+    const data: BookingResponseItem[] = result.data.map((booking: any) =>
+      this.formatBooking(booking, status),
+    );
+
+    const response: UserBookingsResponse = {
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages,
+      },
+    };
+
+    // ✅ Cache only cancelled bookings for 1 hour
+    if (status === BookingStatus.CANCELLED) {
+      await this.cacheManager.set(cacheKey, response, this.CACHE_TTL);
+      this.logger.log(`💾 Cached cancelled bookings for user ${userId}`);
+    }
+
+    return response;
+  }
+
+  // ✅ Map filter status → DB statuses
+  private buildStatusFilter(status?: BookingStatus): BookingStatus[] {
+    switch (status) {
+      case BookingStatus.CANCELLED:
+        return [
+          BookingStatus.CANCELLED_BY_DOCTOR, // cancelled by doctor/system
+          BookingStatus.CANCELLED_BY_PATIENT, // cancelled by patient
+        ];
+      case BookingStatus.COMPLETED:
+        return [BookingStatus.COMPLETED];
+      case BookingStatus.PENDING:
+        return [BookingStatus.PENDING];
+      default:
+        // No filter → return all statuses
+        return [
+          BookingStatus.PENDING,
+          BookingStatus.COMPLETED,
+          BookingStatus.CANCELLED_BY_DOCTOR,
+          BookingStatus.CANCELLED_BY_PATIENT,
+        ];
+    }
+  }
+
+  // ✅ Format each booking item
+  private formatBooking(
+    booking: any,
+    filter?: BookingStatus,
+  ): BookingResponseItem {
+    const isCancelled =
+      filter === BookingStatus.CANCELLED_BY_DOCTOR ||
+      filter === BookingStatus.CANCELLED_BY_PATIENT ||
+      booking.status === BookingStatus.CANCELLED_BY_DOCTOR ||
+      booking.status === BookingStatus.CANCELLED_BY_PATIENT ||
+      booking.status === BookingStatus.NEEDS_RESCHEDULE;
+
+    const item: BookingResponseItem = {
+      bookingId: booking._id.toString(),
+      status: booking.status,
+      bookingDate: formatDate(booking.bookingDate),
+      slot: {
+        startTime: booking.slot.startTime,
+        endTime: booking.slot.endTime,
+        location: {
+          type: booking.slot.location?.type,
+          entity_name: booking.slot.location?.entity_name,
+          address: booking.slot.location?.address,
+        },
+        inspectionPrice: booking.slot.price,
+      },
+      doctor: {
+        fullName: `${booking.doctor.firstName} ${booking.doctor.lastName}`,
+        image: booking.doctor.image ?? null,
+      },
+    };
+
+    // ✅ Add cancellation info only if cancelled
+    if (isCancelled && booking.cancellation) {
+      item.cancellation = {
+        cancelledBy: booking.cancellation.cancelledBy,
+        // Return reason only if cancelled by doctor or system
+        reason:
+          booking.cancellation.cancelledBy === 'PATIENT'
+            ? undefined
+            : booking.cancellation.reason,
+      };
+    }
+
+    return item;
   }
 }
