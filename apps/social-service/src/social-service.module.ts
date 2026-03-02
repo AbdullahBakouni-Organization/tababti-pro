@@ -23,6 +23,7 @@ import { DoctorProfileModule } from './doctor-profile/doctor-profile.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { NotificationDisplayController } from './display-notifications/notification-display.controller';
 import { NotificationDisplayService } from './display-notifications/notification-display.service';
+import { RequestsModule } from './medical-equipment/request.module';
 
 // NOTE: NearbyBookingModule likely also uses 'route-processing' / 'matrix-processing'.
 // If so, those queues are already owned by SearchModule (which is global enough
@@ -60,6 +61,7 @@ import { NotificationDisplayService } from './display-notifications/notification
     DoctorProfileModule,
     DashboardModule,
     NearbyBookingModule,
+    RequestsModule,
   ],
   controllers: [SocialServiceController,NotificationDisplayController],
   providers: [SocialServiceService,NotificationDisplayService],
