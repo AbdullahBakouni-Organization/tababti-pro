@@ -14,14 +14,6 @@ export class DoctorCompleteBookingDto {
   bookingId: string;
 
   @ApiProperty({
-    description: 'Doctor ID who is completing the booking',
-    example: '507f1f77bcf86cd799439010',
-  })
-  @IsNotEmpty()
-  @IsMongoId()
-  doctorId: string;
-
-  @ApiProperty({
     description: 'Optional notes about the completed appointment',
     example: 'Patient responded well to treatment',
     required: false,

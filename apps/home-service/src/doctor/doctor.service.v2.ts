@@ -72,13 +72,13 @@ export class DoctorBookingsQueryService {
     const cacheKey = this.generateCacheKey(dto, doctorId);
 
     // Try to get from cache
-    // const cachedResult =
-    //   await this.cacheService.get<GetDoctorBookingsResponseDto>(cacheKey);
+    const cachedResult =
+      await this.cacheService.get<GetDoctorBookingsResponseDto>(cacheKey);
 
-    // if (cachedResult) {
-    //   this.logger.debug(`Cache hit for key: ${cacheKey}`);
-    //   return cachedResult;
-    // }
+    if (cachedResult) {
+      this.logger.debug(`Cache hit for key: ${cacheKey}`);
+      return cachedResult;
+    }
 
     this.logger.debug(`Cache miss for key: ${cacheKey}`);
 
@@ -97,7 +97,6 @@ export class DoctorBookingsQueryService {
 
     // Build query filters
     const filters = this.buildFilters(dto, doctorId);
-    console.log(JSON.stringify(filters, null, 2));
     // Get total count for pagination
     const totalItems = await this.bookingModel.countDocuments(filters);
 
@@ -301,7 +300,6 @@ export class DoctorBookingsQueryService {
       totalBookings += stat.count;
       totalRevenue += stat.totalRevenue;
     });
-    console.log('AGG filters:', filters);
     return {
       totalBookings,
       byStatus,
@@ -331,175 +329,6 @@ export class DoctorBookingsQueryService {
     ];
 
     return parts.filter(Boolean).join(':');
-  }
-
-  /**
-   * Get bookings with location filtering (uses aggregation)
-   */
-  async getDoctorBookingsWithLocationFilter(
-    dto: GetDoctorBookingsDto,
-    doctorId: string,
-  ): Promise<GetDoctorBookingsResponseDto> {
-    if (!dto.locationEntityName && !dto.locationType) {
-      // No location filter, use regular method
-      return this.getDoctorBookings(dto, doctorId);
-    }
-
-    this.logger.log(
-      `Fetching bookings with location filter: ${dto.locationEntityName || dto.locationType}`,
-    );
-
-    // Generate cache key
-    const cacheKey = this.generateCacheKey(dto, doctorId);
-
-    // // Try cache
-    // const cachedResult =
-    //   await this.cacheService.get<GetDoctorBookingsResponseDto>(cacheKey);
-
-    // if (cachedResult) {
-    //   this.logger.debug(`Cache hit for location filter: ${cacheKey}`);
-    //   return cachedResult;
-    // }
-
-    // Build aggregation pipeline
-    const pipeline: any[] = [
-      // Match bookings by doctor
-      {
-        $match: {
-          doctorId: new Types.ObjectId(doctorId),
-        },
-      },
-    ];
-
-    // Add date filters
-    if (dto.date) {
-      const date = new Date(dto.date);
-      const startOfDay = new Date(date);
-      startOfDay.setHours(0, 0, 0, 0);
-      const endOfDay = new Date(date);
-      endOfDay.setHours(23, 59, 59, 999);
-
-      pipeline.push({
-        $match: {
-          bookingDate: { $gte: startOfDay, $lte: endOfDay },
-        },
-      });
-    }
-
-    // Add status filter
-    if (dto.status && dto.status.length > 0) {
-      pipeline.push({
-        $match: {
-          status: { $in: dto.status },
-        },
-      });
-    }
-
-    // Lookup slot information
-    pipeline.push({
-      $lookup: {
-        from: 'appointmentslots',
-        localField: 'slotId',
-        foreignField: '_id',
-        as: 'slotInfo',
-      },
-    });
-
-    pipeline.push({
-      $unwind: '$slotInfo',
-    });
-
-    // Filter by location
-    const locationMatch: any = {};
-    if (dto.locationEntityName) {
-      locationMatch['slotInfo.location.entity_name'] = dto.locationEntityName;
-    }
-    if (dto.locationType) {
-      locationMatch['slotInfo.location.type'] = dto.locationType;
-    }
-
-    if (Object.keys(locationMatch).length > 0) {
-      pipeline.push({ $match: locationMatch });
-    }
-
-    // Lookup patient information
-    pipeline.push({
-      $lookup: {
-        from: 'users',
-        localField: 'patientId',
-        foreignField: '_id',
-        as: 'patientInfo',
-      },
-    });
-
-    pipeline.push({
-      $unwind: '$patientInfo',
-    });
-
-    // Sort by time (ascending)
-    pipeline.push({
-      $sort: { bookingTime: 1 },
-    });
-
-    // Get total count
-    const countPipeline = [...pipeline, { $count: 'total' }];
-    const countResult = await this.bookingModel.aggregate(countPipeline);
-    const totalItems = countResult[0]?.total || 0;
-
-    // Add pagination
-    const page = dto.page || 1;
-    const limit = dto.limit || 20;
-    const skip = (page - 1) * limit;
-
-    pipeline.push({ $skip: skip });
-    pipeline.push({ $limit: limit });
-
-    // Execute aggregation
-    const results = await this.bookingModel.aggregate(pipeline);
-
-    // Get doctor for inspection duration
-    const doctor = await this.doctorModel
-      .findById(doctorId)
-      .select('inspectionDuration')
-      .lean()
-      .exec();
-
-    const inspectionDuration = doctor?.inspectionDuration || 30;
-
-    // Transform results
-    const bookingDetails = this.transformAggregatedBookings(
-      results,
-      inspectionDuration,
-    );
-
-    // Calculate summary
-    const summary = await this.calculateSummary(doctorId, {
-      doctorId: new Types.ObjectId(doctorId),
-    });
-
-    const totalPages = Math.ceil(totalItems / limit);
-
-    const response: GetDoctorBookingsResponseDto = {
-      bookings: bookingDetails,
-      pagination: {
-        currentPage: page,
-        totalPages,
-        totalItems,
-        itemsPerPage: limit,
-        hasNextPage: page < totalPages,
-        hasPreviousPage: page > 1,
-      },
-      summary,
-    };
-
-    // Cache result
-    await this.cacheService.set(cacheKey, response, this.CACHE_TTL);
-
-    this.logger.log(
-      `Fetched ${bookingDetails.length} bookings with location filter`,
-    );
-
-    return response;
   }
 
   /**
@@ -561,7 +390,7 @@ export class DoctorBookingsQueryService {
 
     // ✅ Only PENDING or NEEDS_RESCHEDULE bookings can be rescheduled
     if (
-      ![BookingStatus.PENDING, BookingStatus.NEEDS_RESCHEDULE].includes(
+      ![BookingStatus.PENDING, BookingStatus.RESCHEDULED].includes(
         booking.status,
       )
     ) {
@@ -617,7 +446,7 @@ export class DoctorBookingsQueryService {
     );
 
     // ✅ Send Kafka notification to patient
-    this.sendCancellationNotification(
+    this.sendReschueledNotification(
       doctorId,
       doctorName,
       patient,
@@ -635,7 +464,7 @@ export class DoctorBookingsQueryService {
     };
   }
 
-  private sendCancellationNotification(
+  private sendReschueledNotification(
     doctorId: string,
     doctorName: string,
     patient: UserDocument,

@@ -1,13 +1,4 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Body,
-  Query,
-  HttpCode,
-  HttpStatus,
-  Param,
-} from '@nestjs/common';
+import { Controller, Get, Query, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { SlotGenerationService } from './slot.service';
 import {
@@ -19,10 +10,7 @@ import {
 @ApiTags('Slot Management')
 @Controller('slots')
 export class SlotController {
-  constructor(
-    private readonly slotManagementService: SlotGenerationService,
-    // private readonly pauseSlotService: PauseSlotService,
-  ) {}
+  constructor(private readonly slotManagementService: SlotGenerationService) {}
 
   /* -------------------------------------------------------------------------- */
   /*                   PATIENT-FACING: GET AVAILABLE SLOTS                      */
@@ -32,6 +20,7 @@ export class SlotController {
    * Get available slots for booking
    * This is the main route patients use to see bookable appointments
    */
+
   @Get('available')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({

@@ -62,14 +62,6 @@ export class AllSlotsResponseDto {
  */
 export class CheckVIPBookingConflictDto {
   @ApiProperty({
-    description: 'Doctor ID',
-    example: '507f1f77bcf86cd799439010',
-  })
-  @IsNotEmpty()
-  @IsMongoId()
-  doctorId: string;
-
-  @ApiProperty({
     description: 'Slot ID to book',
     example: '507f1f77bcf86cd799439020',
   })
@@ -99,14 +91,6 @@ export class VIPBookingConflictResponseDto {
  * DTO for creating VIP booking (confirmed)
  */
 export class CreateVIPBookingDto {
-  @ApiProperty({
-    description: 'Doctor ID',
-    example: '507f1f77bcf86cd799439010',
-  })
-  @IsNotEmpty()
-  @IsMongoId()
-  doctorId: string;
-
   @ApiProperty({
     description: 'Slot ID to book',
     example: '507f1f77bcf86cd799439020',
@@ -157,14 +141,6 @@ export class CreateVIPBookingDto {
  * DTO for checking holiday conflicts
  */
 export class CheckHolidayConflictDto {
-  @ApiProperty({
-    description: 'Doctor ID',
-    example: '507f1f77bcf86cd799439010',
-  })
-  @IsNotEmpty()
-  @IsMongoId()
-  doctorId: string;
-
   @ApiProperty({
     description: 'Holiday start date (YYYY-MM-DD)',
     example: '2026-02-20',
@@ -221,14 +197,6 @@ export class HolidayConflictResponseDto {
  * DTO for creating holiday (confirmed)
  */
 export class CreateHolidayDto {
-  @ApiProperty({
-    description: 'Doctor ID',
-    example: '507f1f77bcf86cd799439010',
-  })
-  @IsNotEmpty()
-  @IsMongoId()
-  doctorId: string;
-
   @ApiProperty({
     description: 'Holiday start date (YYYY-MM-DD)',
     example: '2026-02-20',

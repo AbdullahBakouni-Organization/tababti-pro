@@ -949,25 +949,26 @@ export class DoctorService {
    * Doctor cancels a booking
    * Frees up the slot and publishes Kafka event to refresh available slots
    */
-  async doctorCancelBooking(dto: DoctorCancelBookingDto): Promise<{
+  async doctorCancelBooking(
+    dto: DoctorCancelBookingDto,
+    doctorId: string,
+  ): Promise<{
     message: string;
     bookingId: string;
     slotId: string;
     patientNotified?: boolean;
   }> {
-    const doctor = await this.doctorModel.findById(dto.doctorId).exec();
+    const doctor = await this.doctorModel.findById(doctorId).exec();
     if (!doctor) {
-      throw new NotFoundException(`Doctor with ID ${dto.doctorId} not found`);
+      throw new NotFoundException(`Doctor with ID ${doctorId} not found`);
     }
-    this.logger.log(
-      `Doctor ${dto.doctorId} canceling booking ${dto.bookingId}`,
-    );
+    this.logger.log(`Doctor ${doctorId} canceling booking ${dto.bookingId}`);
 
     // Validate IDs
     if (!Types.ObjectId.isValid(dto.bookingId)) {
       throw new BadRequestException('Invalid booking ID');
     }
-    if (!Types.ObjectId.isValid(dto.doctorId)) {
+    if (!Types.ObjectId.isValid(doctorId)) {
       throw new BadRequestException('Invalid doctor ID');
     }
 
@@ -979,7 +980,7 @@ export class DoctorService {
       const booking = await this.bookingModel
         .findOne({
           _id: new Types.ObjectId(dto.bookingId),
-          doctorId: new Types.ObjectId(dto.doctorId),
+          doctorId: new Types.ObjectId(doctorId),
           status: { $in: [BookingStatus.PENDING] },
         })
         .populate('patientId', 'username phone fcmToken')
@@ -1020,10 +1021,10 @@ export class DoctorService {
       );
 
       // Step 3: Invalidate cache
-      await this.invalidateSlotsCache(dto.doctorId);
+      await this.invalidateSlotsCache(doctorId);
 
       // Step 4: Publish Kafka event to refresh available slots
-      this.publishSlotsRefreshedEvent(dto.doctorId, slot);
+      this.publishSlotsRefreshedEvent(doctorId, slot);
 
       // Step 5: Send FCM notification to patient
 
@@ -1051,7 +1052,7 @@ export class DoctorService {
       }
 
       this.sendCancellationNotification(
-        dto.doctorId,
+        doctorId,
         doctorName,
         patient,
         booking,
@@ -1115,16 +1116,19 @@ export class DoctorService {
   /**
    * Check conflicts before pausing slots (dry run)
    */
-  async checkPauseConflicts(dto: PauseSlotsDto): Promise<PauseSlotConflictDto> {
+  async checkPauseConflicts(
+    dto: PauseSlotsDto,
+    doctorId: string,
+  ): Promise<PauseSlotConflictDto> {
     this.logger.log(`Checking pause conflicts for ${dto.slotIds.length} slots`);
 
     // Validate doctor ID
-    if (!Types.ObjectId.isValid(dto.doctorId)) {
+    if (!Types.ObjectId.isValid(doctorId)) {
       throw new BadRequestException('Invalid doctor ID');
     }
-    const doctor = await this.doctorModel.findById(dto.doctorId).exec();
+    const doctor = await this.doctorModel.findById(doctorId).exec();
     if (!doctor) {
-      throw new NotFoundException(`Doctor with ID ${dto.doctorId} not found`);
+      throw new NotFoundException(`Doctor with ID ${doctorId} not found`);
     }
     // Validate slot IDs
     for (const slotId of dto.slotIds) {
@@ -1137,7 +1141,7 @@ export class DoctorService {
     const slots = await this.slotModel
       .find({
         _id: { $in: dto.slotIds.map((id) => new Types.ObjectId(id)) },
-        doctorId: new Types.ObjectId(dto.doctorId),
+        doctorId: new Types.ObjectId(doctorId),
         // Add this condition to exclude blocked and invalidated slots
         status: { $nin: [SlotStatus.BLOCKED, SlotStatus.INVALIDATED] },
       })
@@ -1149,7 +1153,7 @@ export class DoctorService {
 
     if (slots.length !== dto.slotIds.length) {
       throw new BadRequestException(
-        `Some slots not found or don't belong to doctor ${dto.doctorId}`,
+        `Some slots not found or don't belong to doctor ${doctorId}`,
       );
     }
 
@@ -1195,7 +1199,10 @@ export class DoctorService {
   /**
    * Pause slots and handle conflicts
    */
-  async pauseSlots(dto: PauseSlotsDto): Promise<{
+  async pauseSlots(
+    dto: PauseSlotsDto,
+    doctorId: string,
+  ): Promise<{
     message: string;
     slotsCount: number;
     affectedBookings: number;
@@ -1204,18 +1211,18 @@ export class DoctorService {
     this.logger.log(`Pausing ${dto.slotIds.length} slots`);
 
     // Validate
-    if (!Types.ObjectId.isValid(dto.doctorId)) {
+    if (!Types.ObjectId.isValid(doctorId)) {
       throw new BadRequestException('Invalid doctor ID');
     }
 
     // Get doctor info
-    const doctor = await this.doctorModel.findById(dto.doctorId).exec();
+    const doctor = await this.doctorModel.findById(doctorId).exec();
     if (!doctor) {
-      throw new NotFoundException(`Doctor with ID ${dto.doctorId} not found`);
+      throw new NotFoundException(`Doctor with ID ${doctorId} not found`);
     }
 
     // Check conflicts
-    const conflicts = await this.checkPauseConflicts(dto);
+    const conflicts = await this.checkPauseConflicts(dto, doctorId);
 
     if (conflicts.hasConflicts && !dto.confirmPause) {
       throw new ConflictException(
@@ -1230,7 +1237,7 @@ export class DoctorService {
     const job = await this.pauseSlotsQueue.add(
       'pause-slots-and-cancel-bookings',
       {
-        doctorId: dto.doctorId,
+        doctorId: doctorId,
         slotIds: dto.slotIds,
         reason: dto.reason,
         pauseDate,
@@ -1411,17 +1418,18 @@ export class DoctorService {
    */
   async checkVIPBookingConflict(
     dto: CheckVIPBookingConflictDto,
+    doctorId: string,
   ): Promise<VIPBookingConflictResponseDto> {
     this.logger.log(`Checking VIP booking conflict for slot ${dto.slotId}`);
 
     // Validate IDs
-    if (!Types.ObjectId.isValid(dto.doctorId)) {
+    if (!Types.ObjectId.isValid(doctorId)) {
       throw new BadRequestException('Invalid doctor ID');
     }
     if (!Types.ObjectId.isValid(dto.slotId)) {
       throw new BadRequestException('Invalid slot ID');
     }
-    const doctor = await this.doctorModel.findById(dto.doctorId).exec();
+    const doctor = await this.doctorModel.findById(doctorId).exec();
     if (!doctor) {
       throw new NotFoundException('Doctor not found');
     }
@@ -1431,7 +1439,7 @@ export class DoctorService {
       .findOne({
         _id: new Types.ObjectId(dto.slotId),
         status: { $nin: [SlotStatus.INVALIDATED] },
-        doctorId: new Types.ObjectId(dto.doctorId),
+        doctorId: new Types.ObjectId(doctorId),
       })
       .exec();
 
@@ -1493,7 +1501,10 @@ export class DoctorService {
    * Create VIP booking (execute)
    * Queues Bull job to handle conflict and notifications
    */
-  async createVIPBooking(dto: CreateVIPBookingDto): Promise<{
+  async createVIPBooking(
+    dto: CreateVIPBookingDto,
+    doctorId: string,
+  ): Promise<{
     message: string;
     bookingId?: string;
     jobId?: string;
@@ -1502,10 +1513,12 @@ export class DoctorService {
     this.logger.log(`Creating VIP booking for slot ${dto.slotId}`);
 
     // Check conflict first
-    const conflict = await this.checkVIPBookingConflict({
-      doctorId: dto.doctorId,
-      slotId: dto.slotId,
-    });
+    const conflict = await this.checkVIPBookingConflict(
+      {
+        slotId: dto.slotId,
+      },
+      doctorId,
+    );
 
     // If conflict and not confirmed, throw error
     if (conflict.hasConflict && !dto.confirmOverride) {
@@ -1520,7 +1533,7 @@ export class DoctorService {
     }
 
     // Get doctor info
-    const doctor = await this.doctorModel.findById(dto.doctorId).exec();
+    const doctor = await this.doctorModel.findById(doctorId).exec();
     if (!doctor) {
       throw new NotFoundException('Doctor not found');
     }
@@ -1529,7 +1542,7 @@ export class DoctorService {
 
     // Queue job
     const jobData: VIPBookingJobData = {
-      doctorId: dto.doctorId,
+      doctorId: doctorId,
       doctorName,
       slotId: dto.slotId,
       vipPatientId: dto.vipPatientId,
@@ -1560,15 +1573,16 @@ export class DoctorService {
 
   async checkHolidayConflict(
     dto: CheckHolidayConflictDto,
+    doctorId: string,
   ): Promise<HolidayConflictResponseDto> {
     this.logger.log(
-      `Checking holiday conflicts for doctor ${dto.doctorId} from ${dto.startDate} to ${dto.endDate}`,
+      `Checking holiday conflicts for doctor ${doctorId} from ${dto.startDate} to ${dto.endDate}`,
     );
 
-    if (!Types.ObjectId.isValid(dto.doctorId)) {
+    if (!Types.ObjectId.isValid(doctorId)) {
       throw new BadRequestException('Invalid doctor ID');
     }
-    const doctor = await this.doctorModel.findById(dto.doctorId).exec();
+    const doctor = await this.doctorModel.findById(doctorId).exec();
 
     if (!doctor) {
       throw new NotFoundException('Doctor not found');
@@ -1583,7 +1597,7 @@ export class DoctorService {
     // Get all slots in date range
     const slots = await this.slotModel
       .find({
-        doctorId: new Types.ObjectId(dto.doctorId),
+        doctorId: new Types.ObjectId(doctorId),
         date: { $gte: startDate, $lte: endDate },
         status: { $nin: [SlotStatus.BLOCKED, SlotStatus.INVALIDATED] }, // Exclude blocked + invalidated
       })
@@ -1593,7 +1607,7 @@ export class DoctorService {
     // Get all bookings in date range (PENDING status only)
     const bookings = await this.bookingModel
       .find({
-        doctorId: new Types.ObjectId(dto.doctorId),
+        doctorId: new Types.ObjectId(doctorId),
         bookingDate: { $gte: startDate, $lte: endDate },
         status: BookingStatus.PENDING, // Only PENDING bookings
       })
@@ -1653,22 +1667,27 @@ export class DoctorService {
    * Create holiday (execute)
    * Queues Bull job to handle cancellations and notifications
    */
-  async createHoliday(dto: CreateHolidayDto): Promise<{
+  async createHoliday(
+    dto: CreateHolidayDto,
+    doctorId: string,
+  ): Promise<{
     message: string;
     jobId: string;
     affectedBookings: number;
     affectedSlots: number;
     dateRange: string;
   }> {
-    this.logger.log(`Creating holiday for doctor ${dto.doctorId}`);
+    this.logger.log(`Creating holiday for doctor ${doctorId}`);
 
     // Check conflicts first
-    const conflict = await this.checkHolidayConflict({
-      doctorId: dto.doctorId,
-      startDate: dto.startDate,
-      endDate: dto.endDate,
-      reason: dto.reason,
-    });
+    const conflict = await this.checkHolidayConflict(
+      {
+        startDate: dto.startDate,
+        endDate: dto.endDate,
+        reason: dto.reason,
+      },
+      doctorId,
+    );
 
     // If conflicts and not confirmed, throw error
     if (conflict.hasConflicts && !dto.confirmHoliday) {
@@ -1678,7 +1697,7 @@ export class DoctorService {
     }
 
     // Get doctor info
-    const doctor = await this.doctorModel.findById(dto.doctorId).exec();
+    const doctor = await this.doctorModel.findById(doctorId).exec();
     if (!doctor) {
       throw new NotFoundException('Doctor not found');
     }
@@ -1691,7 +1710,7 @@ export class DoctorService {
     // Get all slot IDs in range
     const slots = await this.slotModel
       .find({
-        doctorId: new Types.ObjectId(dto.doctorId),
+        doctorId: new Types.ObjectId(doctorId),
         date: { $gte: startDate, $lte: endDate },
       })
       .select('_id')
@@ -1699,7 +1718,7 @@ export class DoctorService {
       .exec();
     // Queue job
     const jobData: HolidayBlockJobData = {
-      doctorId: dto.doctorId,
+      doctorId: doctorId,
       doctorName,
       reason: dto.reason,
       affectedBookingIds: conflict.affectedBookings.map((b) => b.bookingId),
@@ -1774,16 +1793,15 @@ export class DoctorService {
   }
   async completeBooking(
     dto: DoctorCompleteBookingDto,
+    doctorId: string,
   ): Promise<BookingCompletionResponseDto> {
-    this.logger.log(
-      `Doctor ${dto.doctorId} completing booking ${dto.bookingId}`,
-    );
+    this.logger.log(`Doctor ${doctorId} completing booking ${dto.bookingId}`);
 
     // Validate IDs
     if (!Types.ObjectId.isValid(dto.bookingId)) {
       throw new BadRequestException('Invalid booking ID');
     }
-    if (!Types.ObjectId.isValid(dto.doctorId)) {
+    if (!Types.ObjectId.isValid(doctorId)) {
       throw new BadRequestException('Invalid doctor ID');
     }
 
@@ -1791,7 +1809,7 @@ export class DoctorService {
     const booking = await this.bookingModel
       .findOne({
         _id: new Types.ObjectId(dto.bookingId),
-        doctorId: new Types.ObjectId(dto.doctorId),
+        doctorId: new Types.ObjectId(doctorId),
         status: { $in: [BookingStatus.PENDING] },
       })
       .populate<{ patientId: User }>('patientId', 'username phone fcmToken')
@@ -1811,7 +1829,7 @@ export class DoctorService {
     await booking.save();
 
     this.logger.log(
-      `✅ Booking ${dto.bookingId} completed by doctor ${dto.doctorId}`,
+      `✅ Booking ${dto.bookingId} completed by doctor ${doctorId}`,
     );
 
     // Get patient and doctor info
