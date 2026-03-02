@@ -4,7 +4,7 @@ import {
   NestModule,
   RequestMethod,
 } from '@nestjs/common';
-import { GraphQLModule } from '@nestjs/graphql';
+//import { GraphQLModule } from '@nestjs/graphql';
 import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
 import { join } from 'path';
 
@@ -20,28 +20,23 @@ import { SearchModule } from './search/search.module';
 import { SearchCountMiddleware } from './search/search-count.middleware';
 import { NearbyBookingModule } from './most-searched_nearby-booking/nearby-booking.module';
 import { DoctorProfileModule } from './doctor-profile/doctor-profile.module';
-import { DashboardModule } from './dashboard/dashboard.module';
+//import { DashboardModule } from './dashboard/dashboard.module';
 import { NotificationDisplayController } from './display-notifications/notification-display.controller';
 import { NotificationDisplayService } from './display-notifications/notification-display.service';
 import { RequestsModule } from './medical-equipment/request.module';
-
-// NOTE: NearbyBookingModule likely also uses 'route-processing' / 'matrix-processing'.
-// If so, those queues are already owned by SearchModule (which is global enough
-// via DatabaseModule).  If NearbyBookingModule is *not* a child of SearchModule,
-// add BullModule.registerQueue() calls inside NearbyBookingModule as well, or
-// move queue registration to a shared QueuesModule and import it in both.
+import { DashboardModule } from './dashboard-service/dashboard.module';
 
 @Module({
   imports: [
     // ── GraphQL ────────────────────────────────────────────────────────────
-    GraphQLModule.forRoot<ApolloDriverConfig>({
-      driver: ApolloDriver,
-      autoSchemaFile: join(process.cwd(), 'src/schema.gql'),
-      sortSchema: true,
-      playground: process.env.NODE_ENV !== 'production',
-      introspection: process.env.NODE_ENV !== 'production',
-      context: ({ req }) => ({ req }),
-    }),
+    // GraphQLModule.forRoot<ApolloDriverConfig>({
+    //   driver: ApolloDriver,
+    //   autoSchemaFile: join(process.cwd(), 'src/schema.gql'),
+    //   sortSchema: true,
+    //   playground: process.env.NODE_ENV !== 'production',
+    //   introspection: process.env.NODE_ENV !== 'production',
+    //   context: ({ req }) => ({ req }),
+    // }),
 
     // ── Infrastructure ─────────────────────────────────────────────────────
     KafkaModule.forRoot({
@@ -59,12 +54,13 @@ import { RequestsModule } from './medical-equipment/request.module';
     PostModule,
     SearchModule,
     DoctorProfileModule,
+    //DashboardModule,
     DashboardModule,
     NearbyBookingModule,
     RequestsModule,
   ],
-  controllers: [SocialServiceController,NotificationDisplayController],
-  providers: [SocialServiceService,NotificationDisplayService],
+  controllers: [SocialServiceController, NotificationDisplayController],
+  providers: [SocialServiceService, NotificationDisplayService],
 })
 export class SocialServiceModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
