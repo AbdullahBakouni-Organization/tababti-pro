@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Post } from '@app/common/database/schemas/post.schema';
@@ -8,7 +8,7 @@ import { PostStatus } from '@app/common/database/schemas/common.enums';
 export class PostRepository {
   constructor(
     @InjectModel(Post.name) private readonly postModel: Model<Post>,
-  ) {}
+  ) { }
 
   /* ======================================================
       CREATE
@@ -262,5 +262,29 @@ export class PostRepository {
       .lean();
 
     return { isLiked: true, likesCount: updated?.likesCount ?? 0 };
+  }
+  /* ======================================================
+    APPROVE OR REJECT POST (Admin)
+====================================================== */
+  async updateStatus(postId: string, status: PostStatus.APPROVED | PostStatus.REJECTED, rejectionReason?: string) {
+    if (!Types.ObjectId.isValid(postId)) {
+      throw new BadRequestException('post.INVALID_ID');
+    }
+
+    const updateData: Record<string, any> = { status };
+    if (status === PostStatus.REJECTED && rejectionReason) {
+      updateData.rejectionReason = rejectionReason;
+    }
+
+    const updated = await this.postModel
+      .findByIdAndUpdate(
+        new Types.ObjectId(postId),
+        { $set: updateData },
+        { new: true },
+      )
+      .lean();
+
+    if (!updated) throw new NotFoundException('post.NOT_FOUND');
+    return updated;
   }
 }

@@ -14,8 +14,9 @@ export interface QuestionPage {
 @Injectable()
 export class QuestionsRepository {
   constructor(
-    @InjectModel(Question.name) private readonly questionModel: Model<Question>,
-  ) {}
+    @InjectModel(Question.name)
+    private readonly questionModel: Model<Question>,
+  ) { }
 
   // ── Create ────────────────────────────────────────────────────────────────
 
@@ -23,17 +24,64 @@ export class QuestionsRepository {
     return this.questionModel.create(data);
   }
 
-  // ── Find with answers & responder lookup ──────────────────────────────────
+  // ── Find by ID ────────────────────────────────────────────────────────────
 
-  /**
-   * Aggregates questions with their answers, responders, asker, and
-   * specialization details. Returns a paginated result.
-   */
+  async findById(id: string): Promise<Question | null> {
+    if (!Types.ObjectId.isValid(id))
+      throw new BadRequestException('question.INVALID_ID');
+    return this.questionModel.findById(id).lean();
+  }
+
+  // ── Delete ────────────────────────────────────────────────────────────────
+
+  async delete(id: string): Promise<Question | null> {
+    if (!Types.ObjectId.isValid(id))
+      throw new BadRequestException('question.INVALID_ID');
+    return this.questionModel.findByIdAndDelete(new Types.ObjectId(id)).lean();
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // GENERAL FEED — all answers, no doctor-specific logic
+  // ══════════════════════════════════════════════════════════════════════════
+
   async findQuestionsWithAnswers(
     match: Record<string, any> = {},
     skip = 0,
     limit = 10,
   ): Promise<QuestionPage> {
+    return this._aggregate({ match, skip, limit, doctorId: null, showOnlyMine: false });
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // DOCTOR FEED
+  //
+  // doctorId     — the resolved profile _id of the requesting doctor
+  // showOnlyMine — true  → (myAnswers filter) only include THIS doctor's answer
+  //                false → (all/specialization filter) include all answers,
+  //                         but mark which one is the doctor's with isMyAnswer
+  // ══════════════════════════════════════════════════════════════════════════
+
+  async findDoctorQuestionsWithAnswers(
+    match: Record<string, any> = {},
+    skip = 0,
+    limit = 10,
+    doctorId: Types.ObjectId,
+    showOnlyMine: boolean,
+  ): Promise<QuestionPage> {
+    return this._aggregate({ match, skip, limit, doctorId, showOnlyMine });
+  }
+
+  // ── Shared aggregation pipeline ───────────────────────────────────────────
+
+  private async _aggregate(options: {
+    match: Record<string, any>;
+    skip: number;
+    limit: number;
+    doctorId: Types.ObjectId | null;
+    showOnlyMine: boolean;
+  }): Promise<QuestionPage> {
+    const { match, skip, limit, doctorId, showOnlyMine } = options;
+
     const pipeline: PipelineStage[] = [
       { $match: match },
       { $sort: { createdAt: -1 } },
@@ -57,29 +105,42 @@ export class QuestionsRepository {
           as: 'askerArr',
         },
       },
-      {
-        $addFields: {
-          asker: { $arrayElemAt: ['$askerArr', 0] },
-        },
-      },
+      { $addFields: { asker: { $arrayElemAt: ['$askerArr', 0] } } },
       { $project: { askerArr: 0 } },
 
-      // ── Answers ───────────────────────────────────────────────────────────
+      // ── Fetch ALL answers for answersCount ────────────────────────────────
       {
         $lookup: {
           from: 'answers',
           localField: '_id',
           foreignField: 'questionId',
-          as: 'answers',
+          as: 'allAnswers',
         },
       },
 
-      // ── Responders for each answer ────────────────────────────────────────
-      // We unwind, look up responder (doctor / hospital / center share the
-      // same _id namespace so we try all three and pick whichever matched),
-      // then group back.
+      // answersCount = total answers on the question regardless of filter
+      // answers      = filtered based on showOnlyMine flag
+      {
+        $addFields: {
+          answersCount: { $size: '$allAnswers' },
+          answers: showOnlyMine && doctorId
+            ? {
+              // myAnswers: only show the requesting doctor's answer
+              $filter: {
+                input: '$allAnswers',
+                as: 'a',
+                cond: { $eq: ['$$a.responderId', doctorId] },
+              },
+            }
+            : '$allAnswers', // all/specialization: show all answers
+        },
+      },
+      { $project: { allAnswers: 0 } },
+
+      // ── Unwind to enrich each answer with responder info ──────────────────
       { $unwind: { path: '$answers', preserveNullAndEmptyArrays: true } },
 
+      // Look up responder from all possible collections
       {
         $lookup: {
           from: 'doctors',
@@ -105,7 +166,7 @@ export class QuestionsRepository {
         },
       },
 
-      // Collapse the three lookup arrays into a single `answers.responder`
+      // Collapse into single answers.responder field
       {
         $addFields: {
           'answers.responder': {
@@ -119,6 +180,10 @@ export class QuestionsRepository {
               },
             ],
           },
+          // Flag so the client knows which answer belongs to the requesting doctor
+          'answers.isMyAnswer': doctorId
+            ? { $eq: ['$answers.responderId', doctorId] }
+            : false,
         },
       },
       {
@@ -129,7 +194,7 @@ export class QuestionsRepository {
         },
       },
 
-      // Re-group answers back onto the question
+      // ── Re-group answers back onto the question ───────────────────────────
       {
         $group: {
           _id: '$_id',
@@ -140,12 +205,13 @@ export class QuestionsRepository {
           specializations: { $first: '$specializations' },
           asker: { $first: '$asker' },
           answers: { $push: '$answers' },
+          answersCount: { $first: '$answersCount' },
           createdAt: { $first: '$createdAt' },
           updatedAt: { $first: '$updatedAt' },
         },
       },
 
-      // Clean up empty answer objects created by preserveNullAndEmpty
+      // Remove empty stubs left by preserveNullAndEmptyArrays
       {
         $addFields: {
           answers: {
@@ -168,7 +234,7 @@ export class QuestionsRepository {
       this.questionModel.countDocuments(match),
     ]);
 
-    const page = Math.floor(skip / limit) + 1;
+    const page = skip === 0 ? 1 : Math.floor(skip / limit) + 1;
 
     return {
       questions,
@@ -177,13 +243,5 @@ export class QuestionsRepository {
       limit,
       totalPages: Math.ceil(total / limit),
     };
-  }
-
-  // ── Find by ID ────────────────────────────────────────────────────────────
-
-  async findById(id: string): Promise<Question | null> {
-    if (!Types.ObjectId.isValid(id))
-      throw new BadRequestException('question.INVALID_ID');
-    return this.questionModel.findById(id);
   }
 }

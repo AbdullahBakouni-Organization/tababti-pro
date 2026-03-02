@@ -25,7 +25,7 @@ export class PostService {
     @InjectModel(Doctor.name) private readonly doctorModel: Model<Doctor>,
     @InjectModel(Hospital.name) private readonly hospitalModel: Model<Hospital>,
     @InjectModel(Center.name) private readonly centerModel: Model<Center>,
-  ) {}
+  ) { }
 
   /* ======================================================
       CREATE
@@ -119,8 +119,8 @@ export class PostService {
     // Compare profile _id (what likedBy stores) — not authAccountId
     const isLiked = profileObjectId
       ? (post.likedBy ?? []).some(
-          (id: Types.ObjectId) => id.toString() === profileObjectId.toString(),
-        )
+        (id: Types.ObjectId) => id.toString() === profileObjectId.toString(),
+      )
       : false;
 
     // Strip likedBy — never expose the full array to clients
@@ -233,5 +233,33 @@ export class PostService {
       default:
         throw new ForbiddenException('post.FORBIDDEN');
     }
+  }
+  /* ======================================================
+    APPROVE OR REJECT POST (Admin only)
+====================================================== */
+  async updatePostStatus(
+    postId: string,
+    status: PostStatus.APPROVED | PostStatus.REJECTED,
+    role: UserRole,
+    rejectionReason?: string,
+  ) {
+    if (role !== UserRole.ADMIN) {
+      throw new ForbiddenException('post.FORBIDDEN');
+    }
+
+    const post = await this.postRepo.findOne(postId);
+    if (!post) {
+      throw new NotFoundException('post.NOT_FOUND');
+    }
+
+    if (post.status !== PostStatus.PENDING) {
+      throw new BadRequestException('post.ALREADY_REVIEWED');
+    }
+
+    if (status === PostStatus.REJECTED && !rejectionReason?.trim()) {
+      throw new BadRequestException('post.REJECTION_REASON_REQUIRED');
+    }
+
+    return this.postRepo.updateStatus(postId, status, rejectionReason);
   }
 }

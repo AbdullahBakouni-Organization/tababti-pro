@@ -29,13 +29,14 @@ import { CurrentUser } from '@app/common/decorator/current-user.decorator';
 import { ApiResponse } from '../common/response/api-response';
 import { Types } from 'mongoose';
 import * as fs from 'fs';
+import { UpdatePostStatusDto } from './dto/update-post-status.dto';
 
 @Controller('posts')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class PostController {
   private readonly logger = new Logger(PostController.name);
 
-  constructor(private readonly postService: PostService) {}
+  constructor(private readonly postService: PostService) { }
 
   /* ======================================================
       CREATE POST
@@ -267,5 +268,23 @@ export class PostController {
       messageKey: 'post.LIKE_UPDATED',
       data: result,
     });
+  }
+  /* ======================================================
+    APPROVE OR REJECT POST — Admin only
+    PATCH /posts/:id/status
+====================================================== */
+  @Patch(':id/status')
+  @Roles(UserRole.ADMIN)
+  async updatePostStatus(
+    @Param('id') postId: string,
+    @Body() dto: UpdatePostStatusDto,
+    @CurrentUser() user: { accountId: string; role: UserRole },
+  ) {
+    return this.postService.updatePostStatus(
+      postId,
+      dto.status,
+      user.role,
+      dto.rejectionReason,
+    );
   }
 }

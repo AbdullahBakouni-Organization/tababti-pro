@@ -3,6 +3,7 @@ import {
   NotFoundException,
   InternalServerErrorException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { Types, Model } from 'mongoose';
 import { InjectModel } from '@nestjs/mongoose';
@@ -20,37 +21,18 @@ import {
   UserRole,
 } from '@app/common/database/schemas/common.enums';
 import { SpecializationsService } from '../../specializations/specializations.service';
+import {
+  MappedAnswer,
+  MappedQuestion,
+  QuestionPageResult,
+} from '../interface/question.interfaces';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface AnswerQuestionDto {
+interface AnswerQuestionParams {
   questionId: string;
   responderType: UserRole;
   responderId: string;
   content: string;
 }
-
-interface MappedAnswer {
-  _id: Types.ObjectId;
-  content: string;
-  responderName: string;
-  responderImage: string | null;
-  answeredAgo: string | null;
-}
-
-interface MappedQuestion {
-  _id: Types.ObjectId;
-  content: string;
-  status: QuestionStatus;
-  specializations: any[];
-  answersCount: number;
-  answers: MappedAnswer[];
-  createdAt: Date;
-  updatedAt: Date;
-  asker?: { name: string; image: string | null };
-}
-
-// ─── Service ─────────────────────────────────────────────────────────────────
 
 @Injectable()
 export class QuestionsService {
@@ -63,35 +45,41 @@ export class QuestionsService {
     @InjectModel(Doctor.name) private readonly doctorModel: Model<Doctor>,
     @InjectModel(Hospital.name) private readonly hospitalModel: Model<Hospital>,
     @InjectModel(Center.name) private readonly centerModel: Model<Center>,
-  ) {}
+  ) { }
 
-  // ── Create ────────────────────────────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════════
+  // CREATE
+  // ══════════════════════════════════════════════════════════════
 
   async create(
     dto: CreateQuestionDto,
     authAccountId: string,
-    lang: 'en' | 'ar',
-  ) {
+    lang: 'en' | 'ar' = 'en',
+  ): Promise<Question> {
+    if (!Types.ObjectId.isValid(authAccountId))
+      throw new BadRequestException('user.INVALID_ID');
+
     const user = await this.userModel
       .findOne({ authAccountId: new Types.ObjectId(authAccountId) })
       .lean();
 
     if (!user) throw new NotFoundException('user.NOT_FOUND');
 
-    const specializationIds =
-      (await this.specializationsService.validateAndGetIds(
-        dto.specializationId,
-      )) as any;
+    const specializationIds = await this.specializationsService.validateAndGetIds(
+      dto.specializationId,
+    ) as any;
 
     return this.repo.create({
-      userId: user._id,
+      userId: (user as any)._id,
       content: dto.content,
       specializationId: specializationIds,
       status: QuestionStatus.PENDING,
     });
   }
 
-  // ── Get Questions (general feed) ──────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════════
+  // GET QUESTIONS — General feed (non-doctor users)
+  // ══════════════════════════════════════════════════════════════
 
   async getQuestions(
     authAccountId: string,
@@ -100,14 +88,13 @@ export class QuestionsService {
     privateSpecializationIds?: string[],
     page = 1,
     limit = 10,
-  ) {
+  ): Promise<QuestionPageResult> {
     try {
       const match: Record<string, any> = {};
 
       if (filter === 'answered') match.status = QuestionStatus.ANSWERED;
       if (filter === 'pending') match.status = QuestionStatus.PENDING;
 
-      // Filter by explicit private specialization IDs
       if (privateSpecializationIds?.length) {
         match.specializationId = {
           $in: privateSpecializationIds.map((id) => {
@@ -118,24 +105,15 @@ export class QuestionsService {
         };
       }
 
-      // Public filter — maps the well-known public name to its private IDs
       if (filter === 'public') {
-        const privateSpecs =
-          await this.specializationsService.getPrivateIdsByPublicName(
-            'طب_بشري',
-          );
+        const privateSpecs = await this.specializationsService.getPrivateIdsByPublicName('طب_بشري');
         match.specializationId = { $in: privateSpecs };
       }
 
-      // Filter by a specific public specialization
       if (publicSpecializationId) {
         if (!Types.ObjectId.isValid(publicSpecializationId))
           throw new BadRequestException('specialization.INVALID_ID');
-
-        const privateSpecs =
-          await this.specializationsService.getPrivateIdsByPublic(
-            publicSpecializationId,
-          );
+        const privateSpecs = await this.specializationsService.getPrivateIdsByPublic(publicSpecializationId);
         match.specializationId = { $in: privateSpecs };
       }
 
@@ -151,20 +129,89 @@ export class QuestionsService {
         totalPages,
       };
     } catch (error) {
-      if (
-        error instanceof NotFoundException ||
-        error instanceof BadRequestException
-      )
+      if (error instanceof NotFoundException || error instanceof BadRequestException)
         throw error;
-      console.error('Unexpected error in getQuestions:', error);
+      console.error('[QuestionsService.getQuestions]', error);
       throw new InternalServerErrorException('common.ERROR');
     }
   }
 
-  // ── Answer a Question ─────────────────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════════
+  // GET DOCTOR QUESTIONS
+  //
+  // all:
+  //   - All unanswered questions (ANY specialization)
+  //   - Status: PENDING (not yet answered by any doctor)
+  //   - Excludes: questions this doctor has already answered
+  //   - Shows: all answers with isMyAnswer flag
+  //
+  // specialization:
+  //   - Questions related to doctor's general/broad field
+  //   - Includes all sub-specializations under doctor's main specialty
+  //   - Example: Doctor="Dentistry" sees Endodontics, Orthodontics, etc.
+  //   - Status: PENDING (not yet answered)
+  //   - Excludes: questions this doctor has already answered
+  //   - Shows: all answers with isMyAnswer flag
+  //   - Use: doctor focuses on their general field
+  //
+  // myAnswers:
+  //   - Questions this doctor HAS answered
+  //   - Shows: ONLY this doctor's answer (showOnlyMine = true)
+  //   - Hides: other doctors' answers
+  //   - Use: doctor reviews their own answers
+  // ══════════════════════════════════════════════════════════════
 
-  async answerQuestion(dto: AnswerQuestionDto) {
-    const { questionId, responderType, responderId, content } = dto;
+  async getDoctorQuestions(
+    authAccountId: string,
+    filter: 'all' | 'specialization' | 'myAnswers' = 'all',
+    page = 1,
+    limit = 10,
+  ): Promise<QuestionPageResult> {
+    if (!Types.ObjectId.isValid(authAccountId))
+      throw new BadRequestException('doctor.INVALID_ID');
+
+    const doctor = await this.doctorModel
+      .findOne({ authAccountId: new Types.ObjectId(authAccountId) })
+      .lean();
+
+    if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
+
+    const doctorProfileId = (doctor as any)._id as Types.ObjectId;
+
+    // IDs of questions this doctor has already answered
+    const answeredQuestionIds = await this.getAnsweredQuestionIds(doctorProfileId);
+
+    // Short-circuit: no answers yet for myAnswers filter
+    if (filter === 'myAnswers' && !answeredQuestionIds.length) {
+      return { questions: [], total: 0, page, limit, totalPages: 0 };
+    }
+
+    const match = await this.buildDoctorMatch(filter, answeredQuestionIds, doctor);
+    const skip = (page - 1) * limit;
+
+    // showOnlyMine = true means: filter answers to show ONLY this doctor's answer
+    // This is only used for 'myAnswers' filter
+    const showOnlyMine = filter === 'myAnswers';
+
+    const { questions, total, totalPages } =
+      await this.repo.findDoctorQuestionsWithAnswers(
+        match, skip, limit, doctorProfileId, showOnlyMine,
+      );
+
+    return {
+      questions: questions.map((q) => this.mapDoctorQuestion(q)),
+      total,
+      page,
+      limit,
+      totalPages,
+    };
+  }
+  // ══════════════════════════════════════════════════════════════
+  // ANSWER QUESTION
+  // ══════════════════════════════════════════════════════════════
+
+  async answerQuestion(params: AnswerQuestionParams): Promise<Answer> {
+    const { questionId, responderType, responderId, content } = params;
 
     if (!Types.ObjectId.isValid(questionId))
       throw new BadRequestException('question.INVALID_ID');
@@ -175,19 +222,13 @@ export class QuestionsService {
     if (responderType === UserRole.USER)
       throw new BadRequestException('question.ONLY_PROVIDERS_CAN_ANSWER');
 
-    const realResponderId = await this.resolveResponderId(
-      responderType,
-      responderId,
-    );
+    const realResponderId = await this.resolveResponderId(responderType, responderId);
 
     const question = await this.repo.findById(questionId);
     if (!question) throw new NotFoundException('question.NOT_FOUND');
 
     const alreadyAnswered = await this.answerModel
-      .exists({
-        questionId: new Types.ObjectId(questionId),
-        responderId: realResponderId,
-      })
+      .exists({ questionId: new Types.ObjectId(questionId), responderId: realResponderId })
       .lean();
 
     if (alreadyAnswered)
@@ -200,10 +241,9 @@ export class QuestionsService {
       content,
     });
 
-    // Update question status only once (avoids a redundant save)
-    if (question.status !== QuestionStatus.ANSWERED) {
+    if ((question as any).status !== QuestionStatus.ANSWERED) {
       await this.questionModel.updateOne(
-        { _id: question._id },
+        { _id: (question as any)._id },
         { status: QuestionStatus.ANSWERED },
       );
     }
@@ -211,63 +251,45 @@ export class QuestionsService {
     return answer;
   }
 
-  // ── Doctor-specific Questions ─────────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════════
+  // DELETE QUESTION (owner only)
+  // ══════════════════════════════════════════════════════════════
 
-  async getDoctorQuestions(
+  async deleteQuestion(
+    questionId: string,
     authAccountId: string,
-    filter: 'all' | 'specialization' | 'myAnswers' = 'all',
-    page = 1,
-    limit = 10,
-  ) {
-    if (!Types.ObjectId.isValid(authAccountId))
-      throw new BadRequestException('doctor.INVALID_ID');
+  ): Promise<Question | null> {
+    if (!Types.ObjectId.isValid(questionId))
+      throw new BadRequestException('question.INVALID_ID');
 
-    const doctor = await this.doctorModel
+    if (!Types.ObjectId.isValid(authAccountId))
+      throw new BadRequestException('user.INVALID_ID');
+
+    const user = await this.userModel
       .findOne({ authAccountId: new Types.ObjectId(authAccountId) })
       .lean();
 
-    if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
+    if (!user) throw new NotFoundException('user.NOT_FOUND');
 
-    const answeredQuestionIds = await this.getAnsweredQuestionIds(
-      doctor._id as Types.ObjectId,
-    );
+    const question = await this.repo.findById(questionId);
+    if (!question) throw new NotFoundException('question.NOT_FOUND');
 
-    const match = await this.buildDoctorMatch(
-      filter,
-      answeredQuestionIds,
-      doctor,
-    );
+    if ((question as any).userId.toString() !== (user as any)._id.toString())
+      throw new ForbiddenException('question.FORBIDDEN');
 
-    // Short-circuit: doctor asked for their answers but has none yet
-    if (filter === 'myAnswers' && !answeredQuestionIds.length) {
-      return { questions: [], total: 0, page, limit, totalPages: 0 };
-    }
+    await this.answerModel.deleteMany({ questionId: new Types.ObjectId(questionId) });
 
-    const skip = (page - 1) * limit;
-    const { questions, total, totalPages } =
-      await this.repo.findQuestionsWithAnswers(match, skip, limit);
-
-    return {
-      questions: questions.map(this.mapDoctorQuestion.bind(this)),
-      total,
-      page,
-      limit,
-      totalPages,
-    };
+    return this.repo.delete(questionId);
   }
 
-  // ── Private Helpers ───────────────────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════════
+  // PRIVATE HELPERS
+  // ══════════════════════════════════════════════════════════════
 
-  /**
-   * Resolves the internal profile _id for the given responder role.
-   * Throws NotFoundException when the profile does not exist.
-   */
   private async resolveResponderId(
     role: UserRole,
     authAccountId: string,
   ): Promise<Types.ObjectId> {
-    const authId = new Types.ObjectId(authAccountId);
-
     const modelMap: Partial<Record<UserRole, Model<any>>> = {
       [UserRole.DOCTOR]: this.doctorModel,
       [UserRole.HOSPITAL]: this.hospitalModel,
@@ -278,7 +300,7 @@ export class QuestionsService {
     if (!model) throw new BadRequestException('user.INVALID_ROLE');
 
     const profile = await model
-      .findOne({ authAccountId: authId }, { _id: 1 })
+      .findOne({ authAccountId: new Types.ObjectId(authAccountId) }, { _id: 1 })
       .lean();
 
     const notFoundKey: Record<string, string> = {
@@ -292,17 +314,40 @@ export class QuestionsService {
     return (profile as any)._id;
   }
 
-  /** Returns an array of questionIds already answered by the given doctor. */
   private async getAnsweredQuestionIds(
-    doctorId: Types.ObjectId,
+    doctorProfileId: Types.ObjectId,
   ): Promise<Types.ObjectId[]> {
     const answers = await this.answerModel
-      .find({ responderId: doctorId }, { questionId: 1 })
+      .find({ responderId: doctorProfileId }, { questionId: 1 })
       .lean();
     return answers.map((a) => a.questionId as Types.ObjectId);
   }
 
-  /** Builds the MongoDB match stage for the doctor questions endpoint. */
+  // ─────────────────────────────────────────────────────────────
+  // buildDoctorMatch
+  //
+  // Constructs the MongoDB match stage for different doctor filters
+  //
+  // 'all':
+  //   - Shows ALL questions from ANY specialization
+  //   - Status: PENDING (unanswered)
+  //   - Excludes: questions doctor already answered
+  //   - No specialization filter
+  //   - Example: Shows questions from any field
+  //
+  // 'specialization':
+  //   - Filter: doctor's general/PUBLIC specialization with all sub-specialties
+  //   - Status: PENDING (unanswered)
+  //   - Excludes: questions doctor already answered
+  //   - Example: Doctor specializes in "Dentistry" → sees "Endodontics", 
+  //             "Orthodontics", "Prosthodontics", etc.
+  //   - Gets all private spec IDs under doctor's public specialization
+  //
+  // 'myAnswers':
+  //   - Filter: only questions doctor has answered
+  //   - Returns: questions by ID from answeredIds array
+  // ─────────────────────────────────────────────────────────────
+
   private async buildDoctorMatch(
     filter: 'all' | 'specialization' | 'myAnswers',
     answeredIds: Types.ObjectId[],
@@ -310,74 +355,95 @@ export class QuestionsService {
   ): Promise<Record<string, any>> {
     const match: Record<string, any> = {};
 
-    if (filter === 'all') {
-      if (answeredIds.length) match._id = { $nin: answeredIds };
+    // ── myAnswers ──────────────────────────────────────────────
+    // Questions this doctor has answered
+    if (filter === 'myAnswers') {
+      // answeredIds is guaranteed non-empty here (checked before calling)
+      match._id = { $in: answeredIds };
       return match;
     }
 
-    if (filter === 'specialization') {
-      const specMatch =
-        await this.specializationsService.buildQuestionSpecializationMatch(
-          doctor.privateSpecialization,
-        );
-      Object.assign(match, specMatch);
+    // ── all ────────────────────────────────────────────────────
+    // All unanswered questions from ANY specialization
+    if (filter === 'all') {
+      // NO specialization filter - show questions from all specialties
+      // Only exclude questions already answered by this doctor
 
       if (answeredIds.length) {
-        // Keep only questions inside the specialization that are not yet answered
-        if (match._id?.$in) {
-          match._id.$in = match._id.$in.filter(
-            (id: Types.ObjectId) =>
-              !answeredIds.some((a) => a.toString() === id.toString()),
-          );
-        } else {
-          match._id = { $nin: answeredIds };
-        }
+        match._id = { $nin: answeredIds };
       }
+
       return match;
     }
 
-    // filter === 'myAnswers'
-    if (answeredIds.length) match._id = { $in: answeredIds };
+    // ── specialization ─────────────────────────────────────────
+    // Questions related to doctor's general/broad specialization
+    // Shows all sub-specializations under the doctor's main field
+    // Example: Doctor specializes in "Dentistry" → sees "Endodontics", 
+    //          "Orthodontics", "Prosthodontics", etc.
+
+    if (doctor.publicSpecialization) {
+      // Get all private spec IDs that fall under this doctor's public specialization
+      const privateSpecIds = await this.specializationsService
+        .getPrivateIdsByPublicName(doctor.publicSpecialization)
+        .catch(() => [] as Types.ObjectId[]);
+
+      if (privateSpecIds.length) {
+        match.specializationId = { $in: privateSpecIds };
+      }
+      // If no private specs found, fallthrough with empty match
+    }
+
+    // Exclude questions already answered by this doctor
+    if (answeredIds.length) {
+      match._id = { $nin: answeredIds };
+    }
+
     return match;
   }
 
-  /** Maps a raw aggregation question document to a public-safe shape. */
+  // ── Mappers ───────────────────────────────────────────────────────────────
+
   private mapQuestion(q: any): MappedQuestion {
     return {
       _id: q._id,
       content: q.content,
       status: q.status,
       specializations: q.specializations ?? [],
-      answersCount: q.answers?.length ?? 0,
+      answersCount: q.answersCount ?? q.answers?.length ?? 0,
       answers: (q.answers ?? []).map(this.mapAnswer.bind(this)),
       createdAt: q.createdAt,
       updatedAt: q.updatedAt,
     };
   }
 
-  /** Adds asker info on top of the base question mapping (used for doctors). */
-  private mapDoctorQuestion(q: any): MappedQuestion & { asker: any } {
+  private mapDoctorQuestion(q: any): MappedQuestion {
     return {
       ...this.mapQuestion(q),
       asker: {
-        name: q.asker?.name ?? 'Unknown',
+        name: q.asker?.username ?? q.asker?.name ?? 'Unknown',
         image: q.asker?.image ?? null,
       },
     };
   }
 
   private mapAnswer(a: any): MappedAnswer {
-    const parts = [
+    const nameParts = [
       a.responder?.firstName,
       a.responder?.middleName,
       a.responder?.lastName,
     ].filter(Boolean);
+
     return {
       _id: a._id,
       content: a.content,
-      responderName: parts.length ? parts.join(' ') : 'Unknown',
+      responderName: nameParts.length
+        ? nameParts.join(' ')
+        : (a.responder?.username ?? 'Unknown'),
       responderImage: a.responder?.image ?? null,
       answeredAgo: a.createdAt ? this.timeAgo(a.createdAt) : null,
+      createdAt: a.createdAt,
+      isMyAnswer: a.isMyAnswer ?? false,
     };
   }
 
@@ -385,9 +451,9 @@ export class QuestionsService {
     const diffMs = Date.now() - new Date(date).getTime();
     const minutes = Math.floor(diffMs / 60_000);
     if (minutes < 1) return 'just now';
-    if (minutes < 60) return `${minutes} minutes ago`;
+    if (minutes < 60) return `${minutes}m ago`;
     const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours} hours ago`;
-    return `${Math.floor(hours / 24)} days ago`;
+    if (hours < 24) return `${hours}h ago`;
+    return `${Math.floor(hours / 24)}d ago`;
   }
 }

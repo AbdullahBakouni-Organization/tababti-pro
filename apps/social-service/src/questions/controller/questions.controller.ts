@@ -26,7 +26,7 @@ import { UserRole } from '@app/common/database/schemas/common.enums';
 @Controller('questions')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class QuestionsController {
-  constructor(private readonly service: QuestionsService) {}
+  constructor(private readonly service: QuestionsService) { }
 
   // ── POST / ─────────────────────────────────────────────────────────────────
 

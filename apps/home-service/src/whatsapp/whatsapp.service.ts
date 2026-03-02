@@ -41,7 +41,7 @@ export class WhatsappService implements OnModuleInit {
       qrcodeTerminal.generate(qr, { small: true });
 
       // Open browser once to show the QR page
-      open('http://localhost:3001/api/v1/whatsapp/qr').catch(() => {});
+      open('http://localhost:3001/api/v1/whatsapp/qr').catch(() => { });
     });
 
     this.client.on('ready', async () => {
@@ -101,8 +101,22 @@ export class WhatsappService implements OnModuleInit {
   async sendOtp(phone: string, otp: string, lang: Lang = 'ar'): Promise<void> {
     const text =
       lang === 'ar'
-        ? `🔐 رمز التحقق:\n\n*${otp}*\n\n⛔ لا تشاركه مع أحد`
-        : `🔐 Your verification code:\n\n*${otp}*\n\n⛔ Do not share it`;
+        ? `🔐 رمز تسجيل الدخول إلى حسابك في طبابتي هو:
+
+*${otp}*
+
+هذا الرمز صالح لمدة 5 دقائق فقط.
+
+حرصاً على أمان حسابك، يرجى عدم مشاركة هذا الرمز مع أي شخص.
+إذا لم تقم بطلب تسجيل الدخول، يمكنك تجاهل هذه الرسالة بأمان.`
+        : `🔐 Your login code for your Tababati account is:
+
+*${otp}*
+
+This code is valid for 5 minutes only.
+
+For your account security, please do not share this code with anyone.
+If you did not request this login, you can safely ignore this message.`;
 
     await this.sendMessage(phone, text, lang);
   }
