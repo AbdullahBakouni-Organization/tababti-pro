@@ -185,3 +185,24 @@ export interface BookingCompletedNotificationEvent {
     version: string;
   };
 }
+
+export interface BookingRescheduledNotificationEvent {
+  eventType: 'BOOKING_RESCHEDULED_NOTIFICATION';
+  timestamp: Date;
+  data: {
+    patientId: string;
+    patientName: string;
+    doctorId: string;
+    doctorName: string;
+    fcmToken: string;
+    bookingId: string;
+    appointmentDate: Date;
+    appointmentTime: string;
+    reason: string;
+    type: 'BOOKING_RESCHEDULED';
+  };
+  metadata: {
+    source: string;
+    version: string;
+  };
+}

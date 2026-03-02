@@ -80,10 +80,7 @@ import {
   BookingCompletionResponseDto,
   DoctorCompleteBookingDto,
 } from './dto/complete-booking.dto';
-import {
-  SearchPatientsDto,
-  SearchPatientsResponseDto,
-} from './dto/search-patients.dto';
+
 import { DoctorPatientStatsDto } from './dto/doctor-patient-stats.dto';
 import {
   GetDoctorBookingsDto,
@@ -828,7 +825,7 @@ export class DoctorController {
     );
   }
 
-  @Get(':doctorId/bookings')
+  @Get('bookings')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Get doctor bookings with advanced filters',
@@ -984,21 +981,21 @@ export class DoctorController {
     description: 'Doctor not found',
   })
   async getDoctorBookings(
-    @Param('doctorId') doctorId: string,
+    @Body('doctorId') doctorId: string,
     @Query() query: GetDoctorBookingsDto,
   ): Promise<GetDoctorBookingsResponseDto> {
     // Merge doctorId from path param
     const dto: GetDoctorBookingsDto = {
       ...query,
-      doctorId,
     };
-
     // Use location filtering method if location filters are present
-    if (dto.locationEntityName || dto.locationType) {
-      return this.DoctorServiceV2.getDoctorBookingsWithLocationFilter(dto);
-    }
-
+    // if (dto.locationEntityName || dto.locationType) {
+    //   return this.DoctorServiceV2.getDoctorBookingsWithLocationFilter(
+    //     dto,
+    //     doctorId,
+    //   );
+    // }
     // Otherwise use regular method
-    return this.DoctorServiceV2.getDoctorBookings(dto);
+    return this.DoctorServiceV2.getDoctorBookings(dto, doctorId);
   }
 }

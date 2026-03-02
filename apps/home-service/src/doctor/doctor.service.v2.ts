@@ -1,23 +1,38 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  BadRequestException,
+  NotFoundException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import {
   Booking,
   BookingDocument,
 } from '@app/common/database/schemas/booking.schema';
-import { AppointmentSlot } from '@app/common/database/schemas/slot.schema';
-import { User } from '@app/common/database/schemas/user.schema';
+import {
+  AppointmentSlot,
+  AppointmentSlotDocument,
+} from '@app/common/database/schemas/slot.schema';
+import { User, UserDocument } from '@app/common/database/schemas/user.schema';
 import {
   Doctor,
   DoctorDocument,
 } from '@app/common/database/schemas/doctor.schema';
-import { BookingStatus } from '@app/common/database/schemas/common.enums';
+import {
+  BookingStatus,
+  SlotStatus,
+} from '@app/common/database/schemas/common.enums';
 import { CacheService } from '@app/common/cache/cache.service';
 import {
   DoctorBookingDetailDto,
   GetDoctorBookingsDto,
   GetDoctorBookingsResponseDto,
 } from './dto/get-doctor-booking.dto';
+import { RescheduleBookingDto } from './dto/resechedula-booking.dto,';
+import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
+import { KafkaService } from '@app/common/kafka/kafka.service';
 
 @Injectable()
 export class DoctorBookingsQueryService {
@@ -30,7 +45,11 @@ export class DoctorBookingsQueryService {
     private bookingModel: Model<BookingDocument>,
     @InjectModel(Doctor.name)
     private doctorModel: Model<DoctorDocument>,
+    @InjectModel(AppointmentSlot.name)
+    private slotModel: Model<AppointmentSlotDocument>,
+    @InjectModel(User.name) private userModel: Model<UserDocument>,
     private readonly cacheService: CacheService,
+    private readonly kafkaProducer: KafkaService,
   ) {}
 
   /**
@@ -38,18 +57,19 @@ export class DoctorBookingsQueryService {
    */
   async getDoctorBookings(
     dto: GetDoctorBookingsDto,
+    doctorId: string,
   ): Promise<GetDoctorBookingsResponseDto> {
     this.logger.log(
-      `Fetching bookings for doctor ${dto.doctorId} with filters: ${JSON.stringify(dto)}`,
+      `Fetching bookings for doctor ${doctorId} with filters: ${JSON.stringify(dto)}`,
     );
 
     // Validate doctor ID
-    if (!Types.ObjectId.isValid(dto.doctorId)) {
+    if (!Types.ObjectId.isValid(doctorId)) {
       throw new BadRequestException('Invalid doctor ID');
     }
 
     // Generate cache key
-    const cacheKey = this.generateCacheKey(dto);
+    const cacheKey = this.generateCacheKey(dto, doctorId);
 
     // Try to get from cache
     // const cachedResult =
@@ -64,7 +84,7 @@ export class DoctorBookingsQueryService {
 
     // Get doctor info (for inspection duration)
     const doctor = await this.doctorModel
-      .findById(dto.doctorId)
+      .findById(doctorId)
       .select('inspectionDuration firstName lastName')
       .lean()
       .exec();
@@ -76,8 +96,8 @@ export class DoctorBookingsQueryService {
     const inspectionDuration = doctor.inspectionDuration || 30; // Default 30 mins
 
     // Build query filters
-    const filters = this.buildFilters(dto);
-
+    const filters = this.buildFilters(dto, doctorId);
+    console.log(JSON.stringify(filters, null, 2));
     // Get total count for pagination
     const totalItems = await this.bookingModel.countDocuments(filters);
 
@@ -102,13 +122,10 @@ export class DoctorBookingsQueryService {
       .exec();
 
     // Transform to DTOs
-    const bookingDetails = await this.transformBookings(
-      bookings,
-      inspectionDuration,
-    );
+    const bookingDetails = this.transformBookings(bookings, inspectionDuration);
 
     // Calculate summary statistics
-    const summary = await this.calculateSummary(dto.doctorId, filters);
+    const summary = await this.calculateSummary(doctorId, filters);
 
     // Build response
     const response: GetDoctorBookingsResponseDto = {
@@ -137,9 +154,9 @@ export class DoctorBookingsQueryService {
   /**
    * Build MongoDB query filters
    */
-  private buildFilters(dto: GetDoctorBookingsDto): any {
+  private buildFilters(dto: GetDoctorBookingsDto, doctorId: string): any {
     const filters: any = {
-      doctorId: new Types.ObjectId(dto.doctorId),
+      doctorId: new Types.ObjectId(doctorId),
     };
 
     // Date filters
@@ -178,12 +195,14 @@ export class DoctorBookingsQueryService {
     }
 
     // Location filters
-    if (dto.locationEntityName || dto.locationType) {
-      // We'll need to join with slots for location filtering
-      // Store these for later use in aggregation
-      filters._locationFilters = {
-        entityName: dto.locationEntityName,
-        locationType: dto.locationType,
+    if (dto.locationType && dto.locationType.trim() !== '') {
+      filters['location.type'] = dto.locationType;
+    }
+    // ✅ Location Entity Name filter
+    if (dto.locationEntityName) {
+      filters['location.entity_name'] = {
+        $regex: dto.locationEntityName,
+        $options: 'i', // case-insensitive
       };
     }
 
@@ -193,10 +212,10 @@ export class DoctorBookingsQueryService {
   /**
    * Transform bookings to DTOs
    */
-  private async transformBookings(
+  private transformBookings(
     bookings: any[],
     inspectionDuration: number,
-  ): Promise<DoctorBookingDetailDto[]> {
+  ): DoctorBookingDetailDto[] {
     return bookings.map((booking) => {
       const patient = booking.patientId as User;
       const slot = booking.slotId as AppointmentSlot;
@@ -282,7 +301,7 @@ export class DoctorBookingsQueryService {
       totalBookings += stat.count;
       totalRevenue += stat.totalRevenue;
     });
-
+    console.log('AGG filters:', filters);
     return {
       totalBookings,
       byStatus,
@@ -294,10 +313,13 @@ export class DoctorBookingsQueryService {
   /**
    * Generate cache key
    */
-  private generateCacheKey(dto: GetDoctorBookingsDto): string {
+  private generateCacheKey(
+    dto: GetDoctorBookingsDto,
+    doctorId: string,
+  ): string {
     const parts = [
       this.CACHE_PREFIX,
-      dto.doctorId,
+      doctorId,
       dto.date || 'all',
       dto.startDate || '',
       dto.endDate || '',
@@ -316,10 +338,11 @@ export class DoctorBookingsQueryService {
    */
   async getDoctorBookingsWithLocationFilter(
     dto: GetDoctorBookingsDto,
+    doctorId: string,
   ): Promise<GetDoctorBookingsResponseDto> {
     if (!dto.locationEntityName && !dto.locationType) {
       // No location filter, use regular method
-      return this.getDoctorBookings(dto);
+      return this.getDoctorBookings(dto, doctorId);
     }
 
     this.logger.log(
@@ -327,23 +350,23 @@ export class DoctorBookingsQueryService {
     );
 
     // Generate cache key
-    const cacheKey = this.generateCacheKey(dto);
+    const cacheKey = this.generateCacheKey(dto, doctorId);
 
-    // Try cache
-    const cachedResult =
-      await this.cacheService.get<GetDoctorBookingsResponseDto>(cacheKey);
+    // // Try cache
+    // const cachedResult =
+    //   await this.cacheService.get<GetDoctorBookingsResponseDto>(cacheKey);
 
-    if (cachedResult) {
-      this.logger.debug(`Cache hit for location filter: ${cacheKey}`);
-      return cachedResult;
-    }
+    // if (cachedResult) {
+    //   this.logger.debug(`Cache hit for location filter: ${cacheKey}`);
+    //   return cachedResult;
+    // }
 
     // Build aggregation pipeline
     const pipeline: any[] = [
       // Match bookings by doctor
       {
         $match: {
-          doctorId: new Types.ObjectId(dto.doctorId),
+          doctorId: new Types.ObjectId(doctorId),
         },
       },
     ];
@@ -436,7 +459,7 @@ export class DoctorBookingsQueryService {
 
     // Get doctor for inspection duration
     const doctor = await this.doctorModel
-      .findById(dto.doctorId)
+      .findById(doctorId)
       .select('inspectionDuration')
       .lean()
       .exec();
@@ -450,8 +473,8 @@ export class DoctorBookingsQueryService {
     );
 
     // Calculate summary
-    const summary = await this.calculateSummary(dto.doctorId, {
-      doctorId: new Types.ObjectId(dto.doctorId),
+    const summary = await this.calculateSummary(doctorId, {
+      doctorId: new Types.ObjectId(doctorId),
     });
 
     const totalPages = Math.ceil(totalItems / limit);
@@ -521,5 +544,153 @@ export class DoctorBookingsQueryService {
     const pattern = `${this.CACHE_PREFIX}:${doctorId}:*`;
     await this.cacheService.del(pattern);
     this.logger.log(`Cache invalidated for doctor ${doctorId}`);
+  }
+
+  async rescheduleBooking(
+    doctorId: string,
+    dto: RescheduleBookingDto,
+  ): Promise<{ message: string }> {
+    const booking = await this.bookingModel.findById(dto.bookingId).exec();
+
+    if (!booking) throw new NotFoundException('Booking not found');
+
+    // ✅ Ensure the booking belongs to this doctor
+    if (booking.doctorId.toString() !== doctorId) {
+      throw new ForbiddenException('This booking does not belong to you');
+    }
+
+    // ✅ Only PENDING or NEEDS_RESCHEDULE bookings can be rescheduled
+    if (
+      ![BookingStatus.PENDING, BookingStatus.NEEDS_RESCHEDULE].includes(
+        booking.status,
+      )
+    ) {
+      throw new BadRequestException(
+        `Cannot reschedule a booking with status: ${booking.status}`,
+      );
+    }
+
+    // ✅ Fetch patient for notification
+    const patient = await this.userModel
+      .findById(booking.patientId)
+      .select('_id username fcmToken')
+      .exec();
+
+    if (!patient) throw new NotFoundException('Patient not found');
+
+    // ✅ Fetch doctor name
+    const doctor = await this.doctorModel
+      .findById(doctorId)
+      .select('firstName lastName')
+      .exec();
+
+    if (!doctor) throw new NotFoundException('Doctor not found');
+
+    const doctorName = `${doctor.firstName} ${doctor.lastName}`;
+
+    // ✅ Free the slot
+    await this.slotModel.updateOne(
+      { _id: booking.slotId },
+      {
+        $set: {
+          status: SlotStatus.AVAILABLE,
+          patientId: null,
+          bookingId: null,
+          bookedAt: null,
+        },
+      },
+    );
+
+    // ✅ Update booking status
+    await this.bookingModel.updateOne(
+      { _id: booking._id },
+      {
+        $set: {
+          status: BookingStatus.RESCHEDULED,
+          cancellation: {
+            cancelledBy: 'DOCTOR',
+            reason: 'Doctor Rescheduled',
+            cancelledAt: new Date(),
+          },
+        },
+      },
+    );
+
+    // ✅ Send Kafka notification to patient
+    this.sendCancellationNotification(
+      doctorId,
+      doctorName,
+      patient,
+      booking,
+      'Doctor Rescheduled your last appointment because you missed the previous appointment',
+      'BOOKING_RESCHEDULED',
+    );
+
+    this.logger.log(
+      `✅ Booking ${dto.bookingId} marked as RESCHEDULED by doctor ${doctorId}`,
+    );
+
+    return {
+      message: 'Booking marked as rescheduled and slot is now available',
+    };
+  }
+
+  private sendCancellationNotification(
+    doctorId: string,
+    doctorName: string,
+    patient: UserDocument,
+    booking: BookingDocument,
+    reason: string,
+    type: 'BOOKING_RESCHEDULED',
+  ): boolean {
+    if (!patient.fcmToken) {
+      this.logger.warn(`Patient has no FCM token. Notification not sent.`);
+      return false;
+    }
+
+    if (!booking._id) {
+      this.logger.error(
+        `Booking document is missing _id. Cancellation notification not sent.`,
+      );
+      return false;
+    }
+
+    const event = {
+      eventType: 'BOOKING_RESCHEDULED_NOTIFICATION',
+      timestamp: new Date(),
+      data: {
+        patientId: patient._id.toString(),
+        patientName: patient.username,
+        doctorId,
+        doctorName,
+        fcmToken: patient.fcmToken,
+        bookingId: booking._id.toString(),
+        appointmentDate: booking.bookingDate,
+        appointmentTime: booking.bookingTime,
+        reason,
+        type,
+      },
+      metadata: {
+        source: 'doctor-service',
+        version: '1.0',
+      },
+    };
+
+    try {
+      this.kafkaProducer.emit(
+        KAFKA_TOPICS.BOOKING_RESCHEDULED_NOTIFICATION,
+        event,
+      );
+      this.logger.log(
+        `📱 Rescheduled notification event published for patient ${patient._id.toString()}`,
+      );
+      return true;
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `Failed to publish cancellation notification: ${err.message}`,
+      );
+      return false;
+    }
   }
 }

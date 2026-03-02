@@ -1,28 +1,21 @@
 import {
   IsOptional,
-  IsMongoId,
   IsDateString,
   IsEnum,
   IsString,
   IsArray,
-  IsNotEmpty,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
-import { BookingStatus } from '@app/common/database/schemas/common.enums';
+import {
+  BookingStatus,
+  WorkigEntity,
+} from '@app/common/database/schemas/common.enums';
 
 /**
  * DTO for querying doctor bookings with advanced filters
  */
 export class GetDoctorBookingsDto {
-  @ApiProperty({
-    description: 'Doctor ID',
-    example: '507f1f77bcf86cd799439010',
-  })
-  @IsMongoId()
-  @IsNotEmpty()
-  doctorId: string;
-
   @ApiPropertyOptional({
     description: 'Specific date to filter bookings (YYYY-MM-DD)',
     example: '2026-02-25',
@@ -72,8 +65,9 @@ export class GetDoctorBookingsDto {
     example: 'HOSPITAL',
   })
   @IsOptional()
+  @IsEnum(WorkigEntity)
   @IsString()
-  locationType?: string;
+  locationType?: WorkigEntity;
 
   @ApiPropertyOptional({
     description: 'Page number (for pagination)',

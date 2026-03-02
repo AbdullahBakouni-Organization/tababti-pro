@@ -3,6 +3,7 @@ import type {
   BookingCancelledNotificationEvent,
   BookingCancelledNotificationEventByUser,
   BookingCompletedNotificationEvent,
+  BookingRescheduledNotificationEvent,
 } from '@app/common/kafka/interfaces/kafka-event.interface';
 import {
   Controller,
@@ -85,6 +86,31 @@ export class NotificationServiceController {
       );
     }
   }
+
+  @EventPattern(KAFKA_TOPICS.BOOKING_RESCHEDULED_NOTIFICATION)
+  async handleBookingRescheduled(
+    @Payload() event: BookingRescheduledNotificationEvent,
+  ): Promise<void> {
+    this.logger.log(
+      `🎯 Received BOOKING_RESCHEDULED_NOTIFICATION event for patient ${event.data.patientName}`,
+    );
+
+    try {
+      await this.notificationService.sendRescheduledNotificationToPatient(
+        event,
+      );
+      this.logger.log(
+        `✅ Successfully sent completion notification to patient ${event.data.patientName}`,
+      );
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `❌ Failed to process booking completion notification: ${err.message}`,
+        err.stack,
+      );
+    }
+  }
+
   /**
    * Get unread notifications for a user
    */

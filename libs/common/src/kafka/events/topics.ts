@@ -7,7 +7,7 @@ export const KAFKA_TOPICS = {
   BOOKING_CANCELLED_BY_SYSTEM: 'booking.cancelled.by.system',
   BOOKING_COMPLETED: 'booking.completed',
   BOOKING_REMINDER: 'booking.reminder',
-
+  BOOKING_RESCHEDULED_NOTIFICATION: 'booking.rescheduled.notification',
   // Doctor Events
   DOCTOR_PROFILE_UPDATED: 'doctor.profile.updated',
   DOCTOR_WORKING_HOURS_UPDATED: 'doctor.working.hours.updated',

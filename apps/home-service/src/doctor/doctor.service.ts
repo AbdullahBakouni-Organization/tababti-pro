@@ -78,13 +78,7 @@ import {
   BookingCompletionResponseDto,
   DoctorCompleteBookingDto,
 } from './dto/complete-booking.dto';
-import { PopulatedBookingDocument } from './processors/holidayblock.processor';
-import {
-  PatientBookingDto,
-  PatientSearchResultDto,
-  SearchPatientsDto,
-  SearchPatientsResponseDto,
-} from './dto/search-patients.dto';
+
 import {
   DoctorPatientStatsDto,
   GenderBreakdownDto,
