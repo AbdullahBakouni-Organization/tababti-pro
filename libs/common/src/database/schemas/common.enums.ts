@@ -415,6 +415,7 @@ export enum NotificationTypes {
 }
 export enum ApprovalStatus {
   PENDING = 'pending',
+  DRAFT='draft',
   APPROVED = 'approved',
   REJECTED = 'rejected',
   SUSPENDED = 'suspended',

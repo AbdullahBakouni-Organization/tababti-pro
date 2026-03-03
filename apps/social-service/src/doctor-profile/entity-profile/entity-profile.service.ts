@@ -1,8 +1,9 @@
-// entity-profile.service.ts
+// entity-profile.service.ts (ENHANCED)
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { Post } from '@app/common/database/schemas/post.schema';
+import { CommonDepartment } from '@app/common/database/schemas/common_departments.schema';
 import { PostStatus } from '@app/common/database/schemas/common.enums';
 import { EntityProfileRepository } from './entity-profile.repository';
 import { EntityType } from '../dto/get-entity-profile.dto';
@@ -12,6 +13,8 @@ export class EntityProfileService {
   constructor(
     private readonly repo: EntityProfileRepository,
     @InjectModel(Post.name) private readonly postModel: Model<Post>,
+    @InjectModel(CommonDepartment.name)
+    private readonly departmentModel: Model<CommonDepartment>,
   ) {}
 
   async getEntityProfile(id: string, type: EntityType) {
@@ -25,7 +28,9 @@ export class EntityProfileService {
     }
   }
 
-  // ── Doctor ────────────────────────────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════════════════════
+  // DOCTOR PROFILE
+  // ══════════════════════════════════════════════════════════════════════════
 
   private async getDoctorProfile(id: string) {
     const doctor = await this.repo.findDoctorById(id);
@@ -80,7 +85,9 @@ export class EntityProfileService {
     };
   }
 
-  // ── Hospital ──────────────────────────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════════════════════
+  // HOSPITAL PROFILE (WITH DEPARTMENTS, MACHINES, OPERATIONS)
+  // ══════════════════════════════════════════════════════════════════════════
 
   private async getHospitalProfile(id: string) {
     const hospital = await this.repo.findHospitalById(id);
@@ -88,6 +95,7 @@ export class EntityProfileService {
 
     await this.repo.incrementHospitalViews(id);
 
+    // ── Get all posts ──────────────────────────────────────────────────────
     const posts = await this.postModel
       .find({
         authorId: hospital._id,
@@ -96,6 +104,39 @@ export class EntityProfileService {
       })
       .sort({ createdAt: -1 })
       .lean();
+
+    // ── Get all departments ────────────────────────────────────────────────
+    const departments = await this.departmentModel
+      .find({ hospitalId: new Types.ObjectId(id) })
+      .lean();
+
+    // ── Transform departments data ─────────────────────────────────────────
+    const transformedDepartments = departments.map((dept) => ({
+      id: dept._id?.toString(),
+      type: dept.type,
+      doctors: (dept.doctors || []).map((doc) => ({
+        id: doc.id,
+        name: doc.name,
+        specialization: doc.specialization?.toString(),
+      })),
+      nurses: (dept.nurses || []).map((nurse) => ({
+        id: nurse.id,
+        name: nurse.name,
+      })),
+      machines: (dept.machines || []).map((machine) => ({
+        id: machine.id,
+        name: machine.name,
+        location: machine.location,
+      })),
+      operations: (dept.operations || []).map((op) => ({
+        id: op.id,
+        name: op.name,
+      })),
+      numberOfBeds: dept.numberOfBeds || 0,
+    }));
+
+    // ── Aggregate statistics ───────────────────────────────────────────────
+    const stats = this.calculateHospitalStats(transformedDepartments);
 
     return {
       type: EntityType.HOSPITAL,
@@ -116,6 +157,19 @@ export class EntityProfileService {
       insuranceCompanies: hospital.insuranceCompanies || [],
       latitude: hospital.latitude || null,
       longitude: hospital.longitude || null,
+      // ── DEPARTMENTS DATA ──────────────────────────────────────────────
+      departments: transformedDepartments,
+      departmentCount: transformedDepartments.length,
+      // ── AGGREGATED STATS ──────────────────────────────────────────────
+      totalDoctors: stats.totalDoctors,
+      totalNurses: stats.totalNurses,
+      totalBeds: stats.totalBeds,
+      totalMachines: stats.totalMachines,
+      totalOperations: stats.totalOperations,
+      machinesList: stats.machinesList,
+      operationsList: stats.operationsList,
+      doctorsList: stats.doctorsList,
+      // ── POSTS ────────────────────────────────────────────────────────
       posts: posts.map((p) => ({
         id: p._id,
         content: p.content,
@@ -126,7 +180,9 @@ export class EntityProfileService {
     };
   }
 
-  // ── Center ────────────────────────────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════════════════════
+  // CENTER PROFILE (WITH DEPARTMENTS, MACHINES, OPERATIONS)
+  // ══════════════════════════════════════════════════════════════════════════
 
   private async getCenterProfile(id: string) {
     const center = await this.repo.findCenterById(id);
@@ -134,6 +190,7 @@ export class EntityProfileService {
 
     await this.repo.incrementCenterViews(id);
 
+    // ── Get all posts ──────────────────────────────────────────────────────
     const posts = await this.postModel
       .find({
         authorId: center._id,
@@ -142,6 +199,39 @@ export class EntityProfileService {
       })
       .sort({ createdAt: -1 })
       .lean();
+
+    // ── Get all departments ────────────────────────────────────────────────
+    const departments = await this.departmentModel
+      .find({ centerId: new Types.ObjectId(id) })
+      .lean();
+
+    // ── Transform departments data ─────────────────────────────────────────
+    const transformedDepartments = departments.map((dept) => ({
+      id: dept._id?.toString(),
+      type: dept.type,
+      doctors: (dept.doctors || []).map((doc) => ({
+        id: doc.id,
+        name: doc.name,
+        specialization: doc.specialization?.toString(),
+      })),
+      nurses: (dept.nurses || []).map((nurse) => ({
+        id: nurse.id,
+        name: nurse.name,
+      })),
+      machines: (dept.machines || []).map((machine) => ({
+        id: machine.id,
+        name: machine.name,
+        location: machine.location,
+      })),
+      operations: (dept.operations || []).map((op) => ({
+        id: op.id,
+        name: op.name,
+      })),
+      numberOfBeds: dept.numberOfBeds || 0,
+    }));
+
+    // ── Aggregate statistics ───────────────────────────────────────────────
+    const stats = this.calculateCenterStats(transformedDepartments);
 
     return {
       type: EntityType.CENTER,
@@ -160,6 +250,19 @@ export class EntityProfileService {
       isSubscribed: center.isSubscribed,
       latitude: center.latitude || null,
       longitude: center.longitude || null,
+      // ── DEPARTMENTS DATA ──────────────────────────────────────────────
+      departments: transformedDepartments,
+      departmentCount: transformedDepartments.length,
+      // ── AGGREGATED STATS ──────────────────────────────────────────────
+      totalDoctors: stats.totalDoctors,
+      totalNurses: stats.totalNurses,
+      totalBeds: stats.totalBeds,
+      totalMachines: stats.totalMachines,
+      totalOperations: stats.totalOperations,
+      machinesList: stats.machinesList,
+      operationsList: stats.operationsList,
+      doctorsList: stats.doctorsList,
+      // ── POSTS ────────────────────────────────────────────────────────
       posts: posts.map((p) => ({
         id: p._id,
         content: p.content,
@@ -170,7 +273,9 @@ export class EntityProfileService {
     };
   }
 
-  // ── Helper ────────────────────────────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════════════════════
+  // HELPER METHODS
+  // ══════════════════════════════════════════════════════════════════════════
 
   private calculateYears(startDate: Date): number {
     if (!startDate) return 0;
@@ -183,7 +288,109 @@ export class EntityProfileService {
     return years;
   }
 
-  // ── Gallery — Get ─────────────────────────────────────────────────────────
+  /**
+   * Calculates aggregate statistics for a hospital
+   * Deduplicates doctors, machines, and operations across all departments
+   */
+  private calculateHospitalStats(departments: any[]): any {
+    const doctorsMap = new Map();
+    const machinesMap = new Map();
+    const operationsMap = new Map();
+    let totalNurses = 0;
+    let totalBeds = 0;
+
+    departments.forEach((dept) => {
+      // ── Aggregate doctors (deduplicate) ──────────────────────────────────
+      dept.doctors?.forEach((doctor) => {
+        if (!doctorsMap.has(doctor.id)) {
+          doctorsMap.set(doctor.id, doctor);
+        }
+      });
+
+      // ── Aggregate machines (deduplicate) ─────────────────────────────────
+      dept.machines?.forEach((machine) => {
+        if (!machinesMap.has(machine.id)) {
+          machinesMap.set(machine.id, machine);
+        }
+      });
+
+      // ── Aggregate operations (deduplicate) ───────────────────────────────
+      dept.operations?.forEach((operation) => {
+        if (!operationsMap.has(operation.id)) {
+          operationsMap.set(operation.id, operation);
+        }
+      });
+
+      // ── Count nurses and beds ──────────────────────────────────────────
+      totalNurses += dept.nurses?.length || 0;
+      totalBeds += dept.numberOfBeds || 0;
+    });
+
+    return {
+      totalDoctors: doctorsMap.size,
+      totalNurses,
+      totalBeds,
+      totalMachines: machinesMap.size,
+      totalOperations: operationsMap.size,
+      doctorsList: Array.from(doctorsMap.values()),
+      machinesList: Array.from(machinesMap.values()),
+      operationsList: Array.from(operationsMap.values()),
+    };
+  }
+
+  /**
+   * Calculates aggregate statistics for a center
+   * Deduplicates doctors, machines, and operations across all departments
+   */
+  private calculateCenterStats(departments: any[]): any {
+    const doctorsMap = new Map();
+    const machinesMap = new Map();
+    const operationsMap = new Map();
+    let totalNurses = 0;
+    let totalBeds = 0;
+
+    departments.forEach((dept) => {
+      // ── Aggregate doctors (deduplicate) ──────────────────────────────────
+      dept.doctors?.forEach((doctor) => {
+        if (!doctorsMap.has(doctor.id)) {
+          doctorsMap.set(doctor.id, doctor);
+        }
+      });
+
+      // ── Aggregate machines (deduplicate) ─────────────────────────────────
+      dept.machines?.forEach((machine) => {
+        if (!machinesMap.has(machine.id)) {
+          machinesMap.set(machine.id, machine);
+        }
+      });
+
+      // ── Aggregate operations (deduplicate) ───────────────────────────────
+      dept.operations?.forEach((operation) => {
+        if (!operationsMap.has(operation.id)) {
+          operationsMap.set(operation.id, operation);
+        }
+      });
+
+      // ── Count nurses and beds ──────────────────────────────────────────
+      totalNurses += dept.nurses?.length || 0;
+      totalBeds += dept.numberOfBeds || 0;
+    });
+
+    return {
+      totalDoctors: doctorsMap.size,
+      totalNurses,
+      totalBeds,
+      totalMachines: machinesMap.size,
+      totalOperations: operationsMap.size,
+      doctorsList: Array.from(doctorsMap.values()),
+      machinesList: Array.from(machinesMap.values()),
+      operationsList: Array.from(operationsMap.values()),
+    };
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // GALLERY METHODS
+  // ══════════════════════════════════════════════════════════════════════════
 
   async getGallery(id: string, type: EntityType): Promise<string[]> {
     switch (type) {
@@ -195,7 +402,6 @@ export class EntityProfileService {
         return this.repo.getCenterGallery(id);
     }
   }
-  // ── Gallery — Add ─────────────────────────────────────────────────────────
 
   async addGallery(
     id: string,
@@ -212,8 +418,6 @@ export class EntityProfileService {
     }
   }
 
-  // ── Gallery — Remove specific images ─────────────────────────────────────
-
   async removeGallery(
     id: string,
     type: EntityType,
@@ -228,8 +432,6 @@ export class EntityProfileService {
         return this.repo.removeCenterGallery(id, images);
     }
   }
-
-  // ── Gallery — Clear all ───────────────────────────────────────────────────
 
   async clearGallery(id: string, type: EntityType): Promise<void> {
     switch (type) {
