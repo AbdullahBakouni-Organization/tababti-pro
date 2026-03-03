@@ -17,7 +17,7 @@ export class NearbyBookingRepository {
     @InjectModel(Booking.name) private readonly bookingModel: Model<Booking>,
     @InjectModel(Doctor.name) private readonly doctorModel: Model<Doctor>,
     @InjectModel(User.name) private readonly userModel: Model<User>,
-  ) {}
+  ) { }
 
   // ── Find User by authAccountId ────────────────────────────────────────────
 
@@ -133,13 +133,26 @@ export class NearbyBookingRepository {
 
   // ── Find Top Doctors ──────────────────────────────────────────────────────
 
-  async findTopDoctors(limit: number) {
-    return this.doctorModel
-      .find()
-      .sort({ searchCount: -1 })
-      .limit(limit)
-      .select('firstName lastName middleName image searchCount')
-      .lean();
+  async findTopDoctors(page: number, limit: number) {
+    const skip = (page - 1) * limit;
+    const [doctors, total] = await Promise.all([
+      this.doctorModel
+        .find()
+        .sort({ searchCount: -1 })
+        .skip(skip)
+        .limit(limit)
+        .select('firstName lastName middleName image searchCount')
+        .lean(),
+      this.doctorModel.countDocuments(),
+    ]);
+
+    return {
+      doctors,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 
   // ── Find All Bookings For User ────────────────────────────────────────────
@@ -313,15 +326,13 @@ export class NearbyBookingRepository {
 
   async searchDoctorPatients(
     doctorId: Types.ObjectId,
-    filters: SearchPatientsDto,
+    search: string,
+    page: number,
+    limit: number,
   ) {
-    const page = Math.max(Number(filters.page) || 1, 1);
-    const limit = Math.min(Math.max(Number(filters.limit) || 10, 1), 50);
     const skip = (page - 1) * limit;
-
-    const search = filters.search?.trim() ?? null;
-    const escaped = search
-      ? search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const escaped = search?.trim()
+      ? search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
       : null;
 
     const pipeline: any[] = [
@@ -349,7 +360,6 @@ export class NearbyBookingRepository {
     }
 
     pipeline.push(
-      // ── Group by patient + collect booking snapshots ──────────────────────
       {
         $group: {
           _id: '$patient._id',
@@ -360,7 +370,6 @@ export class NearbyBookingRepository {
           totalVisits: { $sum: 1 },
           lastVisit: { $max: '$bookingDate' },
           firstVisit: { $min: '$bookingDate' },
-          // ── collect full booking info per patient ─────────────────────────
           bookings: {
             $push: {
               bookingId: '$_id',
@@ -388,15 +397,8 @@ export class NearbyBookingRepository {
             { $limit: limit },
             {
               $project: {
-                _id: 1,
-                username: 1,
-                phone: 1,
-                image: 1,
-                gender: 1,
-                totalVisits: 1,
-                lastVisit: 1,
-                firstVisit: 1,
-                bookings: 1, 
+                _id: 1, username: 1, phone: 1, image: 1, gender: 1,
+                totalVisits: 1, lastVisit: 1, firstVisit: 1, bookings: 1,
               },
             },
           ],

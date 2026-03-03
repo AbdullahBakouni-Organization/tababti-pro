@@ -19,7 +19,7 @@ import {
   ApiBody,
   ApiConsumes,
 } from '@nestjs/swagger';
-
+// must display all data for hpspital and center and doctor
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname, join } from 'path';
