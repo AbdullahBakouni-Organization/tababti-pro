@@ -1076,7 +1076,12 @@ export class AuthValidateService {
     }
 
     const entityModel = this.getEntityModel(account.role);
-
+    const entity = await entityModel.findOne({
+      authAccountId: new Types.ObjectId(accountId.toString()),
+    });
+    if (!entity) {
+      throw new UnauthorizedException('Entity not found');
+    }
     if (!entityModel) {
       throw new UnauthorizedException('Entity not found');
     }
@@ -1087,6 +1092,7 @@ export class AuthValidateService {
       role: account.role,
       isActive: account.isActive,
       tokenVersion: account.tokenVersion,
+      entity,
     };
   }
 

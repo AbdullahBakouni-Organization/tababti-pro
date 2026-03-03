@@ -49,9 +49,10 @@ export class BookingService {
    */
   async createBooking(
     createBookingDto: CreateBookingDto,
+    patientId: string,
   ): Promise<BookingResponseDto> {
     this.logger.log(
-      `Creating booking for patient ${createBookingDto.patientId}, slot ${createBookingDto.slotId}`,
+      `Creating booking for patient ${patientId}, slot ${createBookingDto.slotId}`,
     );
 
     // Validate IDs
@@ -65,7 +66,7 @@ export class BookingService {
 
     // ✅ VALIDATE BOOKING RULES
     const validation = await this.patientBookingService.validateBooking(
-      createBookingDto.patientId,
+      patientId,
       createBookingDto.doctorId,
       slot.date,
     );
@@ -80,14 +81,12 @@ export class BookingService {
     try {
       // Step 1: Validate patient exists
       const patient = await this.userModel
-        .findById(createBookingDto.patientId)
+        .findById(patientId)
         .session(session)
         .exec();
 
       if (!patient) {
-        throw new NotFoundException(
-          `Patient with ID ${createBookingDto.patientId} not found`,
-        );
+        throw new NotFoundException(`Patient with ID ${patientId} not found`);
       }
 
       // Step 2: Validate doctor exists
@@ -111,7 +110,7 @@ export class BookingService {
 
       // Step 4: Validate booking doesn't already exist (double booking prevention)
       await this.validateNoDuplicateBooking(
-        createBookingDto.patientId,
+        patientId,
         createBookingDto.doctorId,
         slot.date,
         slot.startTime,
@@ -122,7 +121,7 @@ export class BookingService {
       const booking = await this.bookingModel.create(
         [
           {
-            patientId: new Types.ObjectId(createBookingDto.patientId),
+            patientId: new Types.ObjectId(patientId),
             doctorId: new Types.ObjectId(createBookingDto.doctorId),
             slotId: new Types.ObjectId(createBookingDto.slotId),
             status: BookingStatus.PENDING,
@@ -149,10 +148,7 @@ export class BookingService {
       // await this.publishBookingCreatedEvent(booking[0], patient, doctor, slot);
 
       // Step 7: Invalidate cache
-      await this.invalidateBookingCaches(
-        createBookingDto.doctorId,
-        createBookingDto.patientId,
-      );
+      await this.invalidateBookingCaches(createBookingDto.doctorId, patientId);
 
       // Step 8: Return response
       return this.mapToResponseDto(booking[0]);
@@ -264,9 +260,6 @@ export class BookingService {
    * Validate ObjectIds
    */
   private validateObjectIds(dto: CreateBookingDto): void {
-    if (!Types.ObjectId.isValid(dto.patientId)) {
-      throw new BadRequestException('Invalid patient ID');
-    }
     if (!Types.ObjectId.isValid(dto.doctorId)) {
       throw new BadRequestException('Invalid doctor ID');
     }

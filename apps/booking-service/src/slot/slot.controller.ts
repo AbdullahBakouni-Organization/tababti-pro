@@ -1,4 +1,11 @@
-import { Controller, Get, Query, HttpCode, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Query,
+  HttpCode,
+  HttpStatus,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { SlotGenerationService } from './slot.service';
 import {
@@ -6,6 +13,10 @@ import {
   GetAvailableSlotsDto,
   GroupedAvailableSlotsDto,
 } from './dto/get-avalible-slot.dto';
+import { JwtUserGuard } from '@app/common/guards/jwt-user.guard';
+import { RolesGuard } from '@app/common/guards/role.guard';
+import { Roles } from '@app/common/decorator/role.decorator';
+import { UserRole } from '@app/common/database/schemas/common.enums';
 
 @ApiTags('Slot Management')
 @Controller('slots')
@@ -21,6 +32,8 @@ export class SlotController {
    * This is the main route patients use to see bookable appointments
    */
 
+  @UseGuards(JwtUserGuard, RolesGuard)
+  @Roles(UserRole.USER)
   @Get('available')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
