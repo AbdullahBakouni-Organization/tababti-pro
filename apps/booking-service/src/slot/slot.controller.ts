@@ -1,27 +1,27 @@
 import {
   Controller,
   Get,
-  Post,
-  Body,
   Query,
   HttpCode,
   HttpStatus,
-  Param,
+  UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { SlotGenerationService } from './slot.service';
 import {
   AvailableSlotDto,
   GetAvailableSlotsDto,
+  GroupedAvailableSlotsDto,
 } from './dto/get-avalible-slot.dto';
+import { JwtUserGuard } from '@app/common/guards/jwt-user.guard';
+import { RolesGuard } from '@app/common/guards/role.guard';
+import { Roles } from '@app/common/decorator/role.decorator';
+import { UserRole } from '@app/common/database/schemas/common.enums';
 
 @ApiTags('Slot Management')
 @Controller('slots')
 export class SlotController {
-  constructor(
-    private readonly slotManagementService: SlotGenerationService,
-    // private readonly pauseSlotService: PauseSlotService,
-  ) {}
+  constructor(private readonly slotManagementService: SlotGenerationService) {}
 
   /* -------------------------------------------------------------------------- */
   /*                   PATIENT-FACING: GET AVAILABLE SLOTS                      */
@@ -31,6 +31,9 @@ export class SlotController {
    * Get available slots for booking
    * This is the main route patients use to see bookable appointments
    */
+
+  @UseGuards(JwtUserGuard, RolesGuard)
+  @Roles(UserRole.USER)
   @Get('available')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -73,7 +76,7 @@ export class SlotController {
   })
   async getAvailableSlots(
     @Query() query: GetAvailableSlotsDto,
-  ): Promise<AvailableSlotDto[]> {
+  ): Promise<GroupedAvailableSlotsDto> {
     return this.slotManagementService.getAvailableSlots(query);
   }
 }

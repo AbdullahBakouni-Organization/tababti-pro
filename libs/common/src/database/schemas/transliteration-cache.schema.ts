@@ -22,5 +22,4 @@ export const TransliterationCacheSchema =
   SchemaFactory.createForClass(TransliterationCache);
 
 // ===== Indexes (match Prisma) =====
-TransliterationCacheSchema.index({ text: 1 }, { unique: true });
 TransliterationCacheSchema.index({ hitCount: -1 });

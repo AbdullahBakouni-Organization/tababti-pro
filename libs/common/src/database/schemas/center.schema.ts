@@ -98,9 +98,3 @@ CenterSchema.index({ cityId: 1, centerSpecialization: 1 });
 
 // Geo-like search (manual, since you're not using 2dsphere)
 CenterSchema.index({ latitude: 1, longitude: 1 });
-
-// Status filtering
-CenterSchema.index({ approvalStatus: 1 });
-
-// Unique constraint (already creates index)
-CenterSchema.index({ authAccountId: 1 }, { unique: true });

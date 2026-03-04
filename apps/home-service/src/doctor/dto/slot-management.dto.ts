@@ -13,14 +13,6 @@ import {
  */
 export class PauseSlotsDto {
   @ApiProperty({
-    description: 'Doctor ID',
-    example: '507f1f77bcf86cd799439010',
-  })
-  @IsNotEmpty()
-  @IsMongoId()
-  doctorId: string;
-
-  @ApiProperty({
     description: 'Array of slot IDs to pause',
     example: ['507f1f77bcf86cd799439013', '507f1f77bcf86cd799439014'],
     type: [String],
@@ -82,14 +74,6 @@ export class PauseSlotConflictDto {
  */
 export class DoctorCancelBookingDto {
   @ApiProperty({
-    description: 'Booking ID to cancel',
-    example: '507f1f77bcf86cd799439015',
-  })
-  @IsNotEmpty()
-  @IsMongoId()
-  bookingId: string;
-
-  @ApiProperty({
     description: 'Reason for cancellation',
     example: 'Doctor emergency - need to reschedule',
   })
@@ -103,7 +87,7 @@ export class DoctorCancelBookingDto {
   })
   @IsNotEmpty()
   @IsMongoId()
-  doctorId: string;
+  bookingId: string;
 }
 
 export interface PauseSlotsJobData {

@@ -26,19 +26,13 @@ import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
 import {
   ApprovalStatus,
   BookingStatus,
-  NotificationStatus,
-  NotificationTypes,
   SlotStatus,
   UserRole,
 } from '@app/common/database/schemas/common.enums';
-import { HttpService } from '@nestjs/axios';
-import { ConfigService } from '@nestjs/config';
-import { firstValueFrom } from 'rxjs';
 import { Connection } from 'mongoose';
 // import { FreeTrialService } from './free-trial.service';
 // import { SubscriptionOwnerType } from '../schemas/subscription.schema';
 import { ClientSession } from 'mongoose';
-import { Notification } from '@app/common/database/schemas/notification.schema';
 import { DoctorLoginDto } from './dto/login.dto';
 import {
   RequestDoctorPasswordResetDto,
@@ -67,7 +61,7 @@ import {
 import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
 import { User, UserDocument } from '@app/common/database/schemas/user.schema';
-import { getSyriaDate } from '@app/common/utils/get-syria-date';
+import { formatDate, getSyriaDate } from '@app/common/utils/get-syria-date';
 import {
   AllSlotsResponseDto,
   CheckHolidayConflictDto,
@@ -80,6 +74,15 @@ import {
   VIPBookingConflictResponseDto,
   VIPBookingJobData,
 } from './dto/vibbooking.dto';
+import {
+  BookingCompletionResponseDto,
+  DoctorCompleteBookingDto,
+} from './dto/complete-booking.dto';
+
+import {
+  DoctorPatientStatsDto,
+  GenderBreakdownDto,
+} from './dto/doctor-patient-stats.dto';
 // ============================================
 // Kafka Events
 // ============================================
@@ -120,12 +123,9 @@ export interface DoctorRegisteredEvent {
 @Injectable()
 export class DoctorService {
   private readonly logger = new Logger(DoctorService.name);
-  private readonly SOCKET_SERVICE_URL: string;
-
+  private readonly STATS_CACHE_TTL = 86400;
   constructor(
     @InjectModel(Doctor.name) private doctorModel: Model<DoctorDocument>,
-    @InjectModel(Notification.name)
-    private readonly notificationModel: Model<Notification>,
     @InjectModel(Otp.name) private otpModel: Model<OtpDocument>,
     @InjectModel(AppointmentSlot.name)
     private slotModel: Model<AppointmentSlotDocument>,
@@ -134,17 +134,12 @@ export class DoctorService {
     @InjectConnection() private readonly connection: Connection,
     @InjectModel(Booking.name) private bookingModel: Model<BookingDocument>,
     private kafkaProducer: KafkaService,
-    private httpService: HttpService,
-    private configService: ConfigService,
     private readonly smsService: SmsService,
     private readonly cacheManager: CacheService,
     @InjectQueue('pause-slots') private pauseSlotsQueue: Queue,
     @InjectQueue('vip-booking') private vipBookingQueue: Queue,
     @InjectQueue('holiday-block') private holidayQueue: Queue,
-  ) {
-    this.SOCKET_SERVICE_URL =
-      this.configService.get('SOCKET_SERVICE_URL') || '';
-  }
+  ) {}
 
   // ============================================
   // Validation Methods
@@ -370,7 +365,7 @@ export class DoctorService {
       // 7. OUTSIDE transaction (never put Kafka/WebSocket inside TX)
       try {
         await Promise.allSettled([
-          this.notifyAdminDashboardDirect(doctor!),
+          // this.notifyAdminDashboardDirect(doctor!),
           this.publishDoctorRegisteredEvent(doctor!),
         ]);
       } catch (error) {
@@ -853,126 +848,6 @@ export class DoctorService {
       this.logger.error(`Failed to publish event: ${err.message}`);
     }
   }
-  /**
-   * Extract a valid phone number from doctor phones array
-   * @param phones Array of phone objects
-   * @returns Valid phone number string or default if none found
-   */
-
-  private async notifyAdminDashboardDirect(
-    doctor: DoctorDocument,
-  ): Promise<void> {
-    let savedNotification: Notification | null = null;
-
-    // 1️⃣ Persist notification (source of truth)
-    try {
-      savedNotification = await this.notificationModel.create({
-        recipientType: UserRole.ADMIN,
-        recipientId: undefined,
-        Notificationtype: NotificationTypes.NewDoctorRegistration,
-        title: 'New Doctor Registration Pending',
-        message: `Dr. ${doctor.firstName} ${doctor.lastName} submitted a new registration.`,
-        status: NotificationStatus.PENDING,
-        isRead: false,
-      });
-    } catch (error) {
-      this.logger.error(
-        'Failed to persist admin notification',
-        error instanceof Error ? error.stack : undefined,
-      );
-      return; // no point broadcasting without DB record
-    }
-
-    // 2️⃣ Build realtime payload
-    const payload = {
-      event: 'new-registration-pending',
-      data: {
-        notificationId: savedNotification._id.toString(),
-        type: 'NEW_DOCTOR_REGISTRATION',
-        priority: 'high',
-        timestamp: new Date(),
-        doctor: {
-          id: doctor._id.toString(),
-          fullName: `${doctor.firstName} ${doctor.middleName} ${doctor.lastName}`,
-          phone: doctor.phones
-            .map((p) => p.normal || p.clinic || p.whatsup)
-            .flat()
-            .join(', '),
-          gender: doctor.gender,
-          certificateImage: doctor.certificateImage,
-          licenseImage: doctor.licenseImage,
-          status: doctor.status,
-          registeredAt: doctor.registeredAt,
-        },
-        actions: [
-          {
-            label: 'Review Now',
-            type: 'primary',
-            url: `/admin/doctors/pending/${doctor._id.toString()}`,
-          },
-          {
-            label: 'View Certificate',
-            type: 'secondary',
-            url: doctor.certificateImage,
-            openInNewTab: true,
-          },
-          {
-            label: 'View License',
-            type: 'secondary',
-            url: doctor.licenseImage,
-            openInNewTab: true,
-          },
-          {
-            label: 'View Certificate Document',
-            type: 'secondary',
-            url: doctor.certificateDocument,
-            openInNewTab: true,
-          },
-          {
-            label: 'View License Document',
-            type: 'secondary',
-            url: doctor.licenseDocument,
-            openInNewTab: true,
-          },
-        ],
-      },
-    };
-
-    // 3️⃣ Broadcast WebSocket
-    try {
-      await firstValueFrom(
-        this.httpService.post(
-          `${this.SOCKET_SERVICE_URL}/notifications/admin/broadcast`,
-          payload,
-          {
-            timeout: 3000,
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Source': 'home-service',
-            },
-          },
-        ),
-      );
-
-      this.logger.log(`⚡ FAST: Admin notification broadcasted to admins)`);
-
-      // 4️⃣ Mark as DELIVERED (only on success)
-      await this.notificationModel.updateOne(
-        { _id: savedNotification._id },
-        {
-          $set: {
-            status: NotificationStatus.DELIVERED,
-          },
-        },
-      );
-    } catch (error) {
-      this.logger.warn(
-        'Realtime notification failed; notification remains PENDING',
-        error instanceof Error ? error.message : undefined,
-      );
-      // intentionally NOT updating status → retryable
-    }
-  }
 
   async getDoctorBookingsByLocation(query: GetDoctorBookingsByLocationDto) {
     const { doctorId, locationType, bookingDate, page = 1, limit = 10 } = query;
@@ -1074,25 +949,26 @@ export class DoctorService {
    * Doctor cancels a booking
    * Frees up the slot and publishes Kafka event to refresh available slots
    */
-  async doctorCancelBooking(dto: DoctorCancelBookingDto): Promise<{
+  async doctorCancelBooking(
+    dto: DoctorCancelBookingDto,
+    doctorId: string,
+  ): Promise<{
     message: string;
     bookingId: string;
     slotId: string;
     patientNotified?: boolean;
   }> {
-    const doctor = await this.doctorModel.findById(dto.doctorId).exec();
+    const doctor = await this.doctorModel.findById(doctorId).exec();
     if (!doctor) {
-      throw new NotFoundException(`Doctor with ID ${dto.doctorId} not found`);
+      throw new NotFoundException(`Doctor with ID ${doctorId} not found`);
     }
-    this.logger.log(
-      `Doctor ${dto.doctorId} canceling booking ${dto.bookingId}`,
-    );
+    this.logger.log(`Doctor ${doctorId} canceling booking ${dto.bookingId}`);
 
     // Validate IDs
     if (!Types.ObjectId.isValid(dto.bookingId)) {
       throw new BadRequestException('Invalid booking ID');
     }
-    if (!Types.ObjectId.isValid(dto.doctorId)) {
+    if (!Types.ObjectId.isValid(doctorId)) {
       throw new BadRequestException('Invalid doctor ID');
     }
 
@@ -1104,7 +980,7 @@ export class DoctorService {
       const booking = await this.bookingModel
         .findOne({
           _id: new Types.ObjectId(dto.bookingId),
-          doctorId: new Types.ObjectId(dto.doctorId),
+          doctorId: new Types.ObjectId(doctorId),
           status: { $in: [BookingStatus.PENDING] },
         })
         .populate('patientId', 'username phone fcmToken')
@@ -1145,10 +1021,10 @@ export class DoctorService {
       );
 
       // Step 3: Invalidate cache
-      await this.invalidateSlotsCache(dto.doctorId);
+      await this.invalidateSlotsCache(doctorId);
 
       // Step 4: Publish Kafka event to refresh available slots
-      this.publishSlotsRefreshedEvent(dto.doctorId, slot);
+      this.publishSlotsRefreshedEvent(doctorId, slot);
 
       // Step 5: Send FCM notification to patient
 
@@ -1176,7 +1052,7 @@ export class DoctorService {
       }
 
       this.sendCancellationNotification(
-        dto.doctorId,
+        doctorId,
         doctorName,
         patient,
         booking,
@@ -1240,16 +1116,19 @@ export class DoctorService {
   /**
    * Check conflicts before pausing slots (dry run)
    */
-  async checkPauseConflicts(dto: PauseSlotsDto): Promise<PauseSlotConflictDto> {
+  async checkPauseConflicts(
+    dto: PauseSlotsDto,
+    doctorId: string,
+  ): Promise<PauseSlotConflictDto> {
     this.logger.log(`Checking pause conflicts for ${dto.slotIds.length} slots`);
 
     // Validate doctor ID
-    if (!Types.ObjectId.isValid(dto.doctorId)) {
+    if (!Types.ObjectId.isValid(doctorId)) {
       throw new BadRequestException('Invalid doctor ID');
     }
-    const doctor = await this.doctorModel.findById(dto.doctorId).exec();
+    const doctor = await this.doctorModel.findById(doctorId).exec();
     if (!doctor) {
-      throw new NotFoundException(`Doctor with ID ${dto.doctorId} not found`);
+      throw new NotFoundException(`Doctor with ID ${doctorId} not found`);
     }
     // Validate slot IDs
     for (const slotId of dto.slotIds) {
@@ -1262,7 +1141,7 @@ export class DoctorService {
     const slots = await this.slotModel
       .find({
         _id: { $in: dto.slotIds.map((id) => new Types.ObjectId(id)) },
-        doctorId: new Types.ObjectId(dto.doctorId),
+        doctorId: new Types.ObjectId(doctorId),
         // Add this condition to exclude blocked and invalidated slots
         status: { $nin: [SlotStatus.BLOCKED, SlotStatus.INVALIDATED] },
       })
@@ -1274,7 +1153,7 @@ export class DoctorService {
 
     if (slots.length !== dto.slotIds.length) {
       throw new BadRequestException(
-        `Some slots not found or don't belong to doctor ${dto.doctorId}`,
+        `Some slots not found or don't belong to doctor ${doctorId}`,
       );
     }
 
@@ -1320,7 +1199,10 @@ export class DoctorService {
   /**
    * Pause slots and handle conflicts
    */
-  async pauseSlots(dto: PauseSlotsDto): Promise<{
+  async pauseSlots(
+    dto: PauseSlotsDto,
+    doctorId: string,
+  ): Promise<{
     message: string;
     slotsCount: number;
     affectedBookings: number;
@@ -1329,18 +1211,18 @@ export class DoctorService {
     this.logger.log(`Pausing ${dto.slotIds.length} slots`);
 
     // Validate
-    if (!Types.ObjectId.isValid(dto.doctorId)) {
+    if (!Types.ObjectId.isValid(doctorId)) {
       throw new BadRequestException('Invalid doctor ID');
     }
 
     // Get doctor info
-    const doctor = await this.doctorModel.findById(dto.doctorId).exec();
+    const doctor = await this.doctorModel.findById(doctorId).exec();
     if (!doctor) {
-      throw new NotFoundException(`Doctor with ID ${dto.doctorId} not found`);
+      throw new NotFoundException(`Doctor with ID ${doctorId} not found`);
     }
 
     // Check conflicts
-    const conflicts = await this.checkPauseConflicts(dto);
+    const conflicts = await this.checkPauseConflicts(dto, doctorId);
 
     if (conflicts.hasConflicts && !dto.confirmPause) {
       throw new ConflictException(
@@ -1355,7 +1237,7 @@ export class DoctorService {
     const job = await this.pauseSlotsQueue.add(
       'pause-slots-and-cancel-bookings',
       {
-        doctorId: dto.doctorId,
+        doctorId: doctorId,
         slotIds: dto.slotIds,
         reason: dto.reason,
         pauseDate,
@@ -1536,17 +1418,18 @@ export class DoctorService {
    */
   async checkVIPBookingConflict(
     dto: CheckVIPBookingConflictDto,
+    doctorId: string,
   ): Promise<VIPBookingConflictResponseDto> {
     this.logger.log(`Checking VIP booking conflict for slot ${dto.slotId}`);
 
     // Validate IDs
-    if (!Types.ObjectId.isValid(dto.doctorId)) {
+    if (!Types.ObjectId.isValid(doctorId)) {
       throw new BadRequestException('Invalid doctor ID');
     }
     if (!Types.ObjectId.isValid(dto.slotId)) {
       throw new BadRequestException('Invalid slot ID');
     }
-    const doctor = await this.doctorModel.findById(dto.doctorId).exec();
+    const doctor = await this.doctorModel.findById(doctorId).exec();
     if (!doctor) {
       throw new NotFoundException('Doctor not found');
     }
@@ -1556,7 +1439,7 @@ export class DoctorService {
       .findOne({
         _id: new Types.ObjectId(dto.slotId),
         status: { $nin: [SlotStatus.INVALIDATED] },
-        doctorId: new Types.ObjectId(dto.doctorId),
+        doctorId: new Types.ObjectId(doctorId),
       })
       .exec();
 
@@ -1618,7 +1501,10 @@ export class DoctorService {
    * Create VIP booking (execute)
    * Queues Bull job to handle conflict and notifications
    */
-  async createVIPBooking(dto: CreateVIPBookingDto): Promise<{
+  async createVIPBooking(
+    dto: CreateVIPBookingDto,
+    doctorId: string,
+  ): Promise<{
     message: string;
     bookingId?: string;
     jobId?: string;
@@ -1627,10 +1513,12 @@ export class DoctorService {
     this.logger.log(`Creating VIP booking for slot ${dto.slotId}`);
 
     // Check conflict first
-    const conflict = await this.checkVIPBookingConflict({
-      doctorId: dto.doctorId,
-      slotId: dto.slotId,
-    });
+    const conflict = await this.checkVIPBookingConflict(
+      {
+        slotId: dto.slotId,
+      },
+      doctorId,
+    );
 
     // If conflict and not confirmed, throw error
     if (conflict.hasConflict && !dto.confirmOverride) {
@@ -1645,7 +1533,7 @@ export class DoctorService {
     }
 
     // Get doctor info
-    const doctor = await this.doctorModel.findById(dto.doctorId).exec();
+    const doctor = await this.doctorModel.findById(doctorId).exec();
     if (!doctor) {
       throw new NotFoundException('Doctor not found');
     }
@@ -1654,7 +1542,7 @@ export class DoctorService {
 
     // Queue job
     const jobData: VIPBookingJobData = {
-      doctorId: dto.doctorId,
+      doctorId: doctorId,
       doctorName,
       slotId: dto.slotId,
       vipPatientId: dto.vipPatientId,
@@ -1685,15 +1573,16 @@ export class DoctorService {
 
   async checkHolidayConflict(
     dto: CheckHolidayConflictDto,
+    doctorId: string,
   ): Promise<HolidayConflictResponseDto> {
     this.logger.log(
-      `Checking holiday conflicts for doctor ${dto.doctorId} from ${dto.startDate} to ${dto.endDate}`,
+      `Checking holiday conflicts for doctor ${doctorId} from ${dto.startDate} to ${dto.endDate}`,
     );
 
-    if (!Types.ObjectId.isValid(dto.doctorId)) {
+    if (!Types.ObjectId.isValid(doctorId)) {
       throw new BadRequestException('Invalid doctor ID');
     }
-    const doctor = await this.doctorModel.findById(dto.doctorId).exec();
+    const doctor = await this.doctorModel.findById(doctorId).exec();
 
     if (!doctor) {
       throw new NotFoundException('Doctor not found');
@@ -1708,7 +1597,7 @@ export class DoctorService {
     // Get all slots in date range
     const slots = await this.slotModel
       .find({
-        doctorId: new Types.ObjectId(dto.doctorId),
+        doctorId: new Types.ObjectId(doctorId),
         date: { $gte: startDate, $lte: endDate },
         status: { $nin: [SlotStatus.BLOCKED, SlotStatus.INVALIDATED] }, // Exclude blocked + invalidated
       })
@@ -1718,7 +1607,7 @@ export class DoctorService {
     // Get all bookings in date range (PENDING status only)
     const bookings = await this.bookingModel
       .find({
-        doctorId: new Types.ObjectId(dto.doctorId),
+        doctorId: new Types.ObjectId(doctorId),
         bookingDate: { $gte: startDate, $lte: endDate },
         status: BookingStatus.PENDING, // Only PENDING bookings
       })
@@ -1778,22 +1667,27 @@ export class DoctorService {
    * Create holiday (execute)
    * Queues Bull job to handle cancellations and notifications
    */
-  async createHoliday(dto: CreateHolidayDto): Promise<{
+  async createHoliday(
+    dto: CreateHolidayDto,
+    doctorId: string,
+  ): Promise<{
     message: string;
     jobId: string;
     affectedBookings: number;
     affectedSlots: number;
     dateRange: string;
   }> {
-    this.logger.log(`Creating holiday for doctor ${dto.doctorId}`);
+    this.logger.log(`Creating holiday for doctor ${doctorId}`);
 
     // Check conflicts first
-    const conflict = await this.checkHolidayConflict({
-      doctorId: dto.doctorId,
-      startDate: dto.startDate,
-      endDate: dto.endDate,
-      reason: dto.reason,
-    });
+    const conflict = await this.checkHolidayConflict(
+      {
+        startDate: dto.startDate,
+        endDate: dto.endDate,
+        reason: dto.reason,
+      },
+      doctorId,
+    );
 
     // If conflicts and not confirmed, throw error
     if (conflict.hasConflicts && !dto.confirmHoliday) {
@@ -1803,7 +1697,7 @@ export class DoctorService {
     }
 
     // Get doctor info
-    const doctor = await this.doctorModel.findById(dto.doctorId).exec();
+    const doctor = await this.doctorModel.findById(doctorId).exec();
     if (!doctor) {
       throw new NotFoundException('Doctor not found');
     }
@@ -1816,7 +1710,7 @@ export class DoctorService {
     // Get all slot IDs in range
     const slots = await this.slotModel
       .find({
-        doctorId: new Types.ObjectId(dto.doctorId),
+        doctorId: new Types.ObjectId(doctorId),
         date: { $gte: startDate, $lte: endDate },
       })
       .select('_id')
@@ -1824,10 +1718,8 @@ export class DoctorService {
       .exec();
     // Queue job
     const jobData: HolidayBlockJobData = {
-      doctorId: dto.doctorId,
+      doctorId: doctorId,
       doctorName,
-      startDate,
-      endDate,
       reason: dto.reason,
       affectedBookingIds: conflict.affectedBookings.map((b) => b.bookingId),
       affectedSlotIds: slots.map((s) => s._id.toString()),
@@ -1853,6 +1745,41 @@ export class DoctorService {
     };
   }
 
+  async updateDoctorFCMToken(
+    doctorId: string,
+    fcmToken: string,
+  ): Promise<{
+    message: string;
+    doctorId: string;
+    tokenUpdated: boolean;
+  }> {
+    if (!Types.ObjectId.isValid(doctorId)) {
+      throw new BadRequestException('Invalid doctor ID');
+    }
+
+    if (!fcmToken || fcmToken.trim().length === 0) {
+      throw new BadRequestException('FCM token is required');
+    }
+
+    const doctor = await this.doctorModel.findById(doctorId).exec();
+
+    if (!doctor) {
+      throw new NotFoundException(`Doctor with ID ${doctorId} not found`);
+    }
+
+    // Update FCM token
+    doctor.fcmToken = fcmToken;
+    await doctor.save();
+
+    this.logger.log(`FCM token updated for doctor ${doctorId}`);
+
+    return {
+      message: 'FCM token updated successfully',
+      doctorId: doctor._id.toString(),
+      tokenUpdated: true,
+    };
+  }
+
   private getDatesBetween(startDate: Date, endDate: Date): Date[] {
     const dates: Date[] = [];
     const currentDate = new Date(startDate);
@@ -1863,5 +1790,259 @@ export class DoctorService {
     }
 
     return dates;
+  }
+  async completeBooking(
+    dto: DoctorCompleteBookingDto,
+    doctorId: string,
+  ): Promise<BookingCompletionResponseDto> {
+    this.logger.log(`Doctor ${doctorId} completing booking ${dto.bookingId}`);
+
+    // Validate IDs
+    if (!Types.ObjectId.isValid(dto.bookingId)) {
+      throw new BadRequestException('Invalid booking ID');
+    }
+    if (!Types.ObjectId.isValid(doctorId)) {
+      throw new BadRequestException('Invalid doctor ID');
+    }
+
+    // Find booking with patient and doctor info
+    const booking = await this.bookingModel
+      .findOne({
+        _id: new Types.ObjectId(dto.bookingId),
+        doctorId: new Types.ObjectId(doctorId),
+        status: { $in: [BookingStatus.PENDING] },
+      })
+      .populate<{ patientId: User }>('patientId', 'username phone fcmToken')
+      .populate<{ doctorId: Doctor }>('doctorId', 'firstName lastName')
+      .exec();
+
+    if (!booking) {
+      throw new NotFoundException('الحجز غير موجود أو تم إنجازه مسبقاً');
+    }
+
+    // Update booking status
+    booking.status = BookingStatus.COMPLETED;
+    booking.completedAt = new Date();
+    if (dto.notes) {
+      booking.note = dto.notes;
+    }
+    await booking.save();
+
+    this.logger.log(
+      `✅ Booking ${dto.bookingId} completed by doctor ${doctorId}`,
+    );
+
+    // Get patient and doctor info
+    const patient =
+      typeof booking.patientId !== 'string'
+        ? (booking.patientId as unknown as User)
+        : null;
+    const doctor =
+      typeof booking.doctorId !== 'string'
+        ? (booking.doctorId as unknown as Doctor)
+        : null;
+
+    // Send Kafka event to notification service
+    let patientNotified = false;
+    if (patient && doctor) {
+      patientNotified = this.sendPatientNotificationViaKafka(
+        booking,
+        patient,
+        doctor,
+        dto.notes,
+      );
+    }
+
+    return {
+      message: 'تم إنجاز الحجز بنجاح',
+      bookingId: booking._id.toString(),
+      completedAt: booking.completedAt,
+      patientNotified,
+    };
+  }
+
+  /**
+   * Send Kafka event to notification service (patient notification)
+   * This will be consumed by notification service's handleBookingCompletedNotification
+   */
+  private sendPatientNotificationViaKafka(
+    booking: any,
+    patient: User,
+    doctor: Doctor,
+    notes?: string,
+  ): boolean {
+    if (!patient.fcmToken) {
+      this.logger.warn(
+        `Patient ${patient._id.toString()} has no FCM token. Notification will still be saved to DB.`,
+      );
+    }
+
+    const event = {
+      eventType: 'BOOKING_COMPLETED' as const,
+      timestamp: new Date(),
+      data: {
+        patientId: patient._id.toString(),
+        patientName: patient.username,
+        doctorId: doctor._id.toString(),
+        doctorName: `${doctor.firstName} ${doctor.lastName}`,
+        fcmToken: patient.fcmToken || '', // Empty string if no token
+        bookingId: booking._id?.toString(),
+        appointmentDate: formatDate(booking.bookingDate),
+        appointmentTime: booking.bookingTime,
+        notes: notes || '',
+        type: 'BOOKING_COMPLETED' as const,
+      },
+      metadata: {
+        source: 'doctor-booking-service',
+        version: '1.0',
+      },
+    };
+
+    try {
+      this.kafkaProducer.emit(KAFKA_TOPICS.BOOKING_COMPLETED, event);
+      this.logger.log(
+        `📨 Kafka event sent: BOOKING_COMPLETED_NOTIFICATION for patient ${patient._id.toString()}`,
+      );
+      return true;
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `❌ Failed to send Kafka event: ${err.message}`,
+        err.stack,
+      );
+      return false;
+    }
+  }
+
+  async getDoctorPatientGenderStats(
+    doctorId: string,
+  ): Promise<DoctorPatientStatsDto> {
+    if (!Types.ObjectId.isValid(doctorId)) {
+      throw new BadRequestException('Invalid doctor ID');
+    }
+
+    const cacheKey = `doctor:${doctorId}:patient-gender-stats`;
+    const cached = await this.cacheManager.get<DoctorPatientStatsDto>(cacheKey);
+    if (cached) {
+      this.logger.debug(`Cache hit for gender stats: doctor ${doctorId}`);
+      return cached;
+    }
+
+    return this.computeAndCacheStats(doctorId);
+  }
+
+  async computeAndCacheStats(doctorId: string): Promise<DoctorPatientStatsDto> {
+    const doctor = await this.doctorModel.findById(doctorId).exec();
+    if (!doctor) {
+      throw new NotFoundException(`Doctor ${doctorId} not found`);
+    }
+
+    const doctorName = `${doctor.firstName} ${doctor.middleName} ${doctor.lastName}`;
+
+    // Step 1: get all unique patient IDs that booked this doctor
+    const patientIds = await this.bookingModel
+      .distinct('patientId', {
+        doctorId: new Types.ObjectId(doctorId),
+        status: {
+          $in: [BookingStatus.COMPLETED, BookingStatus.PENDING],
+        },
+      })
+      .exec();
+
+    const totalPatients = patientIds.length;
+
+    if (totalPatients === 0) {
+      const empty = this.buildStatsDto(doctorId, doctorName, 0, 0, 0, 0, 0);
+      await this.cacheManager.set(
+        `doctor:${doctorId}:patient-gender-stats`,
+        empty,
+        this.STATS_CACHE_TTL,
+      );
+      return empty;
+    }
+
+    // Step 2: aggregate gender from User collection
+    const genderAggregation = await this.userModel
+      .aggregate([
+        {
+          $match: {
+            _id: { $in: patientIds },
+          },
+        },
+        {
+          $group: {
+            _id: '$gender',
+            count: { $sum: 1 },
+          },
+        },
+      ])
+      .exec();
+
+    // Step 3: parse results
+    let maleCount = 0;
+    let femaleCount = 0;
+    let unknownCount = 0;
+
+    for (const group of genderAggregation) {
+      const gender = (group._id as string)?.toLowerCase();
+      if (gender === 'male') maleCount = group.count;
+      else if (gender === 'female') femaleCount = group.count;
+    }
+
+    // Account for patients with no gender field at all
+    const accountedFor = maleCount + femaleCount + unknownCount;
+    unknownCount += totalPatients - accountedFor;
+
+    const stats = this.buildStatsDto(
+      doctorId,
+      doctorName,
+      totalPatients,
+      maleCount,
+      femaleCount,
+      unknownCount,
+      patientIds.length,
+    );
+
+    await this.cacheManager.set(
+      `doctor:${doctorId}:patient-gender-stats`,
+      stats,
+      this.STATS_CACHE_TTL,
+    );
+
+    return stats;
+  }
+
+  private buildStatsDto(
+    doctorId: string,
+    doctorName: string,
+    total: number,
+    male: number,
+    female: number,
+    unknown: number,
+    uniquePatients: number,
+  ): DoctorPatientStatsDto {
+    const now = new Date();
+    const nextUpdate = new Date(now);
+    nextUpdate.setHours(24, 0, 0, 0); // midnight tonight
+
+    const toBreakdown = (count: number): GenderBreakdownDto => ({
+      count,
+      percentage:
+        total > 0 ? parseFloat(((count / total) * 100).toFixed(2)) : 0,
+    });
+
+    return {
+      doctorId,
+      doctorName,
+      totalPatients: total,
+      uniquePatients,
+      gender: {
+        male: toBreakdown(male),
+        female: toBreakdown(female),
+        unknown: toBreakdown(unknown),
+      },
+      lastUpdated: now,
+      nextUpdateAt: nextUpdate,
+    };
   }
 }

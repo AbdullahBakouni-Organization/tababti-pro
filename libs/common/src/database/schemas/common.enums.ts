@@ -329,6 +329,8 @@ export enum BookingStatus {
   CANCELLED_BY_SYSTEM = 'cancelled_by_system',
   PAUSED_BY_DOCTOR = 'paused_by_doctor',
   NEEDS_RESCHEDULE = 'needs_reschedule',
+  CANCELLED = 'cancelled',
+  RESCHEDULED = 'rescheduled',
 }
 
 export enum GeneralSpecialty {
@@ -390,7 +392,7 @@ export enum NotificationTypes {
   BOOKING_CANCELLED_BY_USER = 'booking_cancelled_by_user',
   BOOKING_COMPLETED = 'booking_completed',
   BOOKING_RESCHEDULED = 'booking_rescheduled',
-
+  SLOT_PAUSED = 'slot_paused',
   QUESTION_ANSWERED = 'question_answered',
 
   DOCTOR_APPROVED = 'doctor_approved',

@@ -10,6 +10,7 @@ import {
   IsNumber,
   Min,
   Max,
+  IsOptional,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { Days, WorkigEntity } from '@app/common/database/schemas/common.enums';
@@ -115,7 +116,7 @@ export class AddWorkingHoursDto {
     minimum: 0,
   })
   @IsNumber()
-  @IsNotEmpty()
+  @IsOptional()
   @Min(0, { message: 'Inspection price cannot be negative' })
   inspectionPrice: number;
 }

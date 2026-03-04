@@ -52,3 +52,5 @@ NotificationSchema.index(
   },
   { unique: true },
 );
+
+export type NotificationDocument = Notification & Document;

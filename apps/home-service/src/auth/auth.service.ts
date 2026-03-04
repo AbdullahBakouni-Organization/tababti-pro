@@ -354,9 +354,28 @@ export class AuthService {
   }
 
   async logout(userId: string) {
-    await this.authModel.findByIdAndUpdate(userId, {
-      $inc: { tokenVersion: 1 },
-    });
+    // 1️⃣ Find the user first
+    const user = await this.userModel.findById(userId);
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // 2️⃣ Ensure authAccountId exists
+    if (!user.authAccountId) {
+      throw new BadRequestException('Auth account not linked');
+    }
+
+    // 3️⃣ Increment tokenVersion in AuthAccount
+    await this.authModel.findByIdAndUpdate(
+      user.authAccountId,
+      { $inc: { tokenVersion: 1 } },
+      { new: true },
+    );
+
+    // 4️⃣ Clear FCM token
+    user.fcmToken = '';
+    await user.save();
 
     return {
       success: true,

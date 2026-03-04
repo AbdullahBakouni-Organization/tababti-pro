@@ -1,3 +1,5 @@
+import { BadRequestException } from '@nestjs/common';
+
 export function timeAgo(date?: Date): string | null {
   if (!date) return null;
 
@@ -17,4 +19,21 @@ export function timeAgo(date?: Date): string | null {
   }
 
   return 'now';
+}
+
+export function timeToMinutes(time: string): number {
+  const [hours, minutes] = time.split(':').map(Number);
+
+  if (
+    Number.isNaN(hours) ||
+    Number.isNaN(minutes) ||
+    hours < 0 ||
+    hours > 23 ||
+    minutes < 0 ||
+    minutes > 59
+  ) {
+    throw new BadRequestException(`Invalid time format: ${time}`);
+  }
+
+  return hours * 60 + minutes;
 }

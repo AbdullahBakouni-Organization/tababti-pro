@@ -16,6 +16,8 @@ import {
   Res,
   UploadedFiles,
   Query,
+  Patch,
+  UnauthorizedException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -27,6 +29,7 @@ import {
   ApiBadRequestResponse,
   ApiUnauthorizedResponse,
   ApiQuery,
+  ApiParam,
 } from '@nestjs/swagger';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { DoctorService } from './doctor.service';
@@ -46,7 +49,10 @@ import { DocumentUrlInterceptor } from '../../../../libs/common/src/interceptors
 import type { Request, Response } from 'express';
 import { JwtRefreshGuard } from '@app/common/guards/jwt-refresh.guard';
 import { RolesGuard } from '@app/common/guards/role.guard';
-import { UserRole } from '@app/common/database/schemas/common.enums';
+import {
+  BookingStatus,
+  UserRole,
+} from '@app/common/database/schemas/common.enums';
 import { Roles } from '@app/common/decorator/role.decorator';
 import { DoctorLoginDto } from './dto/login.dto';
 import {
@@ -54,7 +60,6 @@ import {
   ResetDoctorPasswordDto,
   VerifyOtpForPasswordResetDto,
 } from './dto/doctor-forgot-password.dto';
-import { GetDoctorBookingsByLocationDto } from './dto/booking-responce.dto';
 import {
   DoctorCancelBookingDto,
   PauseSlotConflictDto,
@@ -71,6 +76,21 @@ import {
   VIPBookingConflictResponseDto,
 } from './dto/vibbooking.dto';
 import { CheckDoctorByPhoneDto } from './dto/check-doctor-by-phone.dto';
+import { UpdateFCMTokenDto } from './dto/update-fcm.dto';
+import {
+  BookingCompletionResponseDto,
+  DoctorCompleteBookingDto,
+} from './dto/complete-booking.dto';
+
+import { DoctorPatientStatsDto } from './dto/doctor-patient-stats.dto';
+import {
+  GetDoctorBookingsDto,
+  GetDoctorBookingsResponseDto,
+} from './dto/get-doctor-booking.dto';
+import { DoctorBookingsQueryService } from './doctor.service.v2';
+import { RescheduleBookingDto } from './dto/resechedula-booking.dto,';
+import { ParseMongoIdPipe } from '../../../../libs/common/src/pipes/parse-mongo-id.pipe';
+import { Throttle } from '@nestjs/throttler';
 
 // ============================================
 // Login DTO
@@ -96,6 +116,7 @@ export class LoginDto {
 export class DoctorController {
   constructor(
     private DoctorService: DoctorService,
+    private DoctorServiceV2: DoctorBookingsQueryService,
     private authService: AuthValidateService,
   ) {}
 
@@ -292,7 +313,7 @@ export class DoctorController {
       },
     };
   }
-
+  @Throttle({ default: { limit: 3, ttl: 60 } })
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.DOCTOR)
   @Post('forgot-password/request-otp')
@@ -388,13 +409,19 @@ export class DoctorController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Refresh access token' })
   async refreshToken(
-    @Body('refreshToken') refreshToken: string,
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<{
     success: boolean;
     accessToken: string;
     refreshToken?: string;
   }> {
+    const refreshToken = req.cookies['token']; // ← هنا المشكلة كانت
+
+    if (!refreshToken) {
+      throw new UnauthorizedException('No refresh token found');
+    }
+
     const tokens = await this.authService.refreshAccessToken(refreshToken);
     res.cookie('token', tokens.refreshToken, {
       httpOnly: true,
@@ -516,38 +543,41 @@ export class DoctorController {
       message: 'Logged out from all devices',
     };
   }
-  @Get(':doctorId/bookings')
-  @ApiOperation({
-    summary:
-      'Get doctor bookings filtered by slot location and date with pagination',
-  })
-  @ApiQuery({ name: 'doctorId', required: true, type: String })
-  @ApiQuery({
-    name: 'locationType',
-    required: true,
-    enum: ['clinic', 'online'],
-  }) // replace with your WorkigEntity enum
-  @ApiQuery({
-    name: 'bookingDate',
-    required: true,
-    type: String,
-    description: 'YYYY-MM-DD',
-  })
-  @ApiQuery({ name: 'page', required: false, type: Number })
-  @ApiQuery({ name: 'limit', required: false, type: Number })
-  @ApiResponse({ status: 200, description: 'Paginated list of bookings' })
-  async getDoctorBookingsByLocation(
-    @Param('doctorId') doctorId: string,
-    @Query() query: GetDoctorBookingsByLocationDto,
-  ) {
-    // Ensure the DTO doctorId matches the param
-    if (query.doctorId && query.doctorId !== doctorId) {
-      query.doctorId = doctorId;
-    }
 
-    return this.DoctorService.getDoctorBookingsByLocation(query);
-  }
+  // @Get(':doctorId/bookings')
+  // @ApiOperation({
+  //   summary:
+  //     'Get doctor bookings filtered by slot location and date with pagination',
+  // })
+  // @ApiQuery({ name: 'doctorId', required: true, type: String })
+  // @ApiQuery({
+  //   name: 'locationType',
+  //   required: true,
+  //   enum: ['clinic', 'online'],
+  // }) // replace with your WorkigEntity enum
+  // @ApiQuery({
+  //   name: 'bookingDate',
+  //   required: true,
+  //   type: String,
+  //   description: 'YYYY-MM-DD',
+  // })
+  // @ApiQuery({ name: 'page', required: false, type: Number })
+  // @ApiQuery({ name: 'limit', required: false, type: Number })
+  // @ApiResponse({ status: 200, description: 'Paginated list of bookings' })
+  // async getDoctorBookingsByLocation(
+  //   @Param('doctorId') doctorId: string,
+  //   @Query() query: GetDoctorBookingsByLocationDto,
+  // ) {
+  //   // Ensure the DTO doctorId matches the param
+  //   if (query.doctorId && query.doctorId !== doctorId) {
+  //     query.doctorId = doctorId;
+  //   }
 
+  //   return this.DoctorService.getDoctorBookingsByLocation(query);
+  // }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
   @Post('cancel-booking')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -563,10 +593,15 @@ export class DoctorController {
     status: 404,
     description: 'Booking not found or already cancelled',
   })
-  async cancelBooking(@Body() dto: DoctorCancelBookingDto) {
-    return this.DoctorService.doctorCancelBooking(dto);
+  async cancelBooking(@Body() dto: DoctorCancelBookingDto, @Req() req: any) {
+    const doctorId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
+    return this.DoctorService.doctorCancelBooking(dto, doctorId);
   }
 
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
   @Post('pause/check-conflicts')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -581,14 +616,20 @@ export class DoctorController {
   })
   async checkPauseConflicts(
     @Body() dto: PauseSlotsDto,
+    @Req() req: any,
   ): Promise<PauseSlotConflictDto> {
-    return this.DoctorService.checkPauseConflicts(dto);
+    const doctorId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
+    return this.DoctorService.checkPauseConflicts(dto, doctorId);
   }
 
   /**
    * Pause slots (execute)
    * This pauses slots for ONE DAY ONLY (today or specified date)
    */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
   @Post('pause')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -608,26 +649,15 @@ export class DoctorController {
     status: 404,
     description: 'Doctor or slots not found',
   })
-  async pauseSlots(@Body() dto: PauseSlotsDto) {
-    return this.DoctorService.pauseSlots(dto);
+  async pauseSlots(@Body() dto: PauseSlotsDto, @Req() req: any) {
+    const doctorId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
+    return this.DoctorService.pauseSlots(dto, doctorId);
   }
 
-  @Post('unpause')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Unpause slots',
-    description:
-      'Reactivates previously paused slots, making them available for booking again.',
-  })
-  unpauseSlots(@Body() body: { doctorId: string; slotIds: string[] }) {
-    // Simple implementation - just update status back to AVAILABLE
-    // You can expand this if needed
-    return {
-      message: 'Slots unpaused successfully',
-      slotIds: body.slotIds,
-    };
-  }
-
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
   @Get('slots/all')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -649,6 +679,8 @@ export class DoctorController {
   /**
    * Check VIP booking conflict (dry run)
    */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
   @Post('vip-booking/check-conflict')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -663,13 +695,19 @@ export class DoctorController {
   })
   async checkVIPBookingConflict(
     @Body() dto: CheckVIPBookingConflictDto,
+    @Req() req: any,
   ): Promise<VIPBookingConflictResponseDto> {
-    return this.DoctorService.checkVIPBookingConflict(dto);
+    const doctorId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
+    return this.DoctorService.checkVIPBookingConflict(dto, doctorId);
   }
 
   /**
    * Create VIP booking (confirmed)
    */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
   @Post('vip-booking')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -685,8 +723,11 @@ export class DoctorController {
     status: 409,
     description: 'Slot is booked but not confirmed',
   })
-  async createVIPBooking(@Body() dto: CreateVIPBookingDto) {
-    return this.DoctorService.createVIPBooking(dto);
+  async createVIPBooking(@Body() dto: CreateVIPBookingDto, @Req() req: any) {
+    const doctorId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
+    return this.DoctorService.createVIPBooking(dto, doctorId);
   }
 
   /* ==========================================================================
@@ -696,6 +737,8 @@ export class DoctorController {
   /**
    * Check holiday conflicts (dry run)
    */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
   @Post('holidays/check-conflict')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -710,13 +753,19 @@ export class DoctorController {
   })
   async checkHolidayConflict(
     @Body() dto: CheckHolidayConflictDto,
+    @Req() req: any,
   ): Promise<HolidayConflictResponseDto> {
-    return this.DoctorService.checkHolidayConflict(dto);
+    const doctorId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
+    return this.DoctorService.checkHolidayConflict(dto, doctorId);
   }
 
   /**
    * Create holiday (confirmed)
    */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
   @Post('holidays')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -732,13 +781,18 @@ export class DoctorController {
     status: 409,
     description: 'Bookings exist but not confirmed',
   })
-  async createHoliday(@Body() dto: CreateHolidayDto) {
-    return this.DoctorService.createHoliday(dto);
+  async createHoliday(@Body() dto: CreateHolidayDto, @Req() req: any) {
+    const doctorId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
+    return this.DoctorService.createHoliday(dto, doctorId);
   }
 
   /**
    * Check doctor by phone
    */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
   @Post('check-by-phone')
   async checkDoctorByPhone(
     @Body() dto: CheckDoctorByPhoneDto,
@@ -746,5 +800,282 @@ export class DoctorController {
     const exists = await this.DoctorService.isApprovedDoctorByPhone(dto.phone);
 
     return exists;
+  }
+
+  /**
+   * Update doctor FCM token
+   */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
+  @Post('fcm-token')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Update doctor FCM token',
+    description: 'Updates the FCM token for the specified doctor.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'FCM token updated successfully',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid doctor ID or FCM token',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Doctor not found',
+  })
+  async updateDoctorFCMToken(@Body() dto: UpdateFCMTokenDto, @Req() req: any) {
+    const doctorId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
+    return this.DoctorService.updateDoctorFCMToken(doctorId, dto.fcmToken);
+  }
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
+  @Post('complete')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Doctor completes a booking',
+    description:
+      'Marks booking as completed. Patient receives FCM notification via Kafka event.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Booking completed successfully',
+    type: BookingCompletionResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Booking not found or already completed',
+  })
+  async completeBooking(
+    @Body() dto: DoctorCompleteBookingDto,
+    @Req() req: any,
+  ): Promise<BookingCompletionResponseDto> {
+    const doctorId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
+    return this.DoctorService.completeBooking(dto, doctorId);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
+  @Get('stats/patients/gender')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
+  @ApiBearerAuth()
+  async getPatientGenderStats(@Req() req: any): Promise<DoctorPatientStatsDto> {
+    const doctorId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
+    return this.DoctorService.getDoctorPatientGenderStats(doctorId);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
+  @Patch('reschedule')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Mark booking as rescheduled',
+    description: `
+       Doctor marks a booking as rescheduled.
+       - Booking status → **RESCHEDULED**
+       - Slot status → **AVAILABLE** (freed for other patients)
+       - Patient receives a Kafka cancellation notification
+       - Only **PENDING** or **NEEDS_RESCHEDULE** bookings can be rescheduled
+     `,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Booking rescheduled successfully',
+    schema: {
+      example: {
+        message: 'Booking marked as rescheduled and slot is now available',
+      },
+    },
+  })
+  @ApiResponse({ status: 400, description: 'Invalid booking status' })
+  @ApiResponse({
+    status: 403,
+    description: 'Booking does not belong to this doctor',
+  })
+  @ApiResponse({ status: 404, description: 'Booking not found' })
+  async rescheduleBooking(@Body() dto: RescheduleBookingDto, @Req() req: any) {
+    return this.DoctorServiceV2.rescheduleBooking(
+      req.user.entity._id.toString(),
+      dto,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
+  @Get('bookings')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get doctor bookings with advanced filters',
+    description: `
+       Retrieves doctor's bookings with comprehensive filtering and sorting capabilities.
+
+       **Features:**
+       - Filter by date (specific date or date range)
+       - Filter by status (single or multiple statuses)
+       - Filter by location (entity name or type)
+       - Sorted by inspection time (ascending)
+       - Includes full patient and slot information
+       - Pagination support
+       - Response is cached for 5 minutes
+
+       **Sorting:**
+       Bookings are automatically sorted by inspection time from earliest to latest based on doctor's inspection duration.
+
+       **Caching:**
+       Results are cached for 5 minutes. Cache key includes all filter parameters.
+     `,
+  })
+  @ApiParam({
+    name: 'doctorId',
+    description: 'Doctor MongoDB ObjectId',
+    example: '507f1f77bcf86cd799439010',
+  })
+  @ApiQuery({
+    name: 'date',
+    required: false,
+    description: 'Filter by specific date (YYYY-MM-DD)',
+    example: '2026-02-25',
+  })
+  @ApiQuery({
+    name: 'startDate',
+    required: false,
+    description: 'Start date for range filter (YYYY-MM-DD)',
+    example: '2026-02-20',
+  })
+  @ApiQuery({
+    name: 'endDate',
+    required: false,
+    description: 'End date for range filter (YYYY-MM-DD)',
+    example: '2026-02-28',
+  })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    description:
+      'Filter by status (can specify multiple by repeating parameter)',
+    enum: BookingStatus,
+    isArray: true,
+    example: ['PENDING', 'CONFIRMED'],
+  })
+  @ApiQuery({
+    name: 'locationEntityName',
+    required: false,
+    description: 'Filter by location entity name (hospital/clinic name)',
+    example: 'City Medical Center',
+  })
+  @ApiQuery({
+    name: 'locationType',
+    required: false,
+    description: 'Filter by location type',
+    example: 'HOSPITAL',
+  })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    description: 'Page number',
+    example: 1,
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: 'Items per page',
+    example: 20,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Bookings retrieved successfully',
+    type: GetDoctorBookingsResponseDto,
+    schema: {
+      example: {
+        bookings: [
+          {
+            bookingId: '507f1f77bcf86cd799439015',
+            status: 'CONFIRMED',
+            bookingDate: '2026-02-25T00:00:00.000Z',
+            bookingTime: '09:00',
+            bookingEndTime: '09:30',
+            inspectionDuration: 30,
+            price: 150,
+            note: 'Regular checkup',
+            createdAt: '2026-02-20T10:00:00.000Z',
+            patient: {
+              patientId: '507f1f77bcf86cd799439011',
+              firstName: 'Ahmed',
+              lastName: 'Hassan',
+              username: 'ahmed.hassan',
+              phoneNumber: '+966501234567',
+              email: 'ahmed@example.com',
+              dateOfBirth: '1990-05-15T00:00:00.000Z',
+              gender: 'MALE',
+            },
+            slot: {
+              slotId: '507f1f77bcf86cd799439020',
+              date: '2026-02-25T00:00:00.000Z',
+              startTime: '09:00',
+              endTime: '09:30',
+              status: 'BOOKED',
+              location: {
+                type: 'HOSPITAL',
+                entity_name: 'City Medical Center',
+                address: '123 Main St',
+                city: 'Riyadh',
+                coordinates: {
+                  latitude: 24.7136,
+                  longitude: 46.6753,
+                },
+              },
+            },
+          },
+        ],
+        pagination: {
+          currentPage: 1,
+          totalPages: 5,
+          totalItems: 100,
+          itemsPerPage: 20,
+          hasNextPage: true,
+          hasPreviousPage: false,
+        },
+        summary: {
+          totalBookings: 100,
+          byStatus: {
+            PENDING: 30,
+            CONFIRMED: 45,
+            COMPLETED: 20,
+            CANCELLED: 5,
+          },
+          averageDuration: 30,
+          totalRevenue: 15000,
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid doctor ID or query parameters',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Doctor not found',
+  })
+  async getDoctorBookings(
+    @Query() query: GetDoctorBookingsDto,
+    @Req() req: any,
+  ): Promise<GetDoctorBookingsResponseDto> {
+    // Merge doctorId from path param
+    const doctorId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
+    const dto: GetDoctorBookingsDto = {
+      ...query,
+    };
+    return this.DoctorServiceV2.getDoctorBookings(dto, doctorId);
   }
 }

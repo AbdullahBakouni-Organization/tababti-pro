@@ -18,9 +18,11 @@ import {
   Booking,
   BookingDocument,
 } from '@app/common/database/schemas/booking.schema';
-import { FcmService } from 'apps/home-service/src/fcm/fcm.service';
-import { User, UserDocument } from '@app/common/database/schemas/user.schema';
+import { User } from '@app/common/database/schemas/user.schema';
 import { Doctor } from '@app/common/database/schemas/doctor.schema';
+import { KafkaService } from '@app/common/kafka/kafka.service';
+import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
+import { formatDate } from '@app/common/utils/get-syria-date';
 
 export interface WorkingHoursUpdateJobData {
   doctorId: string;
@@ -70,14 +72,10 @@ export class WorkingHoursUpdateProcessorV2 {
     private slotModel: Model<AppointmentSlotDocument>,
     @InjectConnection() private readonly connection: Connection,
     @InjectModel(Booking.name) private bookingModel: Model<BookingDocument>,
-    private readonly fcmService: FcmService,
-    @InjectModel(User.name) private userModel: Model<UserDocument>,
-  ) {}
-
-  /**
-   * JOB A: Handle immediate (today) conflicts
-   * Runs immediately after doctor confirms update
-   */
+    private kafkaProducer: KafkaService,
+  ) {
+    this.logger.log(`[Slot Update Job] Processing for doctor`);
+  }
 
   @Process('PROCESS_WORKING_HOURS_UPDATE')
   async processWorkingHoursUpdate(
@@ -95,7 +93,7 @@ export class WorkingHoursUpdateProcessorV2 {
 
     const doctorObjectId = new Types.ObjectId(doctorId);
 
-    this.logger.log(`begining of PROCESS_WORKING_HOURS_UPDATE`);
+    this.logger.log(`beginning of PROCESS_WORKING_HOURS_UPDATE`);
 
     for (const day of updatedDays) {
       await this.processSingleDay(
@@ -124,7 +122,9 @@ export class WorkingHoursUpdateProcessorV2 {
 
     const affectedBookings: Array<{
       bookingId: string;
+      doctorId: string;
       fcmToken: string;
+      patientId: string;
       doctorName: string;
       appointmentDate: Date;
       appointmentTime: string;
@@ -132,25 +132,37 @@ export class WorkingHoursUpdateProcessorV2 {
 
     try {
       const futureDates = this.getNext12WeeksDatesForDay(day);
+
+      // ✅ الـ ranges الجديدة لهذا اليوم فقط
       const validRanges = newWH.filter((w) => w.day === day);
+
+      // ✅ الـ locations المتأثرة في هذا اليوم فقط (من oldWH و newWH)
+      const affectedLocations = this.getAffectedLocations(day, oldWH, newWH);
 
       for (const date of futureDates) {
         const startOfDay = new Date(date);
         const endOfDay = new Date(date.getTime() + 24 * 60 * 60 * 1000 - 1);
 
+        // ✅ جلب الـ slots في الـ locations المتأثرة فقط
         const oldSlots = await this.slotModel
           .find({
             doctorId: doctorId,
             date: { $gte: startOfDay, $lte: endOfDay },
             status: { $ne: SlotStatus.INVALIDATED },
+            $or: affectedLocations.map((loc) => ({
+              'location.type': loc.type,
+              'location.entity_name': loc.entity_name,
+              'location.address': loc.address,
+            })),
           })
           .session(session);
 
         this.logger.log(
-          `Found ${oldSlots.length} slots for ${day} on ${date.toISOString()}`,
+          `Found ${oldSlots.length} affected slots for ${day} on ${date.toISOString()}`,
         );
 
         for (const slot of oldSlots) {
+          // ✅ التحقق من الوقت والـ location معاً
           if (!this.slotFitsRanges(slot, validRanges)) {
             if (slot.status === SlotStatus.BOOKED) {
               const booking = await this.bookingModel
@@ -162,7 +174,6 @@ export class WorkingHoursUpdateProcessorV2 {
                 .session(session)
                 .exec();
 
-              // ✅ FIXED: Type assertion after populate
               if (booking && typeof booking.patientId !== 'string') {
                 const patient = booking.patientId as unknown as User;
                 const doctor = booking.doctorId as unknown as Doctor;
@@ -170,6 +181,8 @@ export class WorkingHoursUpdateProcessorV2 {
                 if (patient?.fcmToken) {
                   affectedBookings.push({
                     bookingId: booking._id.toString(),
+                    patientId: patient._id.toString(),
+                    doctorId: doctor._id.toString(),
                     fcmToken: patient.fcmToken,
                     doctorName: `${doctor.firstName} ${doctor.lastName}`,
                     appointmentDate: booking.bookingDate,
@@ -197,6 +210,7 @@ export class WorkingHoursUpdateProcessorV2 {
           }
         }
 
+        // ✅ توليد slots جديدة للـ ranges والـ locations الجديدة فقط
         await this.generateNewSlotsForDate(
           doctorId,
           date,
@@ -210,7 +224,6 @@ export class WorkingHoursUpdateProcessorV2 {
 
       await session.commitTransaction();
 
-      // Send notifications AFTER successful commit
       if (affectedBookings.length > 0) {
         await this.sendPersonalizedNotifications(affectedBookings).catch(
           (err) => this.logger.error('Notification error:', err),
@@ -222,6 +235,34 @@ export class WorkingHoursUpdateProcessorV2 {
     } finally {
       await session.endSession();
     }
+  }
+  private getAffectedLocations(
+    day: Days,
+    oldWH: WorkingHourRange[],
+    newWH: WorkingHourRange[],
+  ): Array<{ type: WorkigEntity; entity_name: string; address: string }> {
+    const allRelevant = [...oldWH, ...newWH].filter((w) => w.day === day);
+
+    const seen: Record<string, boolean> = {};
+    const result: Array<{
+      type: WorkigEntity;
+      entity_name: string;
+      address: string;
+    }> = [];
+
+    for (const wh of allRelevant) {
+      const key = `${wh.location.type}|${wh.location.entity_name}|${wh.location.address}`;
+      if (!seen[key]) {
+        seen[key] = true;
+        result.push({
+          type: wh.location.type,
+          entity_name: wh.location.entity_name,
+          address: wh.location.address,
+        });
+      }
+    }
+
+    return result;
   }
 
   private async generateNewSlotsForDate(
@@ -235,6 +276,7 @@ export class WorkingHoursUpdateProcessorV2 {
   ) {
     const startOfDay = new Date(date);
     const endOfDay = new Date(date.getTime() + 24 * 60 * 60 * 1000 - 1);
+
     for (const range of ranges) {
       const generatedSlots = this.buildSlotsFromRange(
         doctorId,
@@ -244,22 +286,59 @@ export class WorkingHoursUpdateProcessorV2 {
         range.day,
         range.location,
         duration,
-        version,
         price,
+        version,
       );
 
       for (const slot of generatedSlots) {
-        const exists = await this.slotModel
+        // ✅ تحقق إذا في slot نشط (مش INVALIDATED)
+        const activeExists = await this.slotModel
           .findOne({
             doctorId: doctorId,
             date: { $gte: startOfDay, $lte: endOfDay },
             startTime: slot.startTime,
+            'location.type': range.location.type,
+            'location.entity_name': range.location.entity_name,
+            'location.address': range.location.address,
             status: { $ne: SlotStatus.INVALIDATED },
           })
           .session(session);
 
-        if (!exists) {
-          await this.slotModel.insertMany(slot, { session });
+        if (!activeExists) {
+          // ✅ حاول تحوّل INVALIDATED موجود إلى AVAILABLE
+          const invalidatedExists = await this.slotModel
+            .findOne({
+              doctorId: doctorId,
+              date: { $gte: startOfDay, $lte: endOfDay },
+              startTime: slot.startTime,
+              'location.entity_name': range.location.entity_name,
+              status: SlotStatus.INVALIDATED,
+            })
+            .session(session);
+
+          if (invalidatedExists) {
+            // ✅ أعد تفعيله بدل ما تولّد جديد
+            await this.slotModel.updateOne(
+              { _id: invalidatedExists._id },
+              {
+                $set: {
+                  status: SlotStatus.AVAILABLE,
+                  startTime: slot.startTime,
+                  endTime: slot.endTime,
+                  workingHoursVersion: version,
+                  duration: duration,
+                  price: price,
+                  location: range.location,
+                  dayOfWeek: range.day,
+                  date: new Date(date),
+                },
+              },
+              { session },
+            );
+          } else {
+            // ✅ ولّد slot جديد تماماً
+            await this.slotModel.insertMany([slot], { session });
+          }
         }
       }
     }
@@ -286,12 +365,13 @@ export class WorkingHoursUpdateProcessorV2 {
     const dates: Date[] = [];
     for (let i = 0; i < 12; i++) {
       const d = dt.plus({ weeks: i });
-      // ✅ Saturday Syria = 2026-02-21T00:00:00.000Z correct
       dates.push(new Date(Date.UTC(d.year, d.month - 1, d.day, 0, 0, 0, 0)));
     }
 
     return dates;
   }
+
+  // ✅ التحقق من الوقت والـ location معاً
   private slotFitsRanges(
     slot: AppointmentSlotDocument,
     ranges: WorkingHourRange[],
@@ -303,7 +383,13 @@ export class WorkingHoursUpdateProcessorV2 {
       const rangeStart = this.timeToMinutes(range.startTime);
       const rangeEnd = this.timeToMinutes(range.endTime);
 
-      if (slotStart >= rangeStart && slotEnd <= rangeEnd) {
+      const timeMatches = slotStart >= rangeStart && slotEnd <= rangeEnd;
+      const locationMatches =
+        slot.location.type === range.location.type &&
+        slot.location.entity_name === range.location.entity_name &&
+        slot.location.address === range.location.address;
+
+      if (timeMatches && locationMatches) {
         return true;
       }
     }
@@ -319,9 +405,9 @@ export class WorkingHoursUpdateProcessorV2 {
   private minutesToTime(minutes: number): string {
     const h = Math.floor(minutes / 60);
     const m = minutes % 60;
-
     return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
   }
+
   private buildSlotsFromRange(
     doctorId: Types.ObjectId,
     date: Date,
@@ -345,13 +431,10 @@ export class WorkingHoursUpdateProcessorV2 {
     while (startMinutes + duration <= endMinutes) {
       const slotStart = this.minutesToTime(startMinutes);
       const slotEnd = this.minutesToTime(startMinutes + duration);
-      // const today = getSyriaDate();
-      // const slotDate = new Date(today);
-      const slotDate = new Date(date);
 
       slots.push({
         doctorId,
-        date: slotDate,
+        date: new Date(date),
         startTime: slotStart,
         endTime: slotEnd,
         status: SlotStatus.AVAILABLE,
@@ -371,6 +454,8 @@ export class WorkingHoursUpdateProcessorV2 {
   async sendPersonalizedNotifications(
     affectedBookings: Array<{
       bookingId: string;
+      doctorId: string;
+      patientId: string;
       fcmToken: string;
       doctorName: string;
       appointmentDate: Date;
@@ -385,7 +470,6 @@ export class WorkingHoursUpdateProcessorV2 {
     let failureCount = 0;
     const invalidTokens: string[] = [];
 
-    // Process in parallel batches of 10 to avoid overwhelming Firebase
     const PARALLEL_LIMIT = 10;
 
     for (let i = 0; i < affectedBookings.length; i += PARALLEL_LIMIT) {
@@ -393,18 +477,16 @@ export class WorkingHoursUpdateProcessorV2 {
 
       const promises = batch.map(async (booking) => {
         try {
-          const sent =
-            await this.fcmService.sendBookingCancellationNotification(
-              booking.fcmToken,
-              {
-                bookingId: booking.bookingId,
-                doctorName: booking.doctorName,
-                appointmentDate: this.formatDate(booking.appointmentDate),
-                appointmentTime: booking.appointmentTime,
-                reason: 'Doctor updated working hours. Please reschedule.',
-                type: 'DOCTOR_CANCELLED',
-              },
-            );
+          const sent = await this.sendDisplacementNotification({
+            patientId: booking.patientId,
+            fcmToken: booking.fcmToken,
+            bookingId: booking.bookingId,
+            doctorId: booking.doctorId,
+            doctorName: booking.doctorName,
+            appointmentDate: booking.appointmentDate,
+            appointmentTime: booking.appointmentTime,
+            reason: 'Doctor updated working hours. Please reschedule.',
+          });
 
           return { success: sent, token: booking.fcmToken };
         } catch (error) {
@@ -436,19 +518,63 @@ export class WorkingHoursUpdateProcessorV2 {
       `✅ Personalized notifications: ${successCount} success, ${failureCount} failed`,
     );
 
-    // Clean up invalid tokens
     if (invalidTokens.length > 0) {
       this.logger.warn(`Found ${invalidTokens.length} invalid tokens`);
-      // You can call removeInvalidTokens here if needed
     }
   }
 
-  private formatDate(date: Date): string {
-    return new Intl.DateTimeFormat('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    }).format(new Date(date));
+  private async sendDisplacementNotification(data: {
+    patientId: string;
+    fcmToken: string;
+    bookingId: string;
+    doctorId: string;
+    doctorName: string;
+    appointmentDate: Date;
+    appointmentTime: string;
+    reason: string;
+  }): Promise<boolean> {
+    if (!data.fcmToken) {
+      this.logger.warn(
+        `Patient ${data.patientId} has no FCM token. Notification not sent.`,
+      );
+      return false;
+    }
+
+    const event = {
+      eventType: 'BOOKING_CANCELLED_NOTIFICATION',
+      timestamp: new Date(),
+      data: {
+        patientId: data.patientId,
+        doctorId: data.doctorId,
+        doctorName: data.doctorName,
+        fcmToken: data.fcmToken,
+        bookingId: data.bookingId,
+        appointmentDate: formatDate(data.appointmentDate),
+        appointmentTime: data.appointmentTime,
+        reason: data.reason,
+        type: 'DOCTOR_CANCELLED',
+      },
+      metadata: {
+        source: 'notification-service',
+        version: '1.0',
+      },
+    };
+
+    try {
+      await this.kafkaProducer.emit(
+        KAFKA_TOPICS.BOOKING_CANCELLED_NOTIFICATION,
+        event,
+      );
+      this.logger.log(
+        `📱 Notification event published for patient ${data.patientId}`,
+      );
+      return true;
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `Failed to send displacement notification: ${err.message}`,
+      );
+      return false;
+    }
   }
 }

@@ -48,6 +48,11 @@ export class HomeProxyController {
 
       const response = await firstValueFrom(this.httpService.request(config));
 
+      const setCookieHeader = response.headers['set-cookie'];
+      if (setCookieHeader) {
+        res.setHeader('Set-Cookie', setCookieHeader);
+      }
+
       res.status(response.status).json(response.data);
     } catch (error) {
       console.error('Proxy error:', error.message);

@@ -63,15 +63,6 @@
       "compilerOptions": {
         "tsConfigPath": "apps/social-service/tsconfig.app.json"
       }
-    },
-    "socket-server": {
-      "type": "application",
-      "root": "apps/socket-server",
-      "entryFile": "main",
-      "sourceRoot": "apps/socket-server/src",
-      "compilerOptions": {
-        "tsConfigPath": "apps/socket-server/tsconfig.app.json"
-      }
     }
   }
 }

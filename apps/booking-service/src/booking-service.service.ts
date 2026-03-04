@@ -4,6 +4,7 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types, ClientSession } from 'mongoose';
@@ -25,9 +26,8 @@ import {
   SlotStatus,
 } from '@app/common/database/schemas/common.enums';
 import { CreateBookingDto, BookingResponseDto } from './dto/create-booking.dto';
-// import { KafkaService } from '@app/common/kafka/kafka.service';
-// import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
 import { CacheService } from '@app/common/cache/cache.service';
+import { UsersService } from 'apps/home-service/src/users/users.service';
 
 @Injectable()
 export class BookingService {
@@ -40,6 +40,7 @@ export class BookingService {
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     @InjectModel(Doctor.name) private doctorModel: Model<DoctorDocument>,
     private readonly cacheService: CacheService,
+    private readonly patientBookingService: UsersService,
   ) {}
 
   /**
@@ -48,14 +49,31 @@ export class BookingService {
    */
   async createBooking(
     createBookingDto: CreateBookingDto,
+    patientId: string,
   ): Promise<BookingResponseDto> {
     this.logger.log(
-      `Creating booking for patient ${createBookingDto.patientId}, slot ${createBookingDto.slotId}`,
+      `Creating booking for patient ${patientId}, slot ${createBookingDto.slotId}`,
     );
 
     // Validate IDs
     this.validateObjectIds(createBookingDto);
 
+    // Get slot to determine booking date
+    const slot = await this.slotModel.findById(createBookingDto.slotId).exec();
+    if (!slot) {
+      throw new NotFoundException('Slot not found');
+    }
+
+    // ✅ VALIDATE BOOKING RULES
+    const validation = await this.patientBookingService.validateBooking(
+      patientId,
+      createBookingDto.doctorId,
+      slot.date,
+    );
+
+    if (!validation.canBook) {
+      throw new ForbiddenException(validation.reason);
+    }
     // Start a MongoDB session for transaction
     const session = await this.bookingModel.db.startSession();
     session.startTransaction();
@@ -63,14 +81,12 @@ export class BookingService {
     try {
       // Step 1: Validate patient exists
       const patient = await this.userModel
-        .findById(createBookingDto.patientId)
+        .findById(patientId)
         .session(session)
         .exec();
 
       if (!patient) {
-        throw new NotFoundException(
-          `Patient with ID ${createBookingDto.patientId} not found`,
-        );
+        throw new NotFoundException(`Patient with ID ${patientId} not found`);
       }
 
       // Step 2: Validate doctor exists
@@ -94,7 +110,7 @@ export class BookingService {
 
       // Step 4: Validate booking doesn't already exist (double booking prevention)
       await this.validateNoDuplicateBooking(
-        createBookingDto.patientId,
+        patientId,
         createBookingDto.doctorId,
         slot.date,
         slot.startTime,
@@ -105,7 +121,7 @@ export class BookingService {
       const booking = await this.bookingModel.create(
         [
           {
-            patientId: new Types.ObjectId(createBookingDto.patientId),
+            patientId: new Types.ObjectId(patientId),
             doctorId: new Types.ObjectId(createBookingDto.doctorId),
             slotId: new Types.ObjectId(createBookingDto.slotId),
             status: BookingStatus.PENDING,
@@ -132,10 +148,7 @@ export class BookingService {
       // await this.publishBookingCreatedEvent(booking[0], patient, doctor, slot);
 
       // Step 7: Invalidate cache
-      await this.invalidateBookingCaches(
-        createBookingDto.doctorId,
-        createBookingDto.patientId,
-      );
+      await this.invalidateBookingCaches(createBookingDto.doctorId, patientId);
 
       // Step 8: Return response
       return this.mapToResponseDto(booking[0]);
@@ -247,9 +260,6 @@ export class BookingService {
    * Validate ObjectIds
    */
   private validateObjectIds(dto: CreateBookingDto): void {
-    if (!Types.ObjectId.isValid(dto.patientId)) {
-      throw new BadRequestException('Invalid patient ID');
-    }
     if (!Types.ObjectId.isValid(dto.doctorId)) {
       throw new BadRequestException('Invalid doctor ID');
     }
@@ -298,105 +308,5 @@ export class BookingService {
       note: booking.note,
       createdAt: booking.createdAt,
     };
-  }
-
-  /**
-   * Get patient's bookings
-   */
-  async getPatientBookings(
-    patientId: string,
-    status?: BookingStatus,
-  ): Promise<BookingResponseDto[]> {
-    if (!Types.ObjectId.isValid(patientId)) {
-      throw new BadRequestException('Invalid patient ID');
-    }
-
-    const query: any = { patientId: new Types.ObjectId(patientId) };
-
-    if (status) {
-      query.status = status;
-    }
-
-    const bookings = await this.bookingModel
-      .find(query)
-      .sort({ bookingDate: -1, bookingTime: -1 })
-      .populate('slotId')
-      .populate('doctorId', 'firstName middleName lastName')
-      .lean()
-      .exec();
-
-    return bookings.map((booking) => this.mapToResponseDto(booking as any));
-  }
-
-  /**
-   * Cancel a booking
-   */
-  async cancelBooking(
-    bookingId: string,
-    cancelledBy: string,
-    reason: string,
-  ): Promise<BookingResponseDto> {
-    if (!Types.ObjectId.isValid(bookingId)) {
-      throw new BadRequestException('Invalid booking ID');
-    }
-
-    const session = await this.bookingModel.db.startSession();
-    session.startTransaction();
-
-    try {
-      // Find and update booking
-      const booking = await this.bookingModel
-        .findOneAndUpdate(
-          {
-            _id: new Types.ObjectId(bookingId),
-            status: { $in: [BookingStatus.PENDING, BookingStatus.CONFIRMED] },
-          },
-          {
-            $set: {
-              status: BookingStatus.CANCELLED_BY_DOCTOR,
-              cancellation: {
-                cancelledBy,
-                reason,
-                cancelledAt: new Date(),
-              },
-            },
-          },
-          { new: true, session },
-        )
-        .exec();
-
-      if (!booking) {
-        throw new NotFoundException(
-          `Booking with ID ${bookingId} not found or already cancelled`,
-        );
-      }
-
-      // Free up the slot
-      await this.slotModel
-        .findByIdAndUpdate(
-          booking.slotId,
-          { $set: { status: SlotStatus.AVAILABLE } },
-          { session },
-        )
-        .exec();
-
-      await session.commitTransaction();
-
-      this.logger.log(`Booking ${bookingId} cancelled by ${cancelledBy}`);
-
-      // Invalidate caches
-      await this.invalidateBookingCaches(
-        booking.doctorId.toString(),
-        booking.patientId.toString(),
-      );
-
-      return this.mapToResponseDto(booking);
-    } catch (error) {
-      await session.abortTransaction();
-      this.logger.error(`Failed to cancel booking: ${error.message}`);
-      throw error;
-    } finally {
-      await session.endSession();
-    }
   }
 }
