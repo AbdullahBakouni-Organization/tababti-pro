@@ -46,6 +46,9 @@ export class Hospital extends Document {
   })
   bio?: string;
 
+  @Prop({ type: [String], default: [] })
+  gallery: string[];
+
   @Prop({ type: Number }) latitude?: number;
 
   @Prop({ type: Number }) longitude?: number;

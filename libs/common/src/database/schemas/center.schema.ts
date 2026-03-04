@@ -86,6 +86,9 @@ export class Center extends Document {
 
   @Prop({ type: String, maxlength: 4096 })
   deviceTokens?: string[];
+
+  @Prop({ type: [String], default: [] })
+  gallery: string[];
 }
 
 export const CenterSchema = SchemaFactory.createForClass(Center);

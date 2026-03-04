@@ -1,52 +1,70 @@
-// // import {
-// //   WebSocketGateway,
-// //   WebSocketServer,
-// //   OnGatewayInit,
-// //   SubscribeMessage,
-// //   MessageBody,
-// // } from '@nestjs/websockets';
-// // import { Server, Socket } from 'socket.io';
-// // import { Logger } from '@nestjs/common';
-// // import { WhatsappService } from './whatsapp.service';
+import {
+  WebSocketGateway,
+  WebSocketServer,
+  OnGatewayInit,
+  OnGatewayConnection,
+  OnGatewayDisconnect,
+  SubscribeMessage,
+} from '@nestjs/websockets';
+import { Logger } from '@nestjs/common';
+import { Server, Socket } from 'socket.io';
+import { WhatsappService } from './whatsapp.service';
 
-// // @WebSocketGateway({
-// //   cors: {
-// //     origin: '*',
-// //   },
-// // })
-// // export class WhatsappGateway implements OnGatewayInit {
-// //   @WebSocketServer() server: Server;
-// //   private readonly logger = new Logger(WhatsappGateway.name);
-// @WebSocketGateway({ cors: { origin: '*' } })
-// export class WhatsappGateway implements OnGatewayInit {
-//   @WebSocketServer() server: Server;
-//   private readonly logger = new Logger(WhatsappGateway.name);
+@WebSocketGateway({ cors: { origin: '*' } })
+export class WhatsappGateway
+  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
+{
+  @WebSocketServer() server: Server;
+  private readonly logger = new Logger(WhatsappGateway.name);
+  private qrInterval: NodeJS.Timeout | null = null;
 
-// //   constructor(private readonly whatsappService: WhatsappService) {}
+  constructor(private readonly whatsappService: WhatsappService) {}
 
-// //   afterInit() {
-// //     this.logger.log('📡 WhatsApp WebSocket Gateway initialized');
+  // ── Lifecycle ─────────────────────────────────────────────────────────────
 
-// //     setInterval(() => {
-// //       const qr = this.whatsappService.getQrCode();
-// //       if (qr) {
-// //         this.logger.log('🔔 Emitting new WhatsApp QR to connected clients');
-// //         this.server.emit('qr', qr);
-// //       }
-// //     }, 3000);
-// //   }
+  afterInit() {
+    this.logger.log('📡 WhatsApp WebSocket Gateway initialized');
 
-// //   @SubscribeMessage('getQr')
-// //   handleGetQr(client: Socket) {
-// //     const qr = this.whatsappService.getQrCode();
-// //     if (qr) {
-// //       client.emit('qr', qr);
-// //       this.logger.log(`📲 QR sent to client ${client.id}`);
-// //     }
-// //   }
+    // Broadcast QR every 3 s while it exists; stop once the client is ready
+    this.qrInterval = setInterval(() => {
+      const qr = this.whatsappService.getQrCode();
+      if (qr) {
+        this.server.emit('qr', qr);
+      } else if (this.whatsappService.isClientReady()) {
+        this.server.emit('ready', { message: 'WhatsApp client is connected' });
+      }
+    }, 3000);
+  }
 
-// //   @SubscribeMessage('ping')
-// //   handlePing(@MessageBody() data: any, client: Socket) {
-// //     client.emit('pong', data);
-// //   }
-// // }
+  handleConnection(client: Socket) {
+    this.logger.log(`🔌 Client connected: ${client.id}`);
+
+    // Push current QR immediately on connect so new clients don't wait 3 s
+    const qr = this.whatsappService.getQrCode();
+    if (qr) client.emit('qr', qr);
+    else if (this.whatsappService.isClientReady())
+      client.emit('ready', { message: 'WhatsApp client is connected' });
+  }
+
+  handleDisconnect(client: Socket) {
+    this.logger.log(`🔌 Client disconnected: ${client.id}`);
+  }
+
+  // ── Events ────────────────────────────────────────────────────────────────
+
+  @SubscribeMessage('getQr')
+  handleGetQr(client: Socket) {
+    const qr = this.whatsappService.getQrCode();
+    if (qr) {
+      client.emit('qr', qr);
+      this.logger.log(`📲 QR sent to client ${client.id}`);
+    } else {
+      client.emit('ready', { message: 'WhatsApp client is already connected' });
+    }
+  }
+
+  @SubscribeMessage('ping')
+  handlePing(client: Socket) {
+    client.emit('pong', { ts: Date.now() });
+  }
+}

@@ -29,6 +29,8 @@ import { CurrentUser } from '@app/common/decorator/current-user.decorator';
 import { ApiResponse } from '../common/response/api-response';
 import { Types } from 'mongoose';
 import * as fs from 'fs';
+import { UpdatePostStatusDto } from './dto/update-post-status.dto';
+import { ApiOperation } from '@nestjs/swagger';
 
 @Controller('posts')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -199,6 +201,32 @@ export class PostController {
       data: result,
     });
   }
+  // ══════════════════════════════════════════════════════════════
+  // GET /posts/stats
+  //
+  // DOCTOR / HOSPITAL / CENTER → global counts + their own metrics
+  // ADMIN                      → global counts only
+  //
+  // Mirrors GET /questions/stats — same role set, same response shape.
+  // ══════════════════════════════════════════════════════════════
+  @Get('stats')
+  @Roles(UserRole.DOCTOR, UserRole.HOSPITAL, UserRole.CENTER, UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Post statistics — counts, percentages, engagement',
+    description:
+      'Returns global post counts (total / approved / pending / rejected) ' +
+      'with percentages and total likes.\n\n' +
+      'For DOCTOR / HOSPITAL / CENTER roles, also returns `myPostsCount` ' +
+      'and `myLikesReceived` scoped to the requesting author.',
+  })
+  async getStats(
+    @CurrentUser('accountId') accountId: string,
+    @CurrentUser('role') role: UserRole,
+    @Headers('accept-language') lang: 'en' | 'ar' = 'en',
+  ) {
+    const data = await this.postService.getStats(accountId, role);
+    return ApiResponse.success({ lang, messageKey: 'post.STATS', data });
+  }
 
   /* ======================================================
       GET SINGLE POST
@@ -267,5 +295,23 @@ export class PostController {
       messageKey: 'post.LIKE_UPDATED',
       data: result,
     });
+  }
+  /* ======================================================
+    APPROVE OR REJECT POST — Admin only
+    PATCH /posts/:id/status
+====================================================== */
+  @Patch(':id/status')
+  @Roles(UserRole.ADMIN)
+  async updatePostStatus(
+    @Param('id') postId: string,
+    @Body() dto: UpdatePostStatusDto,
+    @CurrentUser() user: { accountId: string; role: UserRole },
+  ) {
+    return this.postService.updatePostStatus(
+      postId,
+      dto.status,
+      user.role,
+      dto.rejectionReason,
+    );
   }
 }

@@ -57,7 +57,7 @@ export class BookingSeeder {
       };
 
       await bookingModel.create({
-        userId: user._id,
+        patientId: user._id,
         doctorId: doctor._id,
         slotId: new Types.ObjectId(),
         status: faker.helpers.arrayElement([

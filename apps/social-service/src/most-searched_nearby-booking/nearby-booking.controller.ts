@@ -6,6 +6,7 @@ import { GetNextBookingDto } from './dto/get-next-booking.dto';
 import { GetTopDoctorsDto } from './dto/get-top-doctors.dto';
 import { GetDoctorPatientsDto } from './dto/get-doctor-patients.dto';
 import { GetMyAppointmentsDto } from './dto/get-my-appointments.dto';
+import { SearchPatientsDto } from './dto/search-patients.dto';
 
 import { JwtAuthGuard } from '@app/common/guards/jwt.guard';
 import { RolesGuard } from '@app/common/guards/role.guard';
@@ -17,22 +18,54 @@ import { ApiResponse } from '../common/response/api-response';
 @ApiTags('Bookings')
 @Controller('bookings')
 export class NearbyBookingController {
-  constructor(private readonly service: NearbyBookingService) {}
+  constructor(private readonly service: NearbyBookingService) { }
 
   // ── GET /bookings/top-doctors ─────────────────────────────────────────────
   // Public — no auth required. Declared first to avoid route conflicts.
   @Get('top-doctors')
   async getTopDoctors(
-    @Query() query: GetTopDoctorsDto,
+    @Query('page') page = '1',
+    @Query('limit') limit = '10',
     @Headers('accept-language') lang: 'en' | 'ar' = 'en',
   ) {
-    const doctors = await this.service.getTopDoctors(Number(query.limit) || 10);
+    const pageNumber = Math.max(1, parseInt(page, 10));
+    const limitNumber = Math.min(Math.max(1, parseInt(limit, 10)), 50);
+    const doctors = await this.service.getTopDoctors(pageNumber, limitNumber);
     return ApiResponse.success({
       lang,
       messageKey: 'doctor.TOP_SEARCHED',
       data: doctors,
     });
   }
+  /*
+  // ── GET /bookings/doctor/search-patients ──────────────────────────────────
+  @Get('doctor/search-patients')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
+  @ApiBearerAuth()
+  async searchDoctorPatients(
+    @CurrentUser('accountId') accountId: string,
+    @Query('search') search: string,
+    @Query('page') page = '1',
+    @Query('limit') limit = '10',
+    @Headers('accept-language') lang: 'en' | 'ar' = 'en',
+  ) {
+    const pageNumber = Math.max(1, parseInt(page, 10));
+    const limitNumber = Math.min(Math.max(1, parseInt(limit, 10)), 50);
+
+    const data = await this.service.searchDoctorPatients(
+      accountId,
+      search,
+      pageNumber,
+      limitNumber,
+    );
+    return ApiResponse.success({
+      lang,
+      messageKey: 'booking.DOCTOR_PATIENTS',
+      data,
+    });
+  }
+  */
 
   // ── GET /bookings/next-user ───────────────────────────────────────────────
   @Get('next-user')
@@ -73,7 +106,7 @@ export class NearbyBookingController {
   }
 
   // ── GET /bookings/all ─────────────────────────────────────────────────────
-  @Get('all')
+  @Get('all-bookings')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.USER)
   @ApiBearerAuth()
@@ -122,6 +155,34 @@ export class NearbyBookingController {
     return ApiResponse.success({
       lang,
       messageKey: 'booking.MY_APPOINTMENTS',
+      data,
+    });
+  }
+
+  // ── GET /bookings/doctor/search-patients ──────────────────────────────────
+  @Get('doctor/search-patients')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
+  @ApiBearerAuth()
+  async searchDoctorPatients(
+    @CurrentUser('accountId') accountId: string,
+    @Query('search') search: string,
+    @Query('page') page = '1',
+    @Query('limit') limit = '10',
+    @Headers('accept-language') lang: 'en' | 'ar' = 'en',
+  ) {
+    const pageNumber = Math.max(1, parseInt(page, 10));
+    const limitNumber = Math.min(Math.max(1, parseInt(limit, 10)), 50);
+
+    const data = await this.service.searchDoctorPatients(
+      accountId,
+      search,
+      pageNumber,
+      limitNumber,
+    );
+    return ApiResponse.success({
+      lang,
+      messageKey: 'booking.DOCTOR_PATIENTS',
       data,
     });
   }

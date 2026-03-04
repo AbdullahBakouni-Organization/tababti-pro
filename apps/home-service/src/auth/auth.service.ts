@@ -8,6 +8,7 @@ import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { Connection, Model } from 'mongoose';
 import { AuthAccount } from '@app/common/database/schemas/auth.schema';
 import { Otp, OtpDocument } from '@app/common/database/schemas/otp.schema';
+import { KafkaService } from '@app/common/kafka/kafka.service';
 import { User } from '@app/common/database/schemas/user.schema';
 import { SmsService } from '../sms/sms.service';
 import { RequestOtpDto, ResendOtpDto, VerifyOtpDto } from './dto/auth.dto';
@@ -18,6 +19,7 @@ import {
 } from '@app/common/database/schemas/common.enums';
 import type { Response } from 'express';
 import { AuthValidateService } from '@app/common/auth-validate';
+import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
 @Injectable()
 export class AuthService {
   constructor(
@@ -26,8 +28,9 @@ export class AuthService {
     @InjectModel(User.name) private userModel: Model<User>,
     @InjectConnection() private readonly connection: Connection,
     private readonly smsService: SmsService,
+    private readonly kafkaProducer: KafkaService,
     private authService: AuthValidateService,
-  ) {}
+  ) { }
 
   //---------------------------------------------------------
   // REQUEST OTP
@@ -39,22 +42,38 @@ export class AuthService {
     try {
       const { phone } = dto;
 
+      console.log(`📨 [requestOtp] Received OTP request for phone: ${phone}`);
+
       let authAccount = await this.authModel
         .findOne({ phones: phone })
         .session(session);
+
       if (!authAccount) {
+        console.log(
+          `🆕 [requestOtp] No auth account found — creating new one for: ${phone}`,
+        );
         const [created] = await this.authModel.create(
           [{ phones: [phone], role: UserRole.USER, isActive: false }],
           { session },
         );
         authAccount = created;
+        console.log(`✅ [requestOtp] Auth account created: ${authAccount._id}`);
+      } else {
+        console.log(
+          `🔍 [requestOtp] Existing auth account found: ${authAccount._id}`,
+        );
       }
 
+      console.log(
+        `🗑️  [requestOtp] Deleting previous OTPs for account: ${authAccount._id}`,
+      );
       await this.otpModel
         .deleteMany({ authAccountId: authAccount._id })
         .session(session);
 
       const otp = this.smsService.generateOTP();
+      console.log(`🔐 [requestOtp] Generated OTP: ${otp} for phone: ${phone}`);
+
       await this.otpModel.create(
         [
           {
@@ -68,32 +87,42 @@ export class AuthService {
         ],
         { session },
       );
+      console.log(`💾 [requestOtp] OTP saved to DB, expires in 10 minutes`);
 
       await session.commitTransaction();
-      await session.endSession();
+      console.log(`✅ [requestOtp] Transaction committed`);
 
-      await this.smsService.sendOTP(phone, otp);
-      // await this.whatsappService.sendOtp(phone, otp); //test whatsapp-web api
-      return {
-        success: true,
-        message: 'OTP sent',
-      };
-      // console.log(
-      //   `📨 [AuthService] Emitting OTP to Kafka topic for phone ${phone}`,
-      // );
-      // this.kafka.emit(KAFKA_TOPICS.WHATSAPP_SEND_OTP, {
-      //   phone,
-      //   otp,
-      //   lang: dto.lang || 'ar',
-      // });
-      // console.log(`✅ [AuthService] Kafka event emitted`);
+      // SMS: direct (synchronous — we want to know it was dispatched)
+      // WhatsApp: via Kafka (async, decoupled — won't fail the OTP flow)
+      console.log(
+        `📡 [requestOtp] Emitting Kafka event: ${KAFKA_TOPICS.WHATSAPP_SEND_OTP}`,
+      );
+
+      await Promise.allSettled([
+        this.smsService.sendOTP(phone, otp),
+        this.kafkaProducer.emit(KAFKA_TOPICS.WHATSAPP_SEND_OTP, {
+          phone,
+          otp,
+          lang: dto.lang ?? 'ar',
+        }),
+      ]);
+
+      console.log(
+        `🎉 [requestOtp] OTP flow completed successfully for: ${phone}`,
+      );
+
+      return { success: true, message: 'OTP sent' };
     } catch (err) {
+      console.error(
+        `❌ [requestOtp] Error for phone ${dto.phone}:`,
+        err.message,
+      );
       await session.abortTransaction();
-      await session.endSession();
       throw err;
+    } finally {
+      await session.endSession();
     }
   }
-
   //---------------------------------------------------------
   // VERIFY OTP (SIGN-IN + AUTO-REGISTER USER)
   //---------------------------------------------------------

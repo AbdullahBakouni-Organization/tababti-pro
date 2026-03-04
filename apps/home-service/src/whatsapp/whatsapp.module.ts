@@ -1,26 +1,14 @@
-// // import { Module } from '@nestjs/common';
-// // import { WhatsappService } from './whatsapp.service';
-// // import { WhatsappController } from './whatsapp.controller';
+import { Module } from '@nestjs/common';
+import { WhatsappService } from './whatsapp.service';
+import { WhatsappController } from './whatsapp.controller';
+import { WhatsappGateway } from './whatsapp.gateway';
+import { WhatsappConsumer } from './whatsapp.consumer';
+import { KafkaModule } from '@app/common/kafka/kafka.module';
 
-// // @Module({
-// //   providers: [WhatsappService],
-// //   controllers: [WhatsappController],
-// //   exports: [WhatsappService],
-// // })
-// // export class WhatsappModule {}
-// import { Module } from '@nestjs/common';
-// import { WhatsappService } from './whatsapp.service';
-// import { WhatsappController } from './whatsapp.controller';
-// import { WhatsappConsumer } from './whatsapp.consumer';
-// import { KafkaModule } from '@app/common/kafka/kafka.module';
-
-// @Module({
-//   imports: [KafkaModule],
-//   providers: [WhatsappService, WhatsappConsumer],
-//   controllers: [WhatsappConsumer, WhatsappController],
-//   exports: [WhatsappService],
-// })
-// export class WhatsappModule {}
-
-// /////////////////////////////
-// /////////////////////
+@Module({
+  imports: [KafkaModule],
+  providers: [WhatsappService, WhatsappGateway],
+  controllers: [WhatsappController, WhatsappConsumer],
+  exports: [WhatsappService],
+})
+export class WhatsappModule {}

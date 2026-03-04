@@ -1,0 +1,157 @@
+# ------------------------------------------------------
+# THIS FILE WAS AUTOMATICALLY GENERATED (DO NOT MODIFY)
+# ------------------------------------------------------
+
+type AppointmentRow {
+  bookingId: String!
+  date: String!
+  gender: String!
+  locationName: String!
+  patientImage: String
+  patientName: String!
+  status: String!
+  time: String!
+}
+
+type AppointmentsTableResult {
+  appointments: [AppointmentRow!]!
+  page: Int!
+  total: Int!
+  totalPages: Int!
+}
+
+type CalendarDay {
+  appointmentCount: Int!
+  date: String!
+  hasAppointments: Boolean!
+}
+
+type CalendarMonth {
+  days: [CalendarDay!]!
+  month: Int!
+  year: Int!
+}
+
+type DashboardStats {
+  completedAppointments: Int!
+  estimatedRevenue: Float!
+  incompleteAppointments: Int!
+  revenueChangePercent: Int!
+  totalAppointments: Int!
+}
+
+"""
+A date-time string at UTC, such as 2019-12-03T09:54:33Z, compliant with the date-time format.
+"""
+scalar DateTime
+
+type DoctorDashboard {
+  appointments: AppointmentsTableResult!
+  calendar: CalendarMonth!
+  doctorId: String!
+  doctorImage: String
+  doctorName: String!
+  genderStats: GenderStats!
+  locationChart: LocationChart!
+  recentPatients: [RecentPatient!]!
+  stats: DashboardStats!
+}
+
+type GenderStats {
+  completionPercent: Float!
+  femaleCount: Int!
+  femalePercent: Float!
+  maleCount: Int!
+  malePercent: Float!
+  totalPatients: Int!
+}
+
+type LocationChart {
+  data: [LocationChartDataPoint!]!
+  totalAppointments: Int!
+  totalCenter: Int!
+  totalClinic: Int!
+  totalHospital: Int!
+}
+
+type LocationChartDataPoint {
+  center: Int!
+  clinic: Int!
+  date: String!
+  hospital: Int!
+  label: String!
+}
+
+type Query {
+  """Calendar heatmap. Pass year and month explicitly."""
+  appointmentCalendar(
+    """1–12"""
+    month: Int!
+
+    """Full year e.g. 2026"""
+    year: Int!
+  ): CalendarMonth!
+
+  """Paginated appointments. Filter by date, status, page, limit."""
+  appointmentsTable(
+    """YYYY-MM-DD — filter by a single day"""
+    date: String
+    limit: Int = 10
+
+    """YYYY-MM-DD — filter all appointments in that month"""
+    monthDate: String
+    page: Int = 1
+    status: String
+  ): AppointmentsTableResult!
+
+  """Stats cards. selectedDate sets the reference month."""
+  dashboardStats(
+    """YYYY-MM-DD — defaults to today"""
+    selectedDate: String
+  ): DashboardStats!
+
+  """
+  Full dashboard. selectedDate (YYYY-MM-DD) sets the reference month for all sections.
+  """
+  doctorDashboard(
+    limit: Int = 10
+    page: Int = 1
+
+    """week | month — controls locationChart range. Default: week"""
+    period: String
+
+    """YYYY-MM-DD — sets reference month for all sections"""
+    selectedDate: String
+  ): DoctorDashboard!
+
+  """
+  Male/female patient counts + completion % for the donut chart. selectedDate sets the reference month.
+  """
+  genderStats(
+    """YYYY-MM-DD — defaults to today"""
+    selectedDate: String
+  ): GenderStats!
+
+  """
+  Appointment counts per day per location type. period: week|month. selectedDate sets the reference point.
+  """
+  locationChart(
+    """week | month — default: week"""
+    period: String
+
+    """YYYY-MM-DD — reference point for the period"""
+    selectedDate: String
+  ): LocationChart!
+
+  """Last 10 patients regardless of month."""
+  recentPatients: [RecentPatient!]!
+}
+
+type RecentPatient {
+  bookingDate: DateTime!
+  image: String
+  locationName: String!
+  name: String!
+  patientId: String!
+  status: String!
+}

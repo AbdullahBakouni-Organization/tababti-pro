@@ -1,227 +1,149 @@
-// // import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-// // import { Client, LocalAuth } from 'whatsapp-web.js';
-// // import * as qrcode from 'qrcode';
-// // import open from 'open';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Client, LocalAuth, Message } from 'whatsapp-web.js';
+import * as qrcode from 'qrcode';
+import * as qrcodeTerminal from 'qrcode-terminal';
+import open from 'open';
 
-// // type Lang = 'en' | 'ar';
+export type Lang = 'en' | 'ar';
 
-// // const messages = {
-// //   en: {
-// //     otpSent: 'OTP sent successfully',
-// //     messageSent: 'Message sent successfully',
-// //     sendFailed: 'Failed to send message, retrying...',
-// //   },
-// //   ar: {
-// //     otpSent: 'تم إرسال رمز التحقق بنجاح',
-// //     messageSent: 'تم إرسال الرسالة بنجاح',
-// //     sendFailed: 'فشل إرسال الرسالة، جارٍ إعادة المحاولة...',
-// //   },
-// // };
+interface PendingMessage {
+  phone: string;
+  text: string;
+  lang: Lang;
+}
 
-// // @Injectable()
-// // export class WhatsappService implements OnModuleInit {
-// //   private client: Client;
-// //   private readonly logger = new Logger(WhatsappService.name);
-// //   private readonly maxRetries = 3;
-// //   private currentQrCode: string | null = null;
-// //   private browserOpened = false;
+@Injectable()
+export class WhatsappService implements OnModuleInit {
+  private client: Client;
+  private readonly logger = new Logger(WhatsappService.name);
 
-// //   onModuleInit() {
-// //     this.client = new Client({
-// //       authStrategy: new LocalAuth({ clientId: 'tababti-whatsapp' }),
-// //       puppeteer: {
-// //         headless: true,
-// //         args: ['--no-sandbox', '--disable-setuid-sandbox'],
-// //       },
-// //     });
+  private currentQrCode: string | null = null;
+  private isReady = false;
+  private pendingMessages: PendingMessage[] = [];
 
-// //     this.client.on('qr', async (qr: string) => {
-// //       this.logger.log('📱 New WhatsApp QR generated');
+  // ── Lifecycle ─────────────────────────────────────────────────────────────
 
-// //       const qrTerminal = await qrcode.toString(qr, { type: 'terminal' });
-// //       console.log(qrTerminal);
+  onModuleInit() {
+    this.client = new Client({
+      authStrategy: new LocalAuth({ clientId: 'tababti-whatsapp' }),
+      puppeteer: {
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      },
+    });
 
-// //       this.currentQrCode = await qrcode.toDataURL(qr);
+    this.client.on('qr', async (qr: string) => {
+      this.logger.log('📱 New WhatsApp QR generated');
+      this.currentQrCode = await qrcode.toDataURL(qr);
 
-// //       if (!this.browserOpened) {
-// //         this.browserOpened = true;
-// //         setTimeout(
-// //           () => open('http://localhost:3001/api/v1/whatsapp/qr'),
-// //           1000,
-// //         );
-// //       }
-// //     });
+      console.clear();
+      console.log('\nScan this QR with WhatsApp:\n');
+      qrcodeTerminal.generate(qr, { small: true });
 
-// //     this.client.on('ready', () => {
-// //       this.logger.log('✅ WhatsApp client ready');
-// //       this.currentQrCode = null;
-// //     });
+      // Open browser once to show the QR page
+      open('http://localhost:3001/api/v1/whatsapp/qr').catch(() => { });
+    });
 
-// //     this.client.on('auth_failure', (msg) => {
-// //       this.logger.error(`❌ WhatsApp auth failed: ${msg}`);
-// //     });
+    this.client.on('ready', async () => {
+      this.isReady = true;
+      this.currentQrCode = null;
+      this.logger.log('✅ WhatsApp client ready');
+      await this.flushPendingMessages();
+    });
 
-// //     this.client.on('disconnected', (reason) => {
-// //       this.logger.warn(`⚠️ WhatsApp disconnected: ${reason}`);
-// //     });
+    this.client.on('auth_failure', (msg) => {
+      this.logger.error(`❌ WhatsApp auth failed: ${msg}`);
+    });
 
-// //     this.client.initialize();
-// //   }
+    this.client.on('disconnected', (reason) => {
+      this.isReady = false;
+      this.logger.warn(`⚠️ WhatsApp disconnected: ${reason}`);
+    });
 
-// //   getQrCode(): string | null {
-// //     return this.currentQrCode;
-// //   }
+    this.client.initialize();
+  }
 
-// //   private async delay(ms: number) {
-// //     return new Promise((resolve) => setTimeout(resolve, ms));
-// //   }
+  // ── Public API ────────────────────────────────────────────────────────────
 
-// //   private async sendMessage(phone: string, text: string, lang: Lang = 'en') {
-// //     const formatted = phone.replace('+', '') + '@c.us';
-// //     let attempt = 0;
+  getQrCode(): string | null {
+    return this.currentQrCode;
+  }
 
-// //     while (attempt < this.maxRetries) {
-// //       try {
-// //         await this.client.sendMessage(formatted, text);
-// //         this.logger.log(
-// //           `[WhatsAppService] ${messages[lang].messageSent} to ${phone}`,
-// //         );
-// //         return true;
-// //       } catch (err) {
-// //         attempt++;
-// //         this.logger.warn(
-// //           `[WhatsAppService] ${messages[lang].sendFailed} (Attempt ${attempt})`,
-// //         );
-// //         if (attempt >= this.maxRetries) {
-// //           this.logger.error(
-// //             `[WhatsAppService] Could not send message to ${phone}`,
-// //             err.stack,
-// //           );
-// //           throw err;
-// //         }
-// //         await this.delay(1000);
-// //       }
-// //     }
-// //   }
+  isClientReady(): boolean {
+    return this.isReady;
+  }
 
-// //   async sendOtp(phone: string, otp: string) {
-// //     const text = `🔐 رمز التحقق الخاص بك هو \n\n*${otp}*\n\n⛔ لا تشاركه مع أي شخص`;
-// //     await this.sendMessage(phone, text);
-// //     return { success: true, message: messages.en.otpSent };
-// //   }
-// // }
-// import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-// import { Client, LocalAuth, Message } from 'whatsapp-web.js';
-// import * as qrcode from 'qrcode';
-// import * as qrcodeTerminal from 'qrcode-terminal';
+  async sendMessage(
+    phone: string,
+    text: string,
+    lang: Lang = 'en',
+  ): Promise<void> {
+    if (!this.isReady) {
+      this.logger.warn(`⚠️ Client not ready — queuing message for ${phone}`);
+      this.pendingMessages.push({ phone, text, lang });
+      return;
+    }
 
-// import open from 'open';
+    const formatted = this.formatPhone(phone);
 
-// type Lang = 'en' | 'ar';
+    try {
+      const msg: Message = await this.client.sendMessage(formatted, text);
+      this.logger.log(`✅ Message sent to ${phone} [${msg.id._serialized}]`);
+    } catch (err) {
+      this.logger.error(
+        `❌ Failed to send message to ${formatted}: ${err.message}`,
+        err.stack,
+      );
+      throw err;
+    }
+  }
 
-// interface PendingMessage {
-//   phone: string;
-//   text: string;
-//   lang: Lang;
-// }
+  async sendOtp(phone: string, otp: string, lang: Lang = 'ar'): Promise<void> {
+    const text =
+      lang === 'ar'
+        ? `🔐 رمز تسجيل الدخول إلى حسابك في طبابتي هو:
 
-// @Injectable()
-// export class WhatsappService implements OnModuleInit {
-//   private client: Client;
-//   private readonly logger = new Logger(WhatsappService.name);
-//   private currentQrCode: string | null = null;
-//   private ready = false;
-//   private pendingMessages: PendingMessage[] = [];
+*${otp}*
 
-//   onModuleInit() {
-//     this.client = new Client({
-//       authStrategy: new LocalAuth({ clientId: 'tababti-whatsapp' }),
-//       puppeteer: {
-//         headless: true,
-//         args: ['--no-sandbox', '--disable-setuid-sandbox'],
-//       },
-//     });
-//     this.client.on('qr', async (qr: string) => {
-//       this.logger.log('📱 New WhatsApp QR generated');
+هذا الرمز صالح لمدة 5 دقائق فقط.
 
-//       this.currentQrCode = await qrcode.toDataURL(qr);
+حرصاً على أمان حسابك، يرجى عدم مشاركة هذا الرمز مع أي شخص.
+إذا لم تقم بطلب تسجيل الدخول، يمكنك تجاهل هذه الرسالة بأمان.`
+        : `🔐 Your login code for your Tababati account is:
 
-//       console.clear();
-//       console.log('\nScan this QR with WhatsApp:\n');
-//       qrcodeTerminal.generate(qr, { small: true  });
+*${otp}*
 
-//       open('http://localhost:3001/api/v1/whatsapp/qr').catch(() => {});
-//     });
+This code is valid for 5 minutes only.
 
-//     this.client.on('ready', async () => {
-//       this.ready = true;
-//       this.logger.log('✅ WhatsApp client ready');
-//       await this.flushPendingMessages();
-//     });
+For your account security, please do not share this code with anyone.
+If you did not request this login, you can safely ignore this message.`;
 
-//     this.client.on('auth_failure', (msg) => {
-//       this.logger.error(`❌ WhatsApp auth failed: ${msg}`);
-//     });
+    await this.sendMessage(phone, text, lang);
+  }
 
-//     this.client.on('disconnected', (reason) => {
-//       this.ready = false;
-//       this.logger.warn(`⚠️ WhatsApp disconnected: ${reason}`);
-//     });
+  // ── Private Helpers ───────────────────────────────────────────────────────
 
-//     this.client.initialize();
-//   }
+  private formatPhone(phone: string): string {
+    // Strip all non-digit characters then append WhatsApp suffix
+    return phone.replace(/\D/g, '') + '@c.us';
+  }
 
-//   getQrCode(): string | null {
-//     return this.currentQrCode;
-//   }
+  private async flushPendingMessages(): Promise<void> {
+    if (!this.pendingMessages.length) return;
 
-//   private formatPhone(phone: string): string {
-//     return phone.replace(/\D/g, '') + '@c.us';
-//   }
+    this.logger.log(
+      `🔔 Flushing ${this.pendingMessages.length} pending messages`,
+    );
 
-//   private async flushPendingMessages() {
-//     this.logger.log(
-//       `🔔 Sending ${this.pendingMessages.length} pending messages...`,
-//     );
-//     while (this.pendingMessages.length > 0) {
-//       const msg = this.pendingMessages.shift();
-//       if (msg) await this.sendMessage(msg.phone, msg.text, msg.lang);
-//     }
-//   }
-
-//   async sendMessage(phone: string, text: string, lang: Lang = 'en') {
-//     this.logger.log(`📲 [sendMessage] Preparing to send message to ${phone}`);
-
-//     if (!this.ready) {
-//       this.logger.warn(
-//         `⚠️ [sendMessage] WhatsApp client not ready. Queuing message for ${phone}`,
-//       );
-//       this.pendingMessages.push({ phone, text, lang });
-//       return;
-//     }
-
-//     const formatted = this.formatPhone(phone);
-//     this.logger.log(`📲 [sendMessage] Formatted phone: ${formatted}`);
-
-//     try {
-//       const msg: Message = await this.client.sendMessage(formatted, text);
-//       this.logger.log(`✅ [sendMessage] Message sent: ${msg.id._serialized}`);
-//     } catch (err) {
-//       this.logger.error(
-//         `❌ [sendMessage] Failed to send message to ${formatted}: ${err.message}`,
-//         err.stack,
-//       );
-//     }
-//   }
-
-//   async sendOtp(phone: string, otp: string, lang: Lang = 'en') {
-//     this.logger.log(
-//       `🔑 [sendOtp] Sending OTP ${otp} to ${phone} (lang: ${lang})`,
-//     );
-//     const text =
-//       lang === 'ar'
-//         ? `🔐 رمز التحقق:\n\n*${otp}*\n\n⛔ لا تشاركه مع أحد`
-//         : `🔐 Your OTP:\n\n*${otp}*\n\n⛔ Do not share it`;
-//     await this.sendMessage(phone, text, lang);
-//   }
-// }
+    while (this.pendingMessages.length > 0) {
+      const msg = this.pendingMessages.shift();
+      if (msg) {
+        try {
+          await this.sendMessage(msg.phone, msg.text, msg.lang);
+        } catch {
+          // Already logged inside sendMessage — continue flushing
+        }
+      }
+    }
+  }
+}

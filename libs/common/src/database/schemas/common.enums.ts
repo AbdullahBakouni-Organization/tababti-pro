@@ -417,6 +417,7 @@ export enum NotificationTypes {
 }
 export enum ApprovalStatus {
   PENDING = 'pending',
+  DRAFT = 'draft',
   APPROVED = 'approved',
   REJECTED = 'rejected',
   SUSPENDED = 'suspended',
@@ -438,6 +439,7 @@ export enum WorkigEntity {
   CLINIC = 'clinic',
   HOSPITAL = 'hospital',
   CENTER = 'center',
+  PHARMACY = 'pharmacy',
   OTHER = 'other',
 }
 
@@ -747,6 +749,8 @@ export enum QuestionStatus {
   PENDING = 'pending',
   ANSWERED = 'answered',
   DELETED = 'deleted',
+  REJECTED = 'rejected',
+  APPROVED = 'approved',
 }
 
 export enum AnswerStatus {

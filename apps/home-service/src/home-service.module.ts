@@ -4,7 +4,7 @@ import { HomeServiceController } from './home-service.controller';
 import { HomeServiceService } from './home-service.service';
 import { DatabaseModule } from '@app/common/database/database.module';
 import { KafkaModule } from '@app/common/kafka/kafka.module';
-// import { AuthModule } from './auth/auth.module';
+import { WhatsappModule } from './whatsapp/whatsapp.module';
 import { SmsModule } from './sms/sms.module';
 import { DoctorModule } from './doctor/doctor.module';
 import { AdminModule } from './admin/admin.module';
@@ -52,7 +52,7 @@ import { UsersModule } from './users/users.module';
     }),
     DatabaseModule,
     SmsModule,
-    // WhatsappModule,//Test Whatsapp api
+    WhatsappModule,
     WorkingHoursModule,
     DoctorModule,
     AdminModule,
