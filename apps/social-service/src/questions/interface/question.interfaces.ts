@@ -1,96 +1,7 @@
-// import { Types } from 'mongoose';
-// import { QuestionStatus } from '@app/common/database/schemas/common.enums';
-
-// export interface MappedAnswer {
-//     _id: Types.ObjectId;
-//     content: string;
-//     responderName: string;
-//     responderImage: string | null;
-//     answeredAgo: string | null;
-//     createdAt: Date;
-//     isMyAnswer: boolean;
-// }
-
-// export interface MappedQuestion {
-//     _id: Types.ObjectId;
-//     content: string;
-//     status: QuestionStatus;
-//     specializations: any[];
-//     answersCount: number;
-//     answers: MappedAnswer[];
-//     createdAt: Date;
-//     updatedAt: Date;
-//     asker?: { name: string; image: string | null };
-// }
-
-// export interface QuestionPageResult {
-//     questions: MappedQuestion[];
-//     total: number;
-//     page: number;
-//     limit: number;
-//     totalPages: number;
-// }
-
-// question.interfaces.ts
 import { Types } from 'mongoose';
+import { QuestionStatus } from '@app/common/database/schemas/common.enums';
 
-// ═══════════════════════════════════════════════════════════════════════════
-// STATISTICS INTERFACES
-// ═══════════════════════════════════════════════════════════════════════════
-
-export interface QuestionStatistics {
-  total: number;
-  answered: number;
-  pending: number;
-  approved: number;
-  rejected: number;
-  draft: number;
-  withText: number;
-  withImages: number;
-  withBoth: number;
-  answerRate: string;
-  approvalRate: string;
-}
-
-export interface DoctorStatistics {
-  total: number;
-  answered: number;
-  pending: number;
-  myAnswers: number;
-  answerRate: string;
-  bySpecialization: Record<string, { answered: number; pending: number }>;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// MEDIA INTERFACES
-// ═══════════════════════════════════════════════════════════════════════════
-
-export interface ImageMetadata {
-  url: string;
-  type: string;
-  size?: number;
-  uploadedAt?: Date;
-}
-
-export interface QuestionWithMedia {
-  _id: Types.ObjectId;
-  userId: Types.ObjectId;
-  content: string;
-  images: ImageMetadata[];
-  mediaType: 'text' | 'images' | 'both';
-  imageCount: number;
-  status: string;
-  approvalStatus: string;
-  hasText: boolean;
-  hasImages: boolean;
-  specializationId: Types.ObjectId;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// MAPPED RESPONSE INTERFACES
-// ═══════════════════════════════════════════════════════════════════════════
+// ── Answer / Question shapes ──────────────────────────────────────────────────
 
 export interface MappedAnswer {
   _id: Types.ObjectId;
@@ -105,25 +16,14 @@ export interface MappedAnswer {
 export interface MappedQuestion {
   _id: Types.ObjectId;
   content: string;
-  images?: string[];
-  status: string;
-  approvalStatus?: string;
-  hasText?: boolean;
-  hasImages?: boolean;
+  status: QuestionStatus;
   specializations: any[];
   answersCount: number;
   answers: MappedAnswer[];
   createdAt: Date;
   updatedAt: Date;
-  asker?: {
-    name: string;
-    image: string | null;
-  };
+  asker?: { name: string; image: string | null };
 }
-
-// ═══════════════════════════════════════════════════════════════════════════
-// PAGINATION INTERFACES
-// ═══════════════════════════════════════════════════════════════════════════
 
 export interface QuestionPageResult {
   questions: MappedQuestion[];
@@ -133,30 +33,47 @@ export interface QuestionPageResult {
   totalPages: number;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// DTO INTERFACES
-// ═══════════════════════════════════════════════════════════════════════════
+// ── Moderation result ─────────────────────────────────────────────────────────
 
-export interface CreateQuestionDto {
-  content: string;
-  specializationId: string;
-  images?: Express.Multer.File[];
+export interface ModerationResult {
+  questionId: Types.ObjectId;
+  /** New status after the moderation action */
+  status: QuestionStatus.APPROVED | QuestionStatus.REJECTED;
+  /** Rejection reason (only present when rejected) */
+  reason?: string;
+  moderatedAt: Date;
 }
 
-export interface FilterQuestionDto {
-  filter?: 'allQuestions' | 'answered' | 'pending' | 'public';
-  publicSpecializationId?: string;
-  privateSpecializationIds?: string[];
+// ── Statistics ────────────────────────────────────────────────────────────────
+
+export interface SpecializationStat {
+  specializationId: Types.ObjectId;
+  name: string;
+  total: number;
+  approved: number;
+  answered: number;
+  pending: number;
+  rejected: number;
+  answeredPercent: number;
+  pendingPercent: number;
+  approvedPercent: number;
+  rejectedPercent: number;
 }
 
-export interface AnswerQuestionDto {
-  content: string;
-}
+export interface QuestionStats {
+  total: number;
+  approved: number;
+  answered: number;
+  pending: number;
+  rejected: number;
+  deleted: number;
+  acceptedByMe: number;
 
-export interface ApproveQuestionDto {
-  questionId: string;
-}
+  approvedPercent: number;
+  answeredPercent: number;
+  pendingPercent: number;
+  rejectedPercent: number;
+  acceptedByMePercent: number;
 
-export interface RejectQuestionDto {
-  rejectionReason: string;
+  bySpecialization: SpecializationStat[];
 }
