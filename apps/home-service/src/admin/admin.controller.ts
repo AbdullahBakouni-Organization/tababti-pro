@@ -13,6 +13,7 @@ import {
   Req,
   Patch,
   UnauthorizedException,
+  BadRequestException,
 } from '@nestjs/common';
 import { AdminService } from './admin.service';
 
@@ -25,8 +26,10 @@ import type { Request } from 'express';
 import { JwtAuthGuard } from '@app/common/guards/jwt.guard';
 import { RolesGuard } from '@app/common/guards/role.guard';
 import { Roles } from '@app/common/decorator/role.decorator';
-import { UserRole } from '@app/common/database/schemas/common.enums';
-import { JwtRefreshAdminStrategy } from '@app/common/strategies/jwt.strategie';
+import {
+  PostStatus,
+  UserRole,
+} from '@app/common/database/schemas/common.enums';
 import { JwtAdminRefreshGuard } from '@app/common/guards/jwt-admin-refresh.guard';
 
 @Controller('admin')
@@ -34,7 +37,7 @@ export class AdminController {
   constructor(
     private readonly adminService: AdminService,
     private authService: AuthValidateService,
-  ) { }
+  ) {}
 
   // Admin Sign In
   @Post('signin')
