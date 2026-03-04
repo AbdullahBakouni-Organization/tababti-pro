@@ -143,7 +143,7 @@ export class UsersController {
     description: 'Cancellations count',
   })
   async getCancellationsToday(@Req() req: any) {
-    const patientId = new ParseMongoIdPipe(cancellations - today).transform(
+    const patientId = new ParseMongoIdPipe().transform(
       req.user.entity._id.toString(),
     );
     return this.patientBookingService.getCancellationsToday(patientId);

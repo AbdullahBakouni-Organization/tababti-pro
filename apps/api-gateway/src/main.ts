@@ -4,11 +4,12 @@ import { ValidationPipe } from '@nestjs/common';
 import { join } from 'path';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
-
+import cookieParser from 'cookie-parser';
 async function bootstrap() {
   const app =
     await NestFactory.create<NestExpressApplication>(ApiGatewayModule);
 
+  app.use(cookieParser());
   // ================= Global Validation =================
   app.useGlobalPipes(
     new ValidationPipe({

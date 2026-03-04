@@ -17,6 +17,7 @@ import {
   UploadedFiles,
   Query,
   Patch,
+  UnauthorizedException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -268,7 +269,6 @@ export class DoctorController {
   ): Promise<{
     accessToken: string;
     doctor: any;
-    Work;
     refreshToken?: string;
     session: any;
   }> {
@@ -292,8 +292,6 @@ export class DoctorController {
       UserRole.DOCTOR,
       sessionInfo,
     );
-    console.log(tokens.accessToken);
-    console.log(tokens.refreshToken);
     res.cookie('token', tokens.refreshToken, {
       httpOnly: true,
       secure: false,
@@ -411,13 +409,19 @@ export class DoctorController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Refresh access token' })
   async refreshToken(
-    @Body('refreshToken') refreshToken: string,
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<{
     success: boolean;
     accessToken: string;
     refreshToken?: string;
   }> {
+    const refreshToken = req.cookies['token']; // ← هنا المشكلة كانت
+
+    if (!refreshToken) {
+      throw new UnauthorizedException('No refresh token found');
+    }
+
     const tokens = await this.authService.refreshAccessToken(refreshToken);
     res.cookie('token', tokens.refreshToken, {
       httpOnly: true,
