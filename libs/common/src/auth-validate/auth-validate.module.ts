@@ -4,6 +4,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthValidateService } from './auth-validate.service';
 import { DatabaseModule } from '../database/database.module';
 import {
+  JwtRefreshAdminStrategy,
   JwtRefreshStrategy,
   JwtStrategy,
   JwtUserRefreshStrategy,
@@ -29,6 +30,7 @@ import {
     JwtStrategy,
     JwtUserStrategy,
     JwtUserRefreshStrategy,
+    JwtRefreshAdminStrategy,
   ],
   exports: [
     AuthValidateService,
@@ -36,6 +38,7 @@ import {
     JwtStrategy,
     JwtUserStrategy,
     JwtUserRefreshStrategy,
+    JwtRefreshAdminStrategy,
   ],
 })
 export class AuthValidateModule {}

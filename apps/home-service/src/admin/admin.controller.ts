@@ -12,7 +12,7 @@ import {
   HttpStatus,
   Req,
   Patch,
-  BadRequestException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { AdminService } from './admin.service';
 
@@ -25,8 +25,9 @@ import type { Request } from 'express';
 import { JwtAuthGuard } from '@app/common/guards/jwt.guard';
 import { RolesGuard } from '@app/common/guards/role.guard';
 import { Roles } from '@app/common/decorator/role.decorator';
-import { PostStatus, UserRole } from '@app/common/database/schemas/common.enums';
-import { JwtRefreshGuard } from '@app/common/guards/jwt-refresh.guard';
+import { UserRole } from '@app/common/database/schemas/common.enums';
+import { JwtRefreshAdminStrategy } from '@app/common/strategies/jwt.strategie';
+import { JwtAdminRefreshGuard } from '@app/common/guards/jwt-admin-refresh.guard';
 
 @Controller('admin')
 export class AdminController {
@@ -77,11 +78,11 @@ export class AdminController {
       UserRole.ADMIN,
       sessionInfo,
     );
-    res.cookie('token', tokens.refreshToken, {
+    res.cookie('admin_token', tokens.refreshToken, {
       httpOnly: true,
       secure: false,
       sameSite: 'lax',
-      maxAge: 24 * 60 * 60 * 1000 * 30, // 30 days
+      maxAge: 24 * 60 * 60 * 1000 * 30,
       path: '/',
     });
     return {
@@ -100,20 +101,24 @@ export class AdminController {
   }
 
   @Post('refresh')
-  @UseGuards(JwtRefreshGuard, RolesGuard)
+  @UseGuards(JwtAdminRefreshGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Refresh access token' })
   async refreshToken(
-    @Body('refreshToken') refreshToken: string,
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<{
     success: boolean;
     accessToken: string;
     refreshToken?: string;
   }> {
+    const refreshToken = req.cookies['admin_token'];
+    if (!refreshToken) {
+      throw new UnauthorizedException('No refresh token found');
+    }
     const tokens = await this.authService.refreshAccessToken(refreshToken);
-    res.cookie('token', tokens.refreshToken, {
+    res.cookie('admin_token', tokens.refreshToken, {
       httpOnly: true,
       secure: false,
       sameSite: 'lax',

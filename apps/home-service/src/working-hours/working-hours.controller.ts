@@ -3,19 +3,12 @@ import {
   Post,
   Get,
   Body,
-  Param,
   HttpStatus,
   UseGuards,
   HttpCode,
+  Req,
 } from '@nestjs/common';
-import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
-  ApiParam,
-  ApiBearerAuth,
-  ApiBody,
-} from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { WorkingHoursService } from './working-hours.service';
 import {
   AddWorkingHoursDto,
@@ -25,17 +18,20 @@ import {
   ConflictCheckResponseDto,
   UpdateWorkingHoursDto,
 } from './dto/update-working-hours.dto';
-
-// import { JwtAuthGuard } from '../guards/jwt-auth.guard'; // Uncomment if you have auth
+import { JwtAuthGuard } from '@app/common/guards/jwt.guard';
+import { RolesGuard } from '@app/common/guards/role.guard';
+import { UserRole } from '@app/common/database/schemas/common.enums';
+import { Roles } from '@app/common/decorator/role.decorator';
+import { ParseMongoIdPipe } from '@app/common/pipes/parse-mongo-id.pipe';
 
 @ApiTags('Doctor Working Hours')
 @Controller('doctors-working-hours')
-// @UseGuards(JwtAuthGuard) // Uncomment when auth is ready
-// @ApiBearerAuth() // Uncomment when auth is ready
 export class WorkingHoursController {
   constructor(private readonly workingHoursService: WorkingHoursService) {}
 
-  @Post(':doctorId/working-hours')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
+  @Post('add-working-hours')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary: 'Add working hours to a doctor',
@@ -43,11 +39,6 @@ export class WorkingHoursController {
       'Add working hours and inspection duration to a doctor. If this is the first time adding working hours, ' +
       'it will automatically trigger slot generation in the booking service via Kafka events. ' +
       'The slots will be created based on the working hours and inspection duration provided.',
-  })
-  @ApiParam({
-    name: 'doctorId',
-    description: 'MongoDB ObjectId of the doctor',
-    example: '507f1f77bcf86cd799439011',
   })
   @ApiBody({
     type: AddWorkingHoursDto,
@@ -157,27 +148,27 @@ export class WorkingHoursController {
     description: 'Unauthorized - Invalid or missing token',
   })
   async addWorkingHours(
-    @Param('doctorId') doctorId: string,
     @Body() addWorkingHoursDto: AddWorkingHoursDto,
+    @Req() req: any,
   ): Promise<WorkingHoursResponseDto> {
+    const doctorId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
     return this.workingHoursService.addWorkingHours(
       doctorId,
       addWorkingHoursDto,
     );
   }
 
-  @Get(':doctorId/working-hours')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
+  @Get('working-hours')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: "Get doctor's working hours",
     description:
       'Retrieve the working hours and inspection details for a specific doctor. ' +
       'This endpoint returns cached data when available for better performance.',
-  })
-  @ApiParam({
-    name: 'doctorId',
-    description: 'MongoDB ObjectId of the doctor',
-    example: '507f1f77bcf86cd799439011',
   })
   @ApiResponse({
     status: HttpStatus.OK,
@@ -224,11 +215,16 @@ export class WorkingHoursController {
       },
     },
   })
-  async getWorkingHours(@Param('doctorId') doctorId: string) {
+  async getWorkingHours(@Req() req: any) {
+    const doctorId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
     return this.workingHoursService.getWorkingHours(doctorId);
   }
 
-  @Post(':doctorId/check-conflicts')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
+  @Post('check-conflicts')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Check for conflicts before updating working hours (Dry Run)',
@@ -241,16 +237,21 @@ export class WorkingHoursController {
     type: ConflictCheckResponseDto,
   })
   async checkConflicts(
-    @Param('doctorId') doctorId: string,
     @Body() updateDto: UpdateWorkingHoursDto,
+    @Req() req: any,
   ): Promise<ConflictCheckResponseDto> {
+    const doctorId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
     return this.workingHoursService.checkWorkingHoursConflicts(
       doctorId,
       updateDto,
     );
   }
 
-  @Post(':doctorId/update-working-hours')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
+  @Post('update-working-hours')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Update working hours (Confirmed)',
@@ -266,9 +267,12 @@ export class WorkingHoursController {
     description: 'Conflicts exist but not confirmed',
   })
   async updateWorkingHours(
-    @Param('doctorId') doctorId: string,
     @Body() updateDto: UpdateWorkingHoursDto,
+    @Req() req: any,
   ) {
+    const doctorId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
     return this.workingHoursService.updateWorkingHours(doctorId, updateDto);
   }
 }

@@ -10,14 +10,6 @@ import { UserRole } from '@app/common/database/schemas/common.enums';
 
 export class CreateBookingDto {
   @ApiProperty({
-    description: 'Patient User ID',
-    example: '507f1f77bcf86cd799439011',
-  })
-  @IsNotEmpty()
-  @IsMongoId()
-  patientId: string;
-
-  @ApiProperty({
     description: 'Doctor ID',
     example: '507f1f77bcf86cd799439012',
   })

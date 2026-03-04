@@ -16,4 +16,3 @@ export type PublicSpecializationDocument = PublicSpecialization & Document;
 
 export const PublicSpecializationSchema =
   SchemaFactory.createForClass(PublicSpecialization);
-PublicSpecializationSchema.index({ name: 1 }, { unique: true });

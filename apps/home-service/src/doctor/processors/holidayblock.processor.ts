@@ -19,10 +19,13 @@ import {
 } from '@app/common/database/schemas/common.enums';
 import { KafkaService } from '@app/common/kafka/kafka.service';
 import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
-import { FcmService } from '../../fcm/fcm.service';
 import { HolidayBlockJobData } from '../dto/vibbooking.dto';
+import { formatDate } from '@app/common/utils/get-syria-date';
 
-interface PopulatedBookingDocument extends Omit<BookingDocument, 'patientId'> {
+export interface PopulatedBookingDocument extends Omit<
+  BookingDocument,
+  'patientId'
+> {
   patientId: User;
 }
 
@@ -36,7 +39,6 @@ export class HolidayBlockProcessor {
     @InjectModel(AppointmentSlot.name)
     private slotModel: Model<AppointmentSlotDocument>,
     private readonly kafkaService: KafkaService,
-    private readonly fcmService: FcmService,
   ) {
     this.logger.log(`[Holiday Block Job] Processing for doctor`);
   }
@@ -50,8 +52,6 @@ export class HolidayBlockProcessor {
     const {
       doctorId,
       doctorName,
-      startDate,
-      endDate,
       reason,
       affectedBookingIds,
       affectedSlotIds,
@@ -59,7 +59,6 @@ export class HolidayBlockProcessor {
 
     const session = await this.bookingModel.db.startSession();
     session.startTransaction();
-    console.log(startDate, endDate);
     try {
       // Step 1: Get all affected bookings with patient details
       const bookings = (await this.bookingModel
@@ -76,7 +75,7 @@ export class HolidayBlockProcessor {
             status: BookingStatus.CANCELLED_BY_DOCTOR,
             cancellation: {
               cancelledBy: UserRole.DOCTOR,
-              reason: `Doctor holiday: ${reason}`,
+              reason: `${reason}`,
               cancelledAt: new Date(),
             },
           },
@@ -111,7 +110,12 @@ export class HolidayBlockProcessor {
       this.logger.log(`[Holiday Block Job] ✅ Transaction committed`);
 
       // Step 4: Send PERSONALIZED FCM notifications
-      await this.sendPersonalizedNotifications(bookings, doctorName, reason);
+      await this.sendPersonalizedNotifications(
+        bookings,
+        doctorName,
+        doctorId,
+        reason,
+      );
 
       // Step 5: Publish Kafka event to refresh slots
       this.publishSlotsRefreshedEvent(doctorId, affectedSlotIds);
@@ -138,6 +142,7 @@ export class HolidayBlockProcessor {
   private async sendPersonalizedNotifications(
     bookings: PopulatedBookingDocument[],
     doctorName: string,
+    doctorId: string,
     reason: string,
   ): Promise<void> {
     this.logger.log(
@@ -165,18 +170,29 @@ export class HolidayBlockProcessor {
         }
 
         try {
-          const sent =
-            await this.fcmService.sendBookingCancellationNotification(
-              patient.fcmToken,
-              {
-                bookingId: booking._id!.toString(), // _id is guaranteed to exist after population
-                doctorName,
-                appointmentDate: this.formatDate(booking.bookingDate),
-                appointmentTime: booking.bookingTime,
-                reason: `Doctor on holiday: ${reason}`,
-                type: 'DOCTOR_CANCELLED',
-              },
-            );
+          // const sent =
+          //   await this.fcmService.sendBookingCancellationNotification(
+          //     patient.fcmToken,
+          //     {
+          //       bookingId: booking._id!.toString(), // _id is guaranteed to exist after population
+          //       doctorName,
+          //       appointmentDate: this.formatDate(booking.bookingDate),
+          //       appointmentTime: booking.bookingTime,
+          //       reason: `Doctor on holiday: ${reason}`,
+          //       type: 'DOCTOR_CANCELLED',
+          //     },
+          //   );
+          //
+          const sent = await this.sendDisplacementNotification({
+            patientId: patient._id.toString(),
+            fcmToken: patient.fcmToken,
+            bookingId: booking._id!.toString(),
+            doctorId,
+            doctorName,
+            appointmentDate: booking.bookingDate,
+            appointmentTime: booking.bookingTime,
+            reason,
+          });
 
           return { success: sent, token: patient.fcmToken }; // Ensure token is always returned
         } catch (error) {
@@ -254,15 +270,58 @@ export class HolidayBlockProcessor {
     }
   }
 
-  /**
-   * Format date for display
-   */
-  private formatDate(date: Date): string {
-    return new Intl.DateTimeFormat('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    }).format(new Date(date));
+  private async sendDisplacementNotification(data: {
+    patientId: string;
+    fcmToken: string;
+    bookingId: string;
+    doctorId: string;
+    doctorName: string;
+    appointmentDate: Date;
+    appointmentTime: string;
+    reason: string;
+  }): Promise<boolean> {
+    if (!data.fcmToken) {
+      this.logger.warn(
+        `Patient ${data.patientId} has no FCM token. Notification not sent.`,
+      );
+      return false;
+    }
+
+    const event = {
+      eventType: 'BOOKING_CANCELLED_NOTIFICATION',
+      timestamp: new Date(),
+      data: {
+        patientId: data.patientId,
+        doctorId: data.doctorId,
+        doctorName: data.doctorName,
+        fcmToken: data.fcmToken,
+        bookingId: data.bookingId,
+        appointmentDate: formatDate(data.appointmentDate),
+        appointmentTime: data.appointmentTime,
+        reason: data.reason,
+        type: 'DOCTOR_CANCELLED',
+      },
+      metadata: {
+        source: 'notification-service',
+        version: '1.0',
+      },
+    };
+
+    try {
+      await this.kafkaService.emit(
+        KAFKA_TOPICS.BOOKING_CANCELLED_NOTIFICATION,
+        event,
+      );
+      this.logger.log(
+        `📱 Notification event published for patient ${data.patientId}`,
+      );
+      return true;
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `Failed to send displacement notification: ${err.message}`,
+      );
+      return false;
+    }
   }
 }

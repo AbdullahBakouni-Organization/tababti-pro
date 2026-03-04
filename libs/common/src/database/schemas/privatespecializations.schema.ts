@@ -18,4 +18,3 @@ export class PrivateSpecialization extends Document {
 export const PrivateSpecializationSchema = SchemaFactory.createForClass(
   PrivateSpecialization,
 );
-PrivateSpecializationSchema.index({ name: 1 }, { unique: true });

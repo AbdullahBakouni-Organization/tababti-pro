@@ -8,11 +8,18 @@ import { SlotModule } from './slot/slot.module';
 import { CacheModule } from '@app/common/cache/cache.module';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { BullModule } from '@nestjs/bull';
+import { UsersService } from 'apps/home-service/src/users/users.service';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
 
 @Module({
   imports: [
-    // ⚠️ CRITICAL FIX: You need BOTH producer AND consumer
-    // Producer for sending events (if needed)
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60,
+        limit: 5,
+      },
+    ]),
     ConfigModule.forRoot({
       isGlobal: true,
     }),
@@ -54,6 +61,13 @@ import { BullModule } from '@nestjs/bull';
     SlotModule,
   ],
   controllers: [BookingController],
-  providers: [BookingService],
+  providers: [
+    BookingService,
+    UsersService,
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
+  ],
 })
 export class BookingServiceModule {}

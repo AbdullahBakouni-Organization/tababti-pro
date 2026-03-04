@@ -241,6 +241,9 @@ export class Doctor extends Document {
 
   @Prop({ required: true, type: String })
   privateSpecialization: string; // PrivateSpecialization enum
+
+  @Prop({ type: String, maxlength: 4096 })
+  fcmToken?: string;
 }
 export const DoctorSchema = SchemaFactory.createForClass(Doctor);
 

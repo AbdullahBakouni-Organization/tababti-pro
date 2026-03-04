@@ -9,6 +9,7 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 import { AuthValidateService, JwtPayload } from '../auth-validate';
 import { refreshTokenFromCookie } from './refresh-token-extracter';
 import type { Request } from 'express';
+import { refreshAdminTokenFromCookie } from './refresh-toekn-admin-extracter';
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   constructor(private readonly authValidateService: AuthValidateService) {
@@ -98,7 +99,47 @@ export class JwtRefreshStrategy extends PassportStrategy(
     if (!refreshToken) {
       throw new UnauthorizedException('Refresh token not found in cookies');
     }
+    // 1️⃣ Validate account
+    const account = await this.authValidateService.getAccount(payload.sub);
+    if (!account || !account.isActive) {
+      throw new UnauthorizedException('Account not found or inactive');
+    }
 
+    // 2️⃣ Token version check (revocation support)
+    if (payload.tv !== account.tokenVersion) {
+      throw new UnauthorizedException('Refresh token revoked');
+    }
+
+    return {
+      accountId: payload.sub,
+      role: payload.role,
+      sessionId: payload.sessionId,
+      refreshToken, // optional but useful
+    };
+  }
+}
+
+@Injectable()
+export class JwtRefreshAdminStrategy extends PassportStrategy(
+  Strategy,
+  'jwt-refresh-admin',
+) {
+  constructor(private readonly authValidateService: AuthValidateService) {
+    super({
+      jwtFromRequest: ExtractJwt.fromExtractors([
+        refreshAdminTokenFromCookie, // 👈 cookie extractor
+      ]),
+      ignoreExpiration: false,
+      secretOrKey: process.env.JWT_REFRESH_SECRET || 'supersecret',
+      passReqToCallback: true,
+    });
+  }
+
+  async validate(req: Request, payload: JwtPayload) {
+    const refreshToken = refreshAdminTokenFromCookie(req);
+    if (!refreshToken) {
+      throw new UnauthorizedException('Refresh token not found in cookies');
+    }
     // 1️⃣ Validate account
     const account = await this.authValidateService.getAccount(payload.sub);
     if (!account || !account.isActive) {
@@ -178,6 +219,7 @@ export class JwtUserStrategy extends PassportStrategy(Strategy, 'jwt-user') {
       role: payload.role,
       sessionId: payload.sessionId,
       deviceId: payload.deviceId,
+      entity: user.entity,
     };
   }
 }

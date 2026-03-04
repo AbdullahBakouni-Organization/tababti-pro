@@ -22,3 +22,12 @@ export function getSyriaDate(): Date {
   // Parse as UTC midnight → "2026-02-18T00:00:00.000Z"
   return new Date(syriaDateStr + 'T00:00:00.000Z');
 }
+
+export function formatDate(date: Date): string {
+  return new Intl.DateTimeFormat('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  }).format(new Date(date));
+}

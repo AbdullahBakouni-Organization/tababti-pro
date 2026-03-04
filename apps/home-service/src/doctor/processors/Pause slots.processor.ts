@@ -19,7 +19,8 @@ import {
 import { KafkaService } from '@app/common/kafka/kafka.service';
 import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
 import { PauseSlotsJobData } from '../dto/slot-management.dto';
-import { FcmService } from '../../fcm/fcm.service';
+import { formatDate } from '@app/common/utils/get-syria-date';
+import { PopulatedBookingDocument } from './holidayblock.processor';
 
 @Processor('pause-slots')
 export class PauseSlotsProcessor {
@@ -31,8 +32,9 @@ export class PauseSlotsProcessor {
     @InjectModel(AppointmentSlot.name)
     private slotModel: Model<AppointmentSlotDocument>,
     private readonly kafkaService: KafkaService,
-    private readonly fcmService: FcmService,
-  ) {}
+  ) {
+    this.logger.log(`[ Pause Slots Job] Processing for doctor`);
+  }
 
   /**
    * Pause slots and cancel affected bookings
@@ -73,6 +75,7 @@ export class PauseSlotsProcessor {
       if (cancelledBookings.length > 0) {
         await this.sendFCMNotifications(
           cancelledBookings,
+          doctorId,
           doctorInfo.fullName,
           reason,
         );
@@ -115,7 +118,7 @@ export class PauseSlotsProcessor {
           status: BookingStatus.CANCELLED_BY_DOCTOR,
           cancellation: {
             cancelledBy: UserRole.DOCTOR,
-            reason: `Doctor paused slot: ${reason}`,
+            reason: `${reason}`,
             cancelledAt: new Date(),
           },
         },
@@ -152,7 +155,8 @@ export class PauseSlotsProcessor {
    * Send FCM notifications to all affected patients
    */
   private async sendFCMNotifications(
-    cancelledBookings: any[],
+    cancelledBookings: PopulatedBookingDocument[],
+    doctorId: string,
     doctorName: string,
     reason: string,
   ): Promise<void> {
@@ -161,7 +165,7 @@ export class PauseSlotsProcessor {
         const patient = booking.patientId;
 
         if (!patient) {
-          this.logger.warn(`Booking ${booking._id} has no patient`);
+          this.logger.warn(`Booking ${booking._id?.toString()} has no patient`);
           return null;
         }
 
@@ -169,7 +173,7 @@ export class PauseSlotsProcessor {
 
         if (!fcmToken) {
           this.logger.warn(
-            `Patient ${patient._id} has no FCM token. Skipping notification.`,
+            `Patient ${patient._id.toString()} has no FCM token. Skipping notification.`,
           );
           return null;
         }
@@ -177,9 +181,11 @@ export class PauseSlotsProcessor {
         return {
           fcmToken,
           data: {
-            bookingId: booking._id.toString(),
+            bookingId: booking._id?.toString(),
             doctorName,
-            appointmentDate: this.formatDate(booking.bookingDate),
+            doctorId,
+            patientId: patient._id.toString(),
+            appointmentDate: booking.bookingDate,
             appointmentTime: booking.bookingTime,
             reason,
             type: 'SLOT_PAUSED' as const,
@@ -193,10 +199,20 @@ export class PauseSlotsProcessor {
       if (!notification) continue;
 
       try {
-        const sent = await this.fcmService.sendBookingCancellationNotification(
-          notification.fcmToken,
-          notification.data,
-        );
+        // const sent = await this.fcmService.sendBookingCancellationNotification(
+        //   notification.fcmToken,
+        //   notification.data,
+        // );
+        const sent = await this.sendDisplacementNotification({
+          patientId: notification.data.patientId,
+          fcmToken: notification.fcmToken,
+          bookingId: notification.data.bookingId!,
+          doctorId: notification.data.doctorId,
+          doctorName: notification.data.doctorName,
+          appointmentDate: notification.data.appointmentDate,
+          appointmentTime: notification.data.appointmentTime,
+          reason: notification.data.reason,
+        });
 
         if (sent) {
           this.logger.log(
@@ -208,9 +224,10 @@ export class PauseSlotsProcessor {
           );
         }
       } catch (error) {
+        const err = error as Error;
         this.logger.error(
-          `Error sending FCM notification: ${error.message}`,
-          error.stack,
+          `Error sending FCM notification: ${err.message}`,
+          err.stack,
         );
       }
     }
@@ -253,15 +270,58 @@ export class PauseSlotsProcessor {
     }
   }
 
-  /**
-   * Format date for display
-   */
-  private formatDate(date: Date): string {
-    return new Intl.DateTimeFormat('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    }).format(new Date(date));
+  private async sendDisplacementNotification(data: {
+    patientId: string;
+    fcmToken: string;
+    bookingId: string;
+    doctorId: string;
+    doctorName: string;
+    appointmentDate: Date;
+    appointmentTime: string;
+    reason: string;
+  }): Promise<boolean> {
+    if (!data.fcmToken) {
+      this.logger.warn(
+        `Patient ${data.patientId} has no FCM token. Notification not sent.`,
+      );
+      return false;
+    }
+
+    const event = {
+      eventType: 'BOOKING_CANCELLED_NOTIFICATION',
+      timestamp: new Date(),
+      data: {
+        patientId: data.patientId,
+        doctorId: data.doctorId,
+        doctorName: data.doctorName,
+        fcmToken: data.fcmToken,
+        bookingId: data.bookingId,
+        appointmentDate: formatDate(data.appointmentDate),
+        appointmentTime: data.appointmentTime,
+        reason: data.reason,
+        type: 'DOCTOR_CANCELLED',
+      },
+      metadata: {
+        source: 'notification-service',
+        version: '1.0',
+      },
+    };
+
+    try {
+      await this.kafkaService.emit(
+        KAFKA_TOPICS.BOOKING_CANCELLED_NOTIFICATION,
+        event,
+      );
+      this.logger.log(
+        `📱 Notification event published for patient ${data.patientId}`,
+      );
+      return true;
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `Failed to send displacement notification: ${err.message}`,
+      );
+      return false;
+    }
   }
 }

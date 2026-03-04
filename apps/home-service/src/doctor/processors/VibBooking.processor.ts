@@ -33,7 +33,9 @@ export class VIPBookingProcessor {
     @InjectModel(User.name)
     private userModel: Model<UserDocument>,
     private readonly kafkaService: KafkaService,
-  ) {}
+  ) {
+    this.logger.log(`[VIP Booking Job] Processing for doctor`);
+  }
 
   /**
    * Process VIP booking creation
