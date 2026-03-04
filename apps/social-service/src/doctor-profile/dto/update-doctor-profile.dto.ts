@@ -5,6 +5,7 @@ import {
   IsMongoId,
   ValidateIf,
   isEnum,
+  IsDateString,
 } from 'class-validator';
 import {
   City,
@@ -62,4 +63,9 @@ export class UpdateDoctorProfileDto {
   @IsOptional()
   @IsString()
   licenseImage?: string;
+
+  @IsOptional()
+  @IsDateString()
+  experienceStartDate?: Date;
+
 }

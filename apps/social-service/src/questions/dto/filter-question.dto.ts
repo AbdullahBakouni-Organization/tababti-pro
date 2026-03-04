@@ -1,4 +1,4 @@
-import { IsIn, IsOptional, IsMongoId, IsArray } from 'class-validator';
+import { IsIn, IsOptional, IsMongoId, IsArray, IsNumberString } from 'class-validator';
 import { Transform } from 'class-transformer';
 
 export class FilterQuestionDto {
@@ -15,4 +15,12 @@ export class FilterQuestionDto {
   @IsMongoId({ each: true })
   @Transform(({ value }) => (Array.isArray(value) ? value : [value]))
   privateSpecializationIds?: string[];
+
+  @IsOptional()
+  @IsNumberString()
+  page?: string;
+
+  @IsOptional()
+  @IsNumberString()
+  limit?: string;
 }

@@ -42,6 +42,12 @@ export class Post extends Document {
 
   @Prop({ type: Date })
   updatedAt?: Date;
+
+  @Prop({ type: Number, default: 0 })
+  likesCount: number;
+
+  @Prop({ type: [Types.ObjectId], default: [] })
+  likedBy: Types.ObjectId[];
 }
 
 export const PostSchema = SchemaFactory.createForClass(Post);

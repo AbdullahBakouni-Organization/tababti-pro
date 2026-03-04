@@ -1,86 +1,223 @@
 import {
   Injectable,
-  BadRequestException,
   NotFoundException,
+  BadRequestException,
   ForbiddenException,
 } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
-import { Post } from '@app/common/database/schemas/post.schema';
+import { PostRepository } from './post.repository';
 import { CreatePostDto } from './dto/create-post.dto';
-import { UserRole } from '@app/common/database/schemas/common.enums';
+import {
+  UserRole,
+  PostStatus,
+} from '@app/common/database/schemas/common.enums';
+import { Model, Types } from 'mongoose';
 import { User } from '@app/common/database/schemas/user.schema';
 import { Doctor } from '@app/common/database/schemas/doctor.schema';
 import { Hospital } from '@app/common/database/schemas/hospital.schema';
 import { Center } from '@app/common/database/schemas/center.schema';
+import { InjectModel } from '@nestjs/mongoose';
 
 @Injectable()
 export class PostService {
   constructor(
-    @InjectModel(Post.name) private readonly postModel: Model<Post>,
+    private readonly postRepo: PostRepository,
     @InjectModel(User.name) private readonly userModel: Model<User>,
     @InjectModel(Doctor.name) private readonly doctorModel: Model<Doctor>,
     @InjectModel(Hospital.name) private readonly hospitalModel: Model<Hospital>,
     @InjectModel(Center.name) private readonly centerModel: Model<Center>,
   ) {}
+
+  /* ======================================================
+      CREATE
+  ====================================================== */
+  async create(
+    dto: CreatePostDto,
+    images: string[],
+    authAccountId: string,
+    role: UserRole,
+  ) {
+    if (!dto.content?.trim() && images.length === 0) {
+      throw new BadRequestException('post.INVALID_CONTENT');
+    }
+
+    const author = await this.getAuthor(authAccountId, role);
+
+    return this.postRepo.create({
+      authorId: author._id,
+      authorType: role,
+      content: dto.content,
+      images,
+      status: PostStatus.PENDING,
+      subscriptionType: dto.subscriptionType,
+      usageCount: 0,
+      likedBy: [],
+      likesCount: 0,
+    });
+  }
+
+  /* ======================================================
+      GET ALL POSTS (FEED — APPROVED only)
+      FIX: Resolve profile _id from authAccountId+role so the
+      aggregation $in check on likedBy matches correctly.
+  ====================================================== */
+  async getAllPosts(
+    authAccountId: string,
+    role: UserRole,
+    page = 1,
+    limit = 10,
+  ) {
+    const profileId = await this.resolveProfileId(authAccountId, role);
+    return this.postRepo.findAll(profileId, page, limit);
+  }
+
+  /* ======================================================
+      GET MY POSTS
+  ====================================================== */
+  async getMyPosts(
+    authAccountId: string,
+    role: UserRole,
+    page = 1,
+    limit = 10,
+    status?: PostStatus,
+  ) {
+    const author = await this.getAuthor(authAccountId, role);
+    const authorProfileId = (author as any)._id.toString();
+
+    return this.postRepo.findMyPosts(authorProfileId, page, limit, status);
+  }
+
+  /* ======================================================
+      GET POSTS BY AUTHOR (public — APPROVED only)
+      FIX: Resolve profile _id for isLiked check.
+  ====================================================== */
+  async getPostsByAuthor(
+    authorId: string,
+    authAccountId: string,
+    role: UserRole,
+    page = 1,
+    limit = 10,
+  ) {
+    const profileId = await this.resolveProfileId(authAccountId, role);
+    return this.postRepo.findByAuthor(authorId, profileId, page, limit);
+  }
+
+  /* ======================================================
+      GET SINGLE POST (APPROVED only)
+      FIX: Resolve profile _id for isLiked check.
+  ====================================================== */
+  async findOne(postId: string, authAccountId: string, role: UserRole) {
+    const post = await this.postRepo.findOne(postId);
+
+    if (!post || post.status !== PostStatus.APPROVED) {
+      throw new NotFoundException('post.NOT_FOUND');
+    }
+
+    const profileId = await this.resolveProfileId(authAccountId, role);
+
+    const profileObjectId = profileId ? new Types.ObjectId(profileId) : null;
+
+    // Compare profile _id (what likedBy stores) — not authAccountId
+    const isLiked = profileObjectId
+      ? (post.likedBy ?? []).some(
+          (id: Types.ObjectId) => id.toString() === profileObjectId.toString(),
+        )
+      : false;
+
+    // Strip likedBy — never expose the full array to clients
+    const { likedBy: _likedBy, ...safePost } = post as any;
+
+    return { ...safePost, isLiked };
+  }
+
+  /* ======================================================
+      DELETE POST
+  ====================================================== */
+  async remove(postId: string, authAccountId: string, role: UserRole) {
+    const post = await this.postRepo.findOne(postId);
+
+    if (!post) {
+      throw new NotFoundException('post.NOT_FOUND');
+    }
+
+    const model = this.getAuthorModel(post.authorType as UserRole);
+    const author = await model
+      .findOne({ authAccountId: new Types.ObjectId(authAccountId) })
+      .lean();
+
+    if (
+      !author ||
+      post.authorId.toString() !== (author as any)._id.toString()
+    ) {
+      throw new ForbiddenException('post.FORBIDDEN');
+    }
+
+    return this.postRepo.delete(postId);
+  }
+
+  /* ======================================================
+      TOGGLE LIKE
+      Resolves profile _id so likedBy stores consistent IDs.
+  ====================================================== */
+  async toggleLike(postId: string, accountId: string, role: UserRole) {
+    const post = await this.postRepo.findOne(postId);
+
+    if (!post || post.status !== PostStatus.APPROVED) {
+      throw new NotFoundException('post.NOT_FOUND');
+    }
+
+    const author = await this.getAuthor(accountId, role);
+    const profileId = (author as any)._id.toString();
+
+    return this.postRepo.toggleLike(postId, profileId);
+  }
+
+  /* ======================================================
+      PRIVATE HELPERS
+  ====================================================== */
+
+  /**
+   * Resolves the profile _id for a given authAccountId + role.
+   * Used by all READ endpoints to ensure the correct ID is passed
+   * to the aggregation $in check on likedBy.
+   * Returns null (not throws) when the profile isn't found so that
+   * unauthenticated-style reads still work with isLiked = false.
+   */
+  private async resolveProfileId(
+    authAccountId: string,
+    role: UserRole,
+  ): Promise<string | null> {
+    if (!authAccountId || !Types.ObjectId.isValid(authAccountId)) return null;
+
+    try {
+      const model = this.getAuthorModel(role);
+      const profile = await model
+        .findOne(
+          { authAccountId: new Types.ObjectId(authAccountId) },
+          { _id: 1 }, // only fetch _id — keep the query lean
+        )
+        .lean();
+
+      return profile ? (profile as any)._id.toString() : null;
+    } catch {
+      return null;
+    }
+  }
+
   private async getAuthor(authAccountId: string, role: UserRole) {
     if (!Types.ObjectId.isValid(authAccountId)) {
-      throw new BadRequestException('Invalid ID');
+      throw new BadRequestException('user.INVALID_ID');
     }
 
-    const authObjectId = new Types.ObjectId(authAccountId);
-    let author: any = null;
-
-    switch (role) {
-      case UserRole.USER:
-        author = await this.userModel
-          .findOne({ authAccountId: authObjectId })
-          .lean();
-        break;
-
-      case UserRole.DOCTOR:
-        author = await this.doctorModel
-          .findOne({ authAccountId: authObjectId })
-          .lean();
-        break;
-
-      case UserRole.HOSPITAL:
-        author = await this.hospitalModel
-          .findOne({ authAccountId: authObjectId })
-          .lean();
-        break;
-
-      case UserRole.CENTER:
-        author = await this.centerModel
-          .findOne({ authAccountId: authObjectId })
-          .lean();
-        break;
-    }
+    const model = this.getAuthorModel(role);
+    const author = await model
+      .findOne({ authAccountId: new Types.ObjectId(authAccountId) })
+      .lean();
 
     if (!author) {
       throw new NotFoundException('author.NOT_FOUND');
     }
 
     return author;
-  }
-
-  private formatAuthorName(author: any, role: UserRole): string {
-    if (!author) return 'Unknown';
-    switch (role) {
-      case UserRole.DOCTOR:
-        return (
-          [author.firstName, author.middleName, author.lastName]
-            .filter(Boolean)
-            .join(' ') || 'Unknown'
-        );
-      case UserRole.HOSPITAL:
-      case UserRole.CENTER:
-        return author.name || 'Unknown';
-      case UserRole.USER:
-        return author.username || 'Unknown';
-      default:
-        return 'Unknown';
-    }
   }
 
   private getAuthorModel(role: UserRole): Model<any> {
@@ -96,107 +233,5 @@ export class PostService {
       default:
         throw new ForbiddenException('post.FORBIDDEN');
     }
-  }
-
-  async create(
-    dto: CreatePostDto,
-    images: string[],
-    authAccountId: string,
-    role: UserRole,
-  ) {
-    if (!dto.content && images.length === 0)
-      throw new BadRequestException('post.INVALID_CONTENT');
-
-    const author = await this.getAuthor(authAccountId, role);
-
-    const post = await this.postModel.create({
-      authorId: author._id,
-      authorType: role,
-      content: dto.content,
-      images,
-      status: dto.status,
-      subscriptionType: dto.subscriptionType,
-      usageCount: 0,
-    });
-
-    return {
-      ...post.toObject(),
-      authorName: this.formatAuthorName(author, post.authorType),
-      authorImage: author?.avatar || author?.image || null,
-    };
-  }
-
-  async findOne(id: string) {
-    if (!Types.ObjectId.isValid(id))
-      throw new BadRequestException('post.INVALID_ID');
-
-    const post = await this.postModel.findById(id).lean();
-    if (!post) throw new NotFoundException('post.NOT_FOUND');
-
-    const authorModel = this.getAuthorModel(post.authorType);
-    const author = await authorModel.findById(post.authorId).lean();
-
-    return {
-      ...post,
-      authorName: this.formatAuthorName(author, post.authorType),
-      authorImage: author?.avatar || author?.image || null,
-    };
-  }
-
-  async remove(id: string, authAccountId: string) {
-    if (!Types.ObjectId.isValid(id))
-      throw new BadRequestException('post.INVALID_ID');
-
-    const post = await this.postModel.findById(id);
-    if (!post) throw new NotFoundException('post.NOT_FOUND');
-
-    const author = await this.getAuthor(authAccountId, post.authorType);
-    if (post.authorId.toString() !== author._id.toString())
-      throw new ForbiddenException('post.FORBIDDEN');
-
-    await post.deleteOne();
-    return { message: 'post.DELETED_SUCCESS' };
-  }
-
-  async getPostsByAuthor(authorId: string) {
-    if (!Types.ObjectId.isValid(authorId)) {
-      throw new BadRequestException('user.INVALID_ID');
-    }
-
-    const authorExists =
-      (await this.userModel.findById(authorId)) ||
-      (await this.doctorModel.findById(authorId)) ||
-      (await this.hospitalModel.findById(authorId)) ||
-      (await this.centerModel.findById(authorId));
-
-    if (!authorExists) {
-      throw new NotFoundException('user.NOT_FOUND');
-    }
-
-    const posts = await this.postModel
-      .find({ authorId: new Types.ObjectId(authorId) })
-      .sort({ createdAt: -1 })
-      .lean();
-
-    return Promise.all(
-      posts.map(async (post) => {
-        const authorModel = this.getAuthorModel(post.authorType);
-        const author = await authorModel.findById(post.authorId).lean();
-
-        return {
-          ...post,
-          authorName: this.formatAuthorName(author, post.authorType),
-          authorImage: author?.avatar || author?.image || null,
-        };
-      }),
-    );
-  }
-
-  async getMyPosts(authAccountId: string, role: UserRole) {
-    const author = await this.getAuthor(authAccountId, role);
-
-    return this.postModel
-      .find({ authorId: author._id })
-      .sort({ createdAt: -1 });
   }
 }
