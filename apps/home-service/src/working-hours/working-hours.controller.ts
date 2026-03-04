@@ -8,13 +8,7 @@ import {
   HttpCode,
   Req,
 } from '@nestjs/common';
-import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
-  ApiParam,
-  ApiBody,
-} from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { WorkingHoursService } from './working-hours.service';
 import {
   AddWorkingHoursDto,
@@ -30,8 +24,6 @@ import { UserRole } from '@app/common/database/schemas/common.enums';
 import { Roles } from '@app/common/decorator/role.decorator';
 import { ParseMongoIdPipe } from '@app/common/pipes/parse-mongo-id.pipe';
 
-// import { JwtAuthGuard } from '../guards/jwt-auth.guard'; // Uncomment if you have auth
-
 @ApiTags('Doctor Working Hours')
 @Controller('doctors-working-hours')
 export class WorkingHoursController {
@@ -39,7 +31,7 @@ export class WorkingHoursController {
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.DOCTOR)
-  @Post(':doctorId/working-hours')
+  @Post('add-working-hours')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary: 'Add working hours to a doctor',
@@ -47,11 +39,6 @@ export class WorkingHoursController {
       'Add working hours and inspection duration to a doctor. If this is the first time adding working hours, ' +
       'it will automatically trigger slot generation in the booking service via Kafka events. ' +
       'The slots will be created based on the working hours and inspection duration provided.',
-  })
-  @ApiParam({
-    name: 'doctorId',
-    description: 'MongoDB ObjectId of the doctor',
-    example: '507f1f77bcf86cd799439011',
   })
   @ApiBody({
     type: AddWorkingHoursDto,
@@ -175,18 +162,13 @@ export class WorkingHoursController {
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.DOCTOR)
-  @Get(':doctorId/working-hours')
+  @Get('working-hours')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: "Get doctor's working hours",
     description:
       'Retrieve the working hours and inspection details for a specific doctor. ' +
       'This endpoint returns cached data when available for better performance.',
-  })
-  @ApiParam({
-    name: 'doctorId',
-    description: 'MongoDB ObjectId of the doctor',
-    example: '507f1f77bcf86cd799439011',
   })
   @ApiResponse({
     status: HttpStatus.OK,
@@ -242,7 +224,7 @@ export class WorkingHoursController {
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.DOCTOR)
-  @Post(':doctorId/check-conflicts')
+  @Post('check-conflicts')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Check for conflicts before updating working hours (Dry Run)',
@@ -269,7 +251,7 @@ export class WorkingHoursController {
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.DOCTOR)
-  @Post(':doctorId/update-working-hours')
+  @Post('update-working-hours')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Update working hours (Confirmed)',

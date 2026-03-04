@@ -4,7 +4,6 @@ import {
   Get,
   Body,
   Query,
-  Param,
   HttpCode,
   HttpStatus,
   Req,
@@ -17,15 +16,16 @@ import {
   CancellationResponseDto,
   BookingValidationResponseDto,
 } from './dto/patient-booking.dto';
-import { RemoveFCMTokenDto, UpdateFCMTokenDto } from './dto/update-fcm.dto';
+import { UpdateFCMTokenDto } from './dto/update-fcm.dto';
 import {
   BookingStatus,
   UserRole,
 } from '@app/common/database/schemas/common.enums';
 import { GetUserBookingsDto } from './dto/get-user-bookings.dto';
-import { JwtAuthGuard } from '@app/common/guards/jwt.guard';
 import { RolesGuard } from '@app/common/guards/role.guard';
 import { Roles } from '@app/common/decorator/role.decorator';
+import { JwtUserGuard } from '@app/common/guards/jwt-user.guard';
+import { ParseMongoIdPipe } from '@app/common/pipes/parse-mongo-id.pipe';
 
 @ApiTags('Patient Bookings')
 @Controller('users')
@@ -35,6 +35,8 @@ export class UsersController {
   /**
    * Validate if patient can book with a doctor
    */
+  @UseGuards(JwtUserGuard, RolesGuard)
+  @Roles(UserRole.USER)
   @Get('validate')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -42,7 +44,6 @@ export class UsersController {
     description:
       'Checks if patient can book with a specific doctor. Enforces rules: 1) One booking per doctor, 2) Maximum 3 bookings per day',
   })
-  @ApiQuery({ name: 'patientId', required: true })
   @ApiQuery({ name: 'doctorId', required: true })
   @ApiQuery({ name: 'bookingDate', required: true, description: 'YYYY-MM-DD' })
   @ApiResponse({
@@ -51,10 +52,13 @@ export class UsersController {
     type: BookingValidationResponseDto,
   })
   async validateBooking(
-    @Query('patientId') patientId: string,
+    @Req() req: any,
     @Query('doctorId') doctorId: string,
     @Query('bookingDate') bookingDate: string,
   ): Promise<BookingValidationResponseDto> {
+    const patientId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
     const date = new Date(bookingDate);
     return this.patientBookingService.validateBooking(
       patientId,
@@ -66,6 +70,8 @@ export class UsersController {
   /**
    * Patient cancels their booking
    */
+  @UseGuards(JwtUserGuard, RolesGuard)
+  @Roles(UserRole.USER)
   @Post('cancel')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -88,14 +94,21 @@ export class UsersController {
   })
   async cancelBooking(
     @Body() dto: PatientCancelBookingDto,
+    @Req() req: any,
   ): Promise<CancellationResponseDto> {
-    return this.patientBookingService.patientCancelBooking(dto);
+    const patientId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
+
+    return this.patientBookingService.patientCancelBooking(dto, patientId);
   }
 
   /**
    * Get patient's active bookings count
    */
-  @Get(':patientId/active-count')
+  @UseGuards(JwtUserGuard, RolesGuard)
+  @Roles(UserRole.USER)
+  @Get('active-count')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Get patient active bookings count',
@@ -106,14 +119,19 @@ export class UsersController {
     status: 200,
     description: 'Active bookings count',
   })
-  async getActiveBookingsCount(@Param('patientId') patientId: string) {
+  async getActiveBookingsCount(@Req() req: any) {
+    const patientId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
     return this.patientBookingService.getActiveBookingsCount(patientId);
   }
 
   /**
    * Get patient's cancellations today
    */
-  @Get(':patientId/cancellations-today')
+  @UseGuards(JwtUserGuard, RolesGuard)
+  @Roles(UserRole.USER)
+  @Get('cancellations-today')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Get patient cancellations today',
@@ -124,10 +142,16 @@ export class UsersController {
     status: 200,
     description: 'Cancellations count',
   })
-  async getCancellationsToday(@Param('patientId') patientId: string) {
+  async getCancellationsToday(@Req() req: any) {
+    const patientId = new ParseMongoIdPipe(cancellations - today).transform(
+      req.user.entity._id.toString(),
+    );
     return this.patientBookingService.getCancellationsToday(patientId);
   }
-  @Post(':userId/fcm-token')
+
+  @UseGuards(JwtUserGuard, RolesGuard)
+  @Roles(UserRole.USER)
+  @Post('update/fcm-token')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Update FCM token',
@@ -138,24 +162,14 @@ export class UsersController {
     status: 200,
     description: 'FCM token updated successfully',
   })
-  async updateFCMToken(
-    @Param('userId') userId: string,
-    @Body() dto: UpdateFCMTokenDto,
-  ) {
+  async updateFCMToken(@Body() dto: UpdateFCMTokenDto, @Req() req: any) {
+    const userId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
     return this.patientBookingService.updateFCMToken(userId, dto.fcmToken);
   }
 
-  @Post(':userId/fcm-token/remove')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Remove FCM token',
-    description: 'Removes FCM token when user logs out',
-  })
-  async removeFCMToken(@Param('userId') dto: RemoveFCMTokenDto) {
-    return this.patientBookingService.removeFCMToken(dto.userId);
-  }
-
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtUserGuard, RolesGuard)
   @Roles(UserRole.USER)
   @Get('my-bookings')
   @HttpCode(HttpStatus.OK)

@@ -136,12 +136,13 @@ export class UsersService {
    */
   async patientCancelBooking(
     dto: PatientCancelBookingDto,
+    patientId: string,
   ): Promise<CancellationResponseDto> {
     // Validate IDs
     if (!Types.ObjectId.isValid(dto.bookingId)) {
       throw new BadRequestException('Invalid booking ID');
     }
-    if (!Types.ObjectId.isValid(dto.patientId)) {
+    if (!Types.ObjectId.isValid(patientId)) {
       throw new BadRequestException('Invalid patient ID');
     }
 
@@ -152,7 +153,7 @@ export class UsersService {
     endOfDay.setHours(23, 59, 59, 999);
 
     const cancellationsToday = await this.bookingModel.countDocuments({
-      patientId: new Types.ObjectId(dto.patientId),
+      patientId: new Types.ObjectId(patientId),
       'cancellation.cancelledAt': { $gte: today, $lte: endOfDay },
       'cancellation.cancelledBy': UserRole.USER,
       status: BookingStatus.CANCELLED_BY_PATIENT,
@@ -172,7 +173,7 @@ export class UsersService {
       const booking = await this.bookingModel
         .findOne({
           _id: new Types.ObjectId(dto.bookingId),
-          patientId: new Types.ObjectId(dto.patientId),
+          patientId: new Types.ObjectId(patientId),
           status: { $in: [BookingStatus.PENDING] },
         })
         .populate<{ doctorId: Doctor }>(
@@ -207,7 +208,7 @@ export class UsersService {
       await session.commitTransaction();
 
       this.logger.log(
-        `✅ Booking ${dto.bookingId} cancelled by patient ${dto.patientId}`,
+        `✅ Booking ${dto.bookingId} cancelled by patient ${patientId}`,
       );
 
       // Send notification to doctor via Kafka
@@ -453,31 +454,6 @@ export class UsersService {
       message: 'FCM token updated successfully',
       userId: user._id.toString(),
       tokenUpdated: true,
-    };
-  }
-
-  async removeFCMToken(userId: string): Promise<{
-    message: string;
-    userId: string;
-  }> {
-    if (!Types.ObjectId.isValid(userId)) {
-      throw new BadRequestException('Invalid user ID');
-    }
-
-    const user = await this.userModel.findById(userId).exec();
-
-    if (!user) {
-      throw new NotFoundException(`User with ID ${userId} not found`);
-    }
-
-    user.fcmToken = undefined;
-    await user.save();
-
-    this.logger.log(`FCM token removed for user ${userId}`);
-
-    return {
-      message: 'FCM token removed successfully',
-      userId: user._id.toString(),
     };
   }
 

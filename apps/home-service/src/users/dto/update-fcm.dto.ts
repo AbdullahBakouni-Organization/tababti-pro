@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, IsMongoId } from 'class-validator';
+import { IsString, IsNotEmpty } from 'class-validator';
 
 export class UpdateFCMTokenDto {
   @ApiProperty({
@@ -9,13 +9,4 @@ export class UpdateFCMTokenDto {
   @IsString()
   @IsNotEmpty()
   fcmToken: string;
-}
-
-export class RemoveFCMTokenDto {
-  @ApiProperty({
-    description: 'User ID whose FCM token should be removed',
-    example: '65f1c2e7a3d4b8c9e0123456',
-  })
-  @IsMongoId()
-  userId: string;
 }

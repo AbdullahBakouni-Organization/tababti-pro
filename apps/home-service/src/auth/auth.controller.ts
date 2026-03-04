@@ -43,6 +43,7 @@ import { JwtUserGuard } from '@app/common/guards/jwt-user.guard';
 import { DocumentUrlInterceptor } from '@app/common/interceptors';
 import { AuthValidateService } from '@app/common/auth-validate';
 import { JwtUserRefreshGuard } from '@app/common/guards/jwt-refresh-user.guard';
+import { ParseMongoIdPipe } from '@app/common/pipes/parse-mongo-id.pipe';
 export interface RequestWithUser extends Request {
   user: User;
 }
@@ -195,7 +196,10 @@ export class AuthController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.USER)
   logout(@Req() req: any) {
-    return this.authService.logout(req.user.accountId);
+    const patientId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
+    return this.authService.logout(patientId);
   }
 
   @Post('refresh')

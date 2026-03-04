@@ -16,10 +16,18 @@ import { HolidayBlockProcessor } from './processors/holidayblock.processor';
 import { PatientStatsCron } from './cron/patient-stats.cron';
 import { ScheduleModule } from '@nestjs/schedule';
 import { DoctorBookingsQueryService } from './doctor.service.v2';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
 
 @Module({
   imports: [
     ScheduleModule.forRoot(),
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60,
+        limit: 5,
+      },
+    ]),
     ConfigModule.forRoot({
       isGlobal: true,
     }),
@@ -80,6 +88,10 @@ import { DoctorBookingsQueryService } from './doctor.service.v2';
     HolidayBlockProcessor,
     PatientStatsCron,
     DoctorBookingsQueryService,
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
   ],
   controllers: [DoctorController],
 })

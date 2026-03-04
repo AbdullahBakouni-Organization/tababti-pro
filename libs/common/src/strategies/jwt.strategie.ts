@@ -98,7 +98,7 @@ export class JwtRefreshStrategy extends PassportStrategy(
     if (!refreshToken) {
       throw new UnauthorizedException('Refresh token not found in cookies');
     }
-
+    console.log(payload);
     // 1️⃣ Validate account
     const account = await this.authValidateService.getAccount(payload.sub);
     if (!account || !account.isActive) {

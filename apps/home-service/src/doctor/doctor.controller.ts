@@ -59,7 +59,6 @@ import {
   ResetDoctorPasswordDto,
   VerifyOtpForPasswordResetDto,
 } from './dto/doctor-forgot-password.dto';
-import { GetDoctorBookingsByLocationDto } from './dto/booking-responce.dto';
 import {
   DoctorCancelBookingDto,
   PauseSlotConflictDto,
@@ -90,6 +89,7 @@ import {
 import { DoctorBookingsQueryService } from './doctor.service.v2';
 import { RescheduleBookingDto } from './dto/resechedula-booking.dto,';
 import { ParseMongoIdPipe } from '../../../../libs/common/src/pipes/parse-mongo-id.pipe';
+import { Throttle } from '@nestjs/throttler';
 
 // ============================================
 // Login DTO
@@ -268,6 +268,7 @@ export class DoctorController {
   ): Promise<{
     accessToken: string;
     doctor: any;
+    Work;
     refreshToken?: string;
     session: any;
   }> {
@@ -291,6 +292,8 @@ export class DoctorController {
       UserRole.DOCTOR,
       sessionInfo,
     );
+    console.log(tokens.accessToken);
+    console.log(tokens.refreshToken);
     res.cookie('token', tokens.refreshToken, {
       httpOnly: true,
       secure: false,
@@ -312,7 +315,7 @@ export class DoctorController {
       },
     };
   }
-
+  @Throttle({ default: { limit: 3, ttl: 60 } })
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.DOCTOR)
   @Post('forgot-password/request-otp')
@@ -800,7 +803,7 @@ export class DoctorController {
    */
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.DOCTOR)
-  @Post(':doctorId/fcm-token')
+  @Post('fcm-token')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Update doctor FCM token',

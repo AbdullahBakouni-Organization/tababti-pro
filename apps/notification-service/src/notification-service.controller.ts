@@ -10,15 +10,20 @@ import {
   Get,
   Post,
   Param,
-  Query,
   HttpCode,
   HttpStatus,
   Logger,
+  UseGuards,
+  Req,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { EventPattern, Payload } from '@nestjs/microservices';
 import { NotificationService } from './notification-service.service';
 import { UserRole } from '@app/common/database/schemas/common.enums';
+import { JwtAuthGuard } from '@app/common/guards/jwt.guard';
+import { RolesGuard } from '@app/common/guards/role.guard';
+import { Roles } from '@app/common/decorator/role.decorator';
+import { ParseMongoIdPipe } from '@app/common/pipes/parse-mongo-id.pipe';
 
 @ApiTags('Notifications')
 @Controller('notifications')
@@ -114,27 +119,20 @@ export class NotificationServiceController {
   /**
    * Get unread notifications for a user
    */
-  @Get(':recipientId/unread')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.USER, UserRole.DOCTOR)
+  @Get('unread')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Get unread notifications',
     description:
       'Returns all unread notifications for a specific user (patient or doctor)',
   })
-  @ApiQuery({
-    name: 'recipientType',
-    enum: UserRole,
-    required: true,
-    description: 'Type of recipient (USER for patient, DOCTOR for doctor)',
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Unread notifications retrieved',
-  })
-  async getUnreadNotifications(
-    @Param('recipientId') recipientId: string,
-    @Query('recipientType') recipientType: UserRole,
-  ) {
+  async getUnreadNotifications(@Req() req: any) {
+    const recipientId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
+    const recipientType = req.user.role as UserRole;
     return this.notificationService.getUnreadNotifications(
       recipientId,
       recipientType,
@@ -144,25 +142,19 @@ export class NotificationServiceController {
   /**
    * Get unread count
    */
-  @Get(':recipientId/unread-count')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.USER, UserRole.DOCTOR)
+  @Get('unread-count')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Get unread notification count',
     description: 'Returns count of unread notifications (for badge)',
   })
-  @ApiQuery({
-    name: 'recipientType',
-    enum: UserRole,
-    required: true,
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Count retrieved',
-  })
-  async getUnreadCount(
-    @Param('recipientId') recipientId: string,
-    @Query('recipientType') recipientType: UserRole,
-  ) {
+  async getUnreadCount(@Req() req: any) {
+    const recipientId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
+    const recipientType = req.user.role as UserRole;
     const count = await this.notificationService.getUnreadCount(
       recipientId,
       recipientType,
@@ -173,7 +165,9 @@ export class NotificationServiceController {
   /**
    * Mark notification as read
    */
-  @Post(':notificationId/read')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.USER, UserRole.DOCTOR)
+  @Post('read')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Mark notification as read',
@@ -191,25 +185,23 @@ export class NotificationServiceController {
   /**
    * Mark all notifications as read
    */
-  @Post(':recipientId/read-all')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.USER, UserRole.DOCTOR)
+  @Post('read-all')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Mark all notifications as read',
     description: 'Marks all unread notifications as read for a user',
   })
-  @ApiQuery({
-    name: 'recipientType',
-    enum: UserRole,
-    required: true,
-  })
   @ApiResponse({
     status: 200,
     description: 'All notifications marked as read',
   })
-  async markAllAsRead(
-    @Param('recipientId') recipientId: string,
-    @Query('recipientType') recipientType: UserRole,
-  ) {
+  async markAllAsRead(@Req() req: any) {
+    const recipientId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
+    const recipientType = req.user.role as UserRole;
     await this.notificationService.markAllAsRead(recipientId, recipientType);
     return { message: 'All notifications marked as read' };
   }

@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsMongoId, IsString } from 'class-validator';
+import { IsNotEmpty, IsMongoId } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 /**
@@ -12,14 +12,6 @@ export class PatientCancelBookingDto {
   @IsNotEmpty()
   @IsMongoId()
   bookingId: string;
-
-  @ApiProperty({
-    description: 'Patient ID who is cancelling',
-    example: '507f1f77bcf86cd799439011',
-  })
-  @IsNotEmpty()
-  @IsMongoId()
-  patientId: string;
 }
 
 /**
