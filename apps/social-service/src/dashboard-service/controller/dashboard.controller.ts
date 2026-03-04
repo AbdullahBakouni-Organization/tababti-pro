@@ -6,13 +6,14 @@ import {
   Param,
   HttpCode,
   HttpStatus,
-  BadRequestException,
+  Headers,
 } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
   ApiBearerAuth,
   ApiQuery,
+  ApiOkResponse,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '@app/common/guards/jwt.guard';
 import { RolesGuard } from '@app/common/guards/role.guard';
@@ -20,6 +21,8 @@ import { Roles } from '@app/common/decorator/role.decorator';
 import { DashboardService } from '../service/dashboard.service.rest';
 import { CurrentUser } from '@app/common/decorator/current-user.decorator';
 import { UserRole } from '@app/common/database/schemas/common.enums';
+import { Types } from 'mongoose';
+import { ApiResponse } from '../../common/response/api-response'; // ✅ same import as questions
 
 import {
   DashboardQueryDto,
@@ -38,120 +41,84 @@ import {
 export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}
 
-  /**
-   * GET /api/v1/dashboard
-   * Full dashboard with all sections
-   * Query params:
-   *   - selectedDate: YYYY-MM-DD (optional, defaults to today)
-   *   - period: week|month (optional, default: week)
-   *   - page: number (optional, default: 1)
-   *   - limit: number (optional, default: 10)
-   */
+  // ── Full dashboard ────────────────────────────────────────────────────────
   @Get()
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Get full doctor dashboard',
-    description:
-      'Returns complete dashboard with stats, appointments, calendar, and charts',
-  })
-  @ApiQuery({
-    name: 'selectedDate',
-    type: String,
-    required: false,
-    description: 'YYYY-MM-DD format',
-  })
-  @ApiQuery({
-    name: 'period',
-    enum: ['week', 'month'],
-    required: false,
-    description: 'Period for location chart',
-  })
+  @ApiOperation({ summary: 'Get full doctor dashboard' })
+  @ApiQuery({ name: 'selectedDate', type: String, required: false })
+  @ApiQuery({ name: 'period', enum: ['week', 'month'], required: false })
   @ApiQuery({ name: 'page', type: Number, required: false })
   @ApiQuery({ name: 'limit', type: Number, required: false })
   async getDoctorDashboard(
     @CurrentUser('accountId') accountId: string,
     @Query() query: DashboardQueryDto,
+    @Headers('accept-language') lang: 'en' | 'ar' = 'en',
   ) {
-    return this.dashboardService.getDoctorDashboard(accountId, query);
+    const data = await this.dashboardService.getDoctorDashboard(
+      accountId,
+      query,
+    );
+    return ApiResponse.success({ lang, messageKey: 'dashboard.FULL', data });
   }
 
-  /**
-   * GET /api/v1/dashboard/stats
-   * Dashboard stats cards only
-   * Query params:
-   *   - selectedDate: YYYY-MM-DD (optional)
-   */
+  // ── Stats cards ───────────────────────────────────────────────────────────
   @Get('stats')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Get dashboard statistics',
-    description: 'Returns stats cards: appointments, revenue, completion %',
-  })
-  @ApiQuery({
-    name: 'selectedDate',
-    type: String,
-    required: false,
-    description: 'YYYY-MM-DD format, defaults to today',
-  })
+  @ApiOperation({ summary: 'Get dashboard statistics' })
+  @ApiQuery({ name: 'selectedDate', type: String, required: false })
   async getStats(
     @CurrentUser('accountId') accountId: string,
     @Query() query: StatsQueryDto,
+    @Headers('accept-language') lang: 'en' | 'ar' = 'en',
   ) {
-    return this.dashboardService.getStats(accountId, query);
+    const data = await this.dashboardService.getStats(accountId, query);
+    return ApiResponse.success({ lang, messageKey: 'dashboard.STATS', data });
   }
 
-  /**
-   * GET /api/v1/dashboard/recent-patients
-   * Last 10 patients regardless of month
-   */
+  // ── Recent patients ───────────────────────────────────────────────────────
   @Get('recent-patients')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Get recent patients',
-    description: 'Returns last 10 patients with pending/confirmed bookings',
-  })
-  async getRecentPatients(@CurrentUser('accountId') accountId: string) {
-    return this.dashboardService.getRecentPatients(accountId);
+  @ApiOperation({ summary: 'Get recent patients' })
+  async getRecentPatients(
+    @CurrentUser('accountId') accountId: string,
+    @Headers('accept-language') lang: 'en' | 'ar' = 'en',
+  ) {
+    const data = await this.dashboardService.getRecentPatients(accountId);
+    return ApiResponse.success({
+      lang,
+      messageKey: 'dashboard.PATIENTS',
+      data,
+    });
   }
 
-  /**
-   * GET /api/v1/dashboard/calendar
-   * Calendar heatmap for a specific month
-   * Query params:
-   *   - year: number (required)
-   *   - month: 1-12 (required)
-   */
+  // ── Calendar heatmap ──────────────────────────────────────────────────────
   @Get('calendar')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Get calendar heatmap',
-    description: 'Returns appointment count heatmap for specified month',
-  })
+  @ApiOperation({ summary: 'Get calendar heatmap' })
   @ApiQuery({ name: 'year', type: Number, required: true })
-  @ApiQuery({ name: 'month', type: Number, required: true })
+  @ApiQuery({
+    name: 'month',
+    type: Number,
+    required: true,
+    description: '1–12',
+  })
   async getCalendar(
     @CurrentUser('accountId') accountId: string,
     @Query() query: CalendarQueryDto,
+    @Headers('accept-language') lang: 'en' | 'ar' = 'en',
   ) {
-    return this.dashboardService.getCalendar(accountId, query);
+    const data = await this.dashboardService.getCalendar(accountId, query);
+    return ApiResponse.success({
+      lang,
+      messageKey: 'dashboard.CALENDAR',
+      data,
+    });
   }
 
-  /**
-   * GET /api/v1/dashboard/appointments
-   * Paginated appointments table
-   * Query params:
-   *   - date: YYYY-MM-DD (optional, filters by day)
-   *   - monthDate: YYYY-MM-DD (optional, filters by month)
-   *   - status: string (optional)
-   *   - page: number (optional, default: 1)
-   *   - limit: number (optional, default: 10)
-   */
+  // ── Appointments table ────────────────────────────────────────────────────
   @Get('appointments')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Get paginated appointments table',
-    description: 'Returns paginated list of appointments with filters',
-  })
+  @ApiOperation({ summary: 'Get paginated appointments table' })
   @ApiQuery({ name: 'date', type: String, required: false })
   @ApiQuery({ name: 'monthDate', type: String, required: false })
   @ApiQuery({ name: 'status', type: String, required: false })
@@ -160,69 +127,98 @@ export class DashboardController {
   async getAppointments(
     @CurrentUser('accountId') accountId: string,
     @Query() query: AppointmentsQueryDto,
+    @Headers('accept-language') lang: 'en' | 'ar' = 'en',
   ) {
-    return this.dashboardService.getAppointments(accountId, query);
+    const data = await this.dashboardService.getAppointments(accountId, query);
+    return ApiResponse.success({
+      lang,
+      messageKey: 'dashboard.APPOINTMENTS',
+      data,
+    });
   }
 
-  /**
-   * GET /api/v1/dashboard/gender-stats
-   * Gender breakdown donut chart
-   * Query params:
-   *   - selectedDate: YYYY-MM-DD (optional)
-   */
+  // ── Gender stats ──────────────────────────────────────────────────────────
   @Get('gender-stats')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Get gender statistics',
-    description: 'Returns male/female patient counts and completion %',
-  })
+  @ApiOperation({ summary: 'Get gender statistics' })
   @ApiQuery({ name: 'selectedDate', type: String, required: false })
   async getGenderStats(
     @CurrentUser('accountId') accountId: string,
     @Query() query: GenderStatsQueryDto,
+    @Headers('accept-language') lang: 'en' | 'ar' = 'en',
   ) {
-    return this.dashboardService.getGenderStats(accountId, query);
+    const data = await this.dashboardService.getGenderStats(accountId, query);
+    return ApiResponse.success({ lang, messageKey: 'dashboard.STATS', data });
   }
 
-  /**
-   * GET /api/v1/dashboard/location-chart
-   * Location type breakdown chart
-   * Query params:
-   *   - period: week|month (optional, default: week)
-   *   - selectedDate: YYYY-MM-DD (optional)
-   */
+  // ── Location chart ────────────────────────────────────────────────────────
   @Get('location-chart')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Get location chart',
-    description:
-      'Returns appointment distribution by location type (clinic, hospital, center)',
-  })
-  @ApiQuery({
-    name: 'period',
-    enum: ['week', 'month'],
-    required: false,
-  })
+  @ApiOperation({ summary: 'Get location chart' })
+  @ApiQuery({ name: 'period', enum: ['week', 'month'], required: false })
   @ApiQuery({ name: 'selectedDate', type: String, required: false })
   async getLocationChart(
     @CurrentUser('accountId') accountId: string,
     @Query() query: LocationChartQueryDto,
+    @Headers('accept-language') lang: 'en' | 'ar' = 'en',
   ) {
-    return this.dashboardService.getLocationChart(accountId, query);
+    const data = await this.dashboardService.getLocationChart(accountId, query);
+    return ApiResponse.success({ lang, messageKey: 'dashboard.REVENUE', data });
   }
 
-  /**
-   * GET /api/v1/dashboard/:doctorId (optional endpoint for admin/view others)
-   */
+  // ── Cache status (debug) ──────────────────────────────────────────────────
+  @Get('cache/status')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Cache status (debug)' })
+  @ApiOkResponse({
+    schema: {
+      example: {
+        recentPatients: { cachedAt: '2026-03-05T02:00:00.000Z' },
+        locationChart: { cachedAt: '2026-03-05T00:00:00.000Z' },
+      },
+    },
+  })
+  async getCacheStatus(
+    @CurrentUser('accountId') accountId: string,
+    @Headers('accept-language') lang: 'en' | 'ar' = 'en',
+  ) {
+    const doctor = await this.dashboardService.resolveDoctor(accountId);
+    const doctorId = (doctor._id as Types.ObjectId).toString();
+    const data = this.dashboardService.getCacheInfo(doctorId);
+    return ApiResponse.success({ lang, messageKey: 'dashboard.FULL', data });
+  }
+
+  // ── By doctorId (admin) — keep :doctorId LAST ─────────────────────────────
   @Get(':doctorId')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Get specific doctor dashboard (admin only)',
-  })
+  @ApiOperation({ summary: 'Get specific doctor dashboard (admin only)' })
   async getDoctorDashboardById(
     @Param('doctorId') doctorId: string,
     @Query() query: DashboardQueryDto,
+    @Headers('accept-language') lang: 'en' | 'ar' = 'en',
   ) {
-    return this.dashboardService.getDoctorDashboardById(doctorId, query);
+    const data = await this.dashboardService.getDoctorDashboardById(
+      doctorId,
+      query,
+    );
+    return ApiResponse.success({ lang, messageKey: 'dashboard.FULL', data });
+  }
+  // ── Force cron refresh (dev/debug only) ──────────────────────────────────────
+  @Get('cache/refresh')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Manually trigger cron cache refresh (dev only)' })
+  async forceCacheRefresh(
+    @Headers('accept-language') lang: 'en' | 'ar' = 'en',
+  ) {
+    await Promise.all([
+      this.dashboardService.cronRefreshRecentPatients(),
+      this.dashboardService.cronRefreshLocationChart(),
+    ]);
+
+    return ApiResponse.success({
+      lang,
+      messageKey: 'dashboard.FULL',
+      data: { message: 'Cache refreshed manually' },
+    });
   }
 }

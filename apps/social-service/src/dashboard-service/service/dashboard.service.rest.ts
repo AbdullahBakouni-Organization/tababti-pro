@@ -2,9 +2,11 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
+import { Cron, CronExpression } from '@nestjs/schedule';
 
 import { Booking } from '@app/common/database/schemas/booking.schema';
 import { Doctor } from '@app/common/database/schemas/doctor.schema';
@@ -59,12 +61,20 @@ function resolveRefDate(selectedDate?: string): Date {
   return isNaN(d.getTime()) ? new Date() : d;
 }
 
-// ═══════════════════════════════════════════════════════════════
-// REST API SERVICE (same logic as GraphQL but with DTOs)
-// ═══════════════════════════════════════════════════════════════
+// ─── Cache entry shape ────────────────────────────────────────────────────────
+interface CacheEntry<T> {
+  data: T;
+  cachedAt: Date;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SERVICE
+// ═══════════════════════════════════════════════════════════════════════════════
 
 @Injectable()
 export class DashboardService {
+  private readonly logger = new Logger(DashboardService.name);
+
   constructor(
     @InjectModel(Booking.name)
     private readonly bookingModel: Model<Booking>,
@@ -74,9 +84,182 @@ export class DashboardService {
     private readonly userModel: Model<User>,
   ) {}
 
-  // ═══════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════
+  // IN-MEMORY CACHES
+  // Key = doctor profile _id string
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Recent-patients cache.
+   * Populated on first request per doctor; refreshed every 2 h by cron.
+   */
+  private readonly _recentPatientsCache = new Map<
+    string,
+    CacheEntry<RecentPatientDto[]>
+  >();
+
+  /**
+   * Location-chart cache (period=week, today as refDate).
+   * Populated on first request per doctor; fully rebuilt every midnight by cron.
+   * Requests with a custom date or period=month always bypass this cache.
+   */
+  private readonly _locationChartCache = new Map<
+    string,
+    CacheEntry<LocationChartDto>
+  >();
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CRON — RECENT PATIENTS   every 2 hours  (0 */2 * * *)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Fires at 00:00, 02:00, 04:00 … 22:00 every day.
+   * Iterates all doctor records and refreshes the recent-patients cache for
+   * each one in parallel.  A failure for one doctor is isolated — it never
+   * blocks others and the stale entry is kept rather than evicted.
+   */
+  @Cron('0 */2 * * *', { name: 'refresh-recent-patients' })
+  async cronRefreshRecentPatients(): Promise<void> {
+    this.logger.log('[CRON] refresh-recent-patients started');
+
+    const doctors = await this.doctorModel
+      .find({}, { _id: 1 })
+      .lean()
+      .catch((err) => {
+        this.logger.error(
+          '[CRON] refresh-recent-patients — failed to load doctors',
+          err,
+        );
+        return [] as Array<{ _id: Types.ObjectId }>;
+      });
+
+    const results = await Promise.allSettled(
+      doctors.map(async (doc) => {
+        const doctorId = doc._id as Types.ObjectId;
+        const key = doctorId.toString();
+        const data = await this._getRecentPatientsRaw(doctorId);
+        this._recentPatientsCache.set(key, { data, cachedAt: new Date() });
+      }),
+    );
+
+    const failed = results.filter((r) => r.status === 'rejected').length;
+    this.logger.log(
+      `[CRON] refresh-recent-patients done — ${doctors.length - failed}/${doctors.length} refreshed`,
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CRON — LOCATION CHART   every day at midnight
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Fires at 00:00 every day.
+   * Rebuilds the location-chart cache (week period, new day as reference)
+   * for every doctor so the first request of the day is always instant.
+   */
+  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT, {
+    name: 'refresh-location-chart',
+  })
+  async cronRefreshLocationChart(): Promise<void> {
+    this.logger.log('[CRON] refresh-location-chart started');
+
+    const today = new Date();
+
+    const doctors = await this.doctorModel
+      .find({}, { _id: 1 })
+      .lean()
+      .catch((err) => {
+        this.logger.error(
+          '[CRON] refresh-location-chart — failed to load doctors',
+          err,
+        );
+        return [] as Array<{ _id: Types.ObjectId }>;
+      });
+
+    const results = await Promise.allSettled(
+      doctors.map(async (doc) => {
+        const doctorId = doc._id as Types.ObjectId;
+        const key = doctorId.toString();
+        const data = await this._buildLocationChart(doctorId, 'week', today);
+        this._locationChartCache.set(key, { data, cachedAt: new Date() });
+      }),
+    );
+
+    const failed = results.filter((r) => r.status === 'rejected').length;
+    this.logger.log(
+      `[CRON] refresh-location-chart done — ${doctors.length - failed}/${doctors.length} refreshed`,
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CACHE HELPERS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Returns cached recent patients, or fetches fresh data on a cache miss
+   * (first call after startup before the cron has run).
+   */
+  private async _getRecentPatientsCached(
+    doctorId: Types.ObjectId,
+  ): Promise<RecentPatientDto[]> {
+    const key = doctorId.toString();
+    const hit = this._recentPatientsCache.get(key);
+    if (hit) return hit.data;
+
+    this.logger.debug(`[CACHE MISS] recent-patients for doctor ${key}`);
+    const data = await this._getRecentPatientsRaw(doctorId);
+    this._recentPatientsCache.set(key, { data, cachedAt: new Date() });
+    return data;
+  }
+
+  /**
+   * Returns cached location chart when the request matches the warmed
+   * combination (period=week + today).  All other combinations bypass the
+   * cache and always hit the DB directly.
+   */
+  private async _getLocationChartCached(
+    doctorId: Types.ObjectId,
+    period: 'week' | 'month',
+    refDate: Date,
+  ): Promise<LocationChartDto> {
+    const key = doctorId.toString();
+    const today = new Date();
+    const isCacheableRequest =
+      period === 'week' && refDate.toDateString() === today.toDateString();
+
+    if (isCacheableRequest) {
+      const hit = this._locationChartCache.get(key);
+      if (hit) return hit.data;
+      this.logger.debug(`[CACHE MISS] location-chart for doctor ${key}`);
+    }
+
+    const data = await this._buildLocationChart(doctorId, period, refDate);
+
+    // Populate cache for future requests if this is the warmed combination
+    if (isCacheableRequest) {
+      this._locationChartCache.set(key, { data, cachedAt: new Date() });
+    }
+
+    return data;
+  }
+
+  // ─── Public cache-info accessors (used by controller debug endpoints) ──────
+
+  getCacheInfo(doctorId: string): {
+    recentPatients: { cachedAt: Date } | null;
+    locationChart: { cachedAt: Date } | null;
+  } {
+    const rp = this._recentPatientsCache.get(doctorId);
+    const lc = this._locationChartCache.get(doctorId);
+    return {
+      recentPatients: rp ? { cachedAt: rp.cachedAt } : null,
+      locationChart: lc ? { cachedAt: lc.cachedAt } : null,
+    };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // FULL DASHBOARD
-  // ═══════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════
 
   async getDoctorDashboard(
     accountId: string,
@@ -95,7 +278,7 @@ export class DashboardService {
       locationChart,
     ] = await Promise.all([
       this.getStats(accountId, { selectedDate: query.selectedDate }),
-      this.getRecentPatients(accountId),
+      this._getRecentPatientsCached(doctorId), // ← cache
       this.getCalendar(accountId, {
         year: refDate.getFullYear(),
         month: refDate.getMonth() + 1,
@@ -106,10 +289,7 @@ export class DashboardService {
         limit: query.limit ?? 10,
       }),
       this.getGenderStats(accountId, { selectedDate: query.selectedDate }),
-      this.getLocationChart(accountId, {
-        period: query.period ?? 'week',
-        selectedDate: query.selectedDate,
-      }),
+      this._getLocationChartCached(doctorId, query.period ?? 'week', refDate), // ← cache
     ]);
 
     const fullName = [doctor.firstName, doctor.middleName, doctor.lastName]
@@ -138,9 +318,7 @@ export class DashboardService {
     }
 
     const doctor = await this.doctorModel.findById(doctorId).lean();
-    if (!doctor) {
-      throw new NotFoundException('Doctor not found');
-    }
+    if (!doctor) throw new NotFoundException('Doctor not found');
 
     const docId = doctor._id as Types.ObjectId;
     const refDate = resolveRefDate(query.selectedDate);
@@ -154,7 +332,7 @@ export class DashboardService {
       locationChart,
     ] = await Promise.all([
       this._getStatsRaw(docId, refDate),
-      this._getRecentPatientsRaw(docId),
+      this._getRecentPatientsCached(docId), // ← cache
       this._getCalendarRaw(docId, {
         year: refDate.getFullYear(),
         month: refDate.getMonth() + 1,
@@ -165,7 +343,7 @@ export class DashboardService {
         limit: query.limit ?? 10,
       }),
       this._getGenderStatsRaw(docId, refDate),
-      this._buildLocationChart(docId, query.period ?? 'week', refDate),
+      this._getLocationChartCached(docId, query.period ?? 'week', refDate), // ← cache
     ]);
 
     const fullName = [doctor.firstName, doctor.middleName, doctor.lastName]
@@ -185,9 +363,9 @@ export class DashboardService {
     };
   }
 
-  // ═══════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════
   // STATS
-  // ═══════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════
 
   async getStats(
     accountId: string,
@@ -265,14 +443,14 @@ export class DashboardService {
     };
   }
 
-  // ═══════════════════════════════════════════════════════════════
-  // RECENT PATIENTS
-  // ═══════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════
+  // RECENT PATIENTS   (public method routes through cache)
+  // ═══════════════════════════════════════════════════════════════════════════
 
   async getRecentPatients(accountId: string): Promise<RecentPatientDto[]> {
     const doctor = await this.resolveDoctor(accountId);
     const doctorId = doctor._id as Types.ObjectId;
-    return this._getRecentPatientsRaw(doctorId);
+    return this._getRecentPatientsCached(doctorId); // ← was _getRecentPatientsRaw
   }
 
   private async _getRecentPatientsRaw(
@@ -282,9 +460,7 @@ export class DashboardService {
       {
         $match: {
           doctorId,
-          status: {
-            $in: [BookingStatus.PENDING, BookingStatus.CONFIRMED],
-          },
+          status: { $in: [BookingStatus.PENDING, BookingStatus.CONFIRMED] },
         },
       },
       { $sort: { bookingDate: -1 } },
@@ -320,9 +496,9 @@ export class DashboardService {
     }));
   }
 
-  // ═══════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════
   // CALENDAR
-  // ═══════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════
 
   async getCalendar(
     accountId: string,
@@ -379,9 +555,9 @@ export class DashboardService {
     return { year: query.year, month: query.month, days };
   }
 
-  // ═══════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════
   // APPOINTMENTS TABLE
-  // ═══════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════
 
   async getAppointments(
     accountId: string,
@@ -481,9 +657,9 @@ export class DashboardService {
     };
   }
 
-  // ═══════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════
   // GENDER STATS (DONUT)
-  // ═══════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════
 
   async getGenderStats(
     accountId: string,
@@ -571,9 +747,9 @@ export class DashboardService {
     };
   }
 
-  // ═══════════════════════════════════════════════════════════════
-  // LOCATION CHART
-  // ═══════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════
+  // LOCATION CHART   (public method routes through cache)
+  // ═══════════════════════════════════════════════════════════════════════════
 
   async getLocationChart(
     accountId: string,
@@ -582,7 +758,11 @@ export class DashboardService {
     const doctor = await this.resolveDoctor(accountId);
     const doctorId = doctor._id as Types.ObjectId;
     const refDate = resolveRefDate(query.selectedDate);
-    return this._buildLocationChart(doctorId, query.period ?? 'week', refDate);
+    return this._getLocationChartCached(
+      doctorId,
+      query.period ?? 'week',
+      refDate,
+    ); // ← was _buildLocationChart
   }
 
   private async _buildLocationChart(
@@ -661,9 +841,9 @@ export class DashboardService {
     };
   }
 
-  // ═══════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════
   // RESOLVE DOCTOR
-  // ═══════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════
 
   async resolveDoctor(authAccountId: string) {
     if (!Types.ObjectId.isValid(authAccountId))
@@ -677,9 +857,9 @@ export class DashboardService {
     return doctor;
   }
 
-  // ═══════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════
   // PERIOD BOUNDS HELPER
-  // ═══════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════
 
   private _periodBounds(period: 'week' | 'month', refDate: Date) {
     if (period === 'week') {

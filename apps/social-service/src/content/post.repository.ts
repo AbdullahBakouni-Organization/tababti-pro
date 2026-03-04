@@ -1,14 +1,105 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Post } from '@app/common/database/schemas/post.schema';
 import { PostStatus } from '@app/common/database/schemas/common.enums';
+import { PostStats } from './post.interface';
 
 @Injectable()
 export class PostRepository {
   constructor(
     @InjectModel(Post.name) private readonly postModel: Model<Post>,
-  ) { }
+  ) {}
+
+  // ══════════════════════════════════════════════════════════════
+  // SHARED AUTHOR LOOKUP — injected into every data facet
+  // Produces an `author` field: { _id, name, image, type }
+  // ══════════════════════════════════════════════════════════════
+  private get authorLookupStages() {
+    return [
+      {
+        $lookup: {
+          from: 'doctors',
+          localField: 'authorId',
+          foreignField: '_id',
+          as: '_doctorAuthor',
+          pipeline: [{ $project: { firstName: 1, lastName: 1, image: 1 } }],
+        },
+      },
+      {
+        $lookup: {
+          from: 'hospitals', // ✅ adjust if your collection name differs
+          localField: 'authorId',
+          foreignField: '_id',
+          as: '_hospitalAuthor',
+          pipeline: [{ $project: { name: 1, image: 1 } }],
+        },
+      },
+      {
+        $lookup: {
+          from: 'centers', // ✅ adjust if your collection name differs
+          localField: 'authorId',
+          foreignField: '_id',
+          as: '_centerAuthor',
+          pipeline: [{ $project: { name: 1, image: 1 } }],
+        },
+      },
+      {
+        $addFields: {
+          _rawAuthor: {
+            $arrayElemAt: [
+              {
+                $concatArrays: [
+                  '$_doctorAuthor',
+                  '$_hospitalAuthor',
+                  '$_centerAuthor',
+                ],
+              },
+              0,
+            ],
+          },
+        },
+      },
+      {
+        $addFields: {
+          author: {
+            _id: '$_rawAuthor._id',
+            name: {
+              $cond: {
+                if: { $eq: ['$authorType', 'doctor'] },
+                then: {
+                  $trim: {
+                    input: {
+                      $concat: [
+                        { $ifNull: ['$_rawAuthor.firstName', ''] },
+                        ' ',
+                        { $ifNull: ['$_rawAuthor.lastName', ''] },
+                      ],
+                    },
+                  },
+                },
+                else: { $ifNull: ['$_rawAuthor.name', 'Unknown'] },
+              },
+            },
+            image: { $ifNull: ['$_rawAuthor.image', null] },
+            type: '$authorType',
+          },
+        },
+      },
+      {
+        $project: {
+          _doctorAuthor: 0,
+          _hospitalAuthor: 0,
+          _centerAuthor: 0,
+          _rawAuthor: 0,
+        },
+      },
+    ];
+  }
 
   /* ======================================================
       CREATE
@@ -45,6 +136,7 @@ export class PostRepository {
                   : false,
               },
             },
+            ...this.authorLookupStages, // ✅ author injected here
             { $project: { likedBy: 0 } },
           ],
           totalCount: [{ $count: 'count' }],
@@ -63,10 +155,6 @@ export class PostRepository {
 
   /* ======================================================
       FIND MY POSTS
-      - authorId   : the resolved _id of the author profile
-      - status     : optional filter; omit to return all statuses
-      - isLiked    : included for consistency with other endpoints
-      - likedBy    : always stripped before returning
   ====================================================== */
   async findMyPosts(
     authorId: string,
@@ -81,11 +169,8 @@ export class PostRepository {
     const skip = (page - 1) * limit;
     const authorObjectId = new Types.ObjectId(authorId);
 
-    // Build the match stage dynamically — include status only when provided
     const matchStage: Record<string, any> = { authorId: authorObjectId };
-    if (status) {
-      matchStage.status = status;
-    }
+    if (status) matchStage.status = status;
 
     const result = await this.postModel.aggregate([
       { $match: matchStage },
@@ -96,25 +181,12 @@ export class PostRepository {
             { $skip: skip },
             { $limit: limit },
             { $addFields: { likedBy: { $ifNull: ['$likedBy', []] } } },
-            {
-              // Author can see their own posts' like count but not who liked
-              $addFields: {
-                isLiked: false, // owner viewing own post — isLiked not meaningful
-              },
-            },
+            { $addFields: { isLiked: false } },
+            ...this.authorLookupStages, // ✅ author injected here
             { $project: { likedBy: 0 } },
           ],
           totalCount: [{ $count: 'count' }],
-          // Extra: count breakdown by status so the UI can show badges
-          // e.g. { PENDING: 3, APPROVED: 10, REJECTED: 1 }
-          statusSummary: [
-            {
-              $group: {
-                _id: '$status',
-                count: { $sum: 1 },
-              },
-            },
-          ],
+          statusSummary: [{ $group: { _id: '$status', count: { $sum: 1 } } }],
         },
       },
     ]);
@@ -122,7 +194,6 @@ export class PostRepository {
     const posts = result[0]?.data ?? [];
     const total = result[0]?.totalCount[0]?.count ?? 0;
 
-    // Transform statusSummary array → object for easy frontend consumption
     const statusSummary = (result[0]?.statusSummary ?? []).reduce(
       (acc: Record<string, number>, item: { _id: string; count: number }) => {
         acc[item._id] = item.count;
@@ -134,7 +205,7 @@ export class PostRepository {
     return {
       data: posts,
       pagination: { total, page, limit, totalPages: Math.ceil(total / limit) },
-      statusSummary, // { PENDING: 3, APPROVED: 10, REJECTED: 1 }
+      statusSummary,
     };
   }
 
@@ -175,6 +246,7 @@ export class PostRepository {
                   : false,
               },
             },
+            ...this.authorLookupStages, // ✅ author injected here
             { $project: { likedBy: 0 } },
           ],
           totalCount: [{ $count: 'count' }],
@@ -192,7 +264,7 @@ export class PostRepository {
   }
 
   /* ======================================================
-      FIND ONE — full document (caller strips likedBy)
+      FIND ONE — full document (service strips likedBy + adds author)
   ====================================================== */
   async findOne(postId: string) {
     if (!Types.ObjectId.isValid(postId)) {
@@ -219,8 +291,6 @@ export class PostRepository {
 
   /* ======================================================
       TOGGLE LIKE
-      Uses a MongoDB query for membership check — avoids the
-      ObjectId reference comparison bug of Array.includes()
   ====================================================== */
   async toggleLike(postId: string, userId: string) {
     if (!Types.ObjectId.isValid(postId) || !Types.ObjectId.isValid(userId)) {
@@ -230,18 +300,14 @@ export class PostRepository {
     const postObjectId = new Types.ObjectId(postId);
     const userObjectId = new Types.ObjectId(userId);
 
-    // Fetch the post first — we need both existence and likedBy array
     const post = await this.postModel.findById(postObjectId).lean();
     if (!post) return null;
 
-    // Compare as strings to avoid ObjectId reference equality bug
     const alreadyLiked = (post.likedBy ?? []).some(
       (id) => id.toString() === userObjectId.toString(),
     );
 
     if (alreadyLiked) {
-      // ✅ findOneAndUpdate with { new: true } returns the document AFTER the update
-      // so likesCount is already decremented — no second query needed
       const updated = await this.postModel
         .findOneAndUpdate(
           { _id: postObjectId },
@@ -263,10 +329,15 @@ export class PostRepository {
 
     return { isLiked: true, likesCount: updated?.likesCount ?? 0 };
   }
+
   /* ======================================================
-    APPROVE OR REJECT POST (Admin)
-====================================================== */
-  async updateStatus(postId: string, status: PostStatus.APPROVED | PostStatus.REJECTED, rejectionReason?: string) {
+      UPDATE STATUS (Admin — approve / reject)
+  ====================================================== */
+  async updateStatus(
+    postId: string,
+    status: PostStatus.APPROVED | PostStatus.REJECTED,
+    rejectionReason?: string,
+  ) {
     if (!Types.ObjectId.isValid(postId)) {
       throw new BadRequestException('post.INVALID_ID');
     }
@@ -286,5 +357,74 @@ export class PostRepository {
 
     if (!updated) throw new NotFoundException('post.NOT_FOUND');
     return updated;
+  }
+
+  /* ======================================================
+      GET STATS
+  ====================================================== */
+  async getStats(authorProfileId: Types.ObjectId | null): Promise<PostStats> {
+    function pct(part: number, total: number): number {
+      if (total === 0) return 0;
+      return Math.round((part / total) * 10_000) / 100;
+    }
+
+    const [globalResult, authorResult] = await Promise.all([
+      this.postModel.aggregate([
+        {
+          $group: {
+            _id: '$status',
+            count: { $sum: 1 },
+            totalLikes: { $sum: { $ifNull: ['$likesCount', 0] } },
+          },
+        },
+      ]),
+      authorProfileId
+        ? this.postModel.aggregate([
+            { $match: { authorId: authorProfileId } },
+            {
+              $group: {
+                _id: null,
+                myPostsCount: { $sum: 1 },
+                myLikesReceived: { $sum: { $ifNull: ['$likesCount', 0] } },
+              },
+            },
+          ])
+        : Promise.resolve([]),
+    ]);
+
+    let total = 0,
+      approved = 0,
+      pending = 0,
+      rejected = 0,
+      totalLikes = 0;
+
+    for (const row of globalResult) {
+      total += row.count;
+      totalLikes += row.totalLikes ?? 0;
+      switch (row._id) {
+        case 'approved':
+          approved = row.count;
+          break;
+        case 'pending':
+          pending = row.count;
+          break;
+        case 'rejected':
+          rejected = row.count;
+          break;
+      }
+    }
+
+    return {
+      total,
+      approved,
+      pending,
+      rejected,
+      approvedPercent: pct(approved, total),
+      pendingPercent: pct(pending, total),
+      rejectedPercent: pct(rejected, total),
+      totalLikes,
+      myPostsCount: authorResult[0]?.myPostsCount ?? 0,
+      myLikesReceived: authorResult[0]?.myLikesReceived ?? 0,
+    };
   }
 }

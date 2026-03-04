@@ -16,6 +16,7 @@ import { Doctor } from '@app/common/database/schemas/doctor.schema';
 import { Hospital } from '@app/common/database/schemas/hospital.schema';
 import { Center } from '@app/common/database/schemas/center.schema';
 import { InjectModel } from '@nestjs/mongoose';
+import { PostStats } from './post.interface';
 
 @Injectable()
 export class PostService {
@@ -25,7 +26,7 @@ export class PostService {
     @InjectModel(Doctor.name) private readonly doctorModel: Model<Doctor>,
     @InjectModel(Hospital.name) private readonly hospitalModel: Model<Hospital>,
     @InjectModel(Center.name) private readonly centerModel: Model<Center>,
-  ) { }
+  ) {}
 
   /* ======================================================
       CREATE
@@ -113,20 +114,53 @@ export class PostService {
     }
 
     const profileId = await this.resolveProfileId(authAccountId, role);
-
     const profileObjectId = profileId ? new Types.ObjectId(profileId) : null;
 
-    // Compare profile _id (what likedBy stores) — not authAccountId
     const isLiked = profileObjectId
       ? (post.likedBy ?? []).some(
-        (id: Types.ObjectId) => id.toString() === profileObjectId.toString(),
-      )
+          (id: Types.ObjectId) => id.toString() === profileObjectId.toString(),
+        )
       : false;
 
-    // Strip likedBy — never expose the full array to clients
-    const { likedBy: _likedBy, ...safePost } = post as any;
+    // ✅ Resolve author name + image
+    const author = await this.resolveAuthor(
+      post.authorId.toString(),
+      post.authorType as UserRole,
+    );
 
-    return { ...safePost, isLiked };
+    const { likedBy: _likedBy, ...safePost } = post as any;
+    return { ...safePost, isLiked, author };
+  }
+
+  private async resolveAuthor(authorId: string, role: UserRole) {
+    try {
+      const model = this.getAuthorModel(role);
+
+      const profile = (await model
+        .findById(new Types.ObjectId(authorId), {
+          firstName: 1, // Doctor ✅ (confirmed from schema)
+          lastName: 1, // Doctor ✅
+          name: 1, // Hospital / Center — adjust when you share those schemas
+          image: 1, // All three ✅
+        })
+        .lean()) as any;
+
+      if (!profile) return null;
+
+      const name =
+        role === UserRole.DOCTOR
+          ? `${profile.firstName ?? ''} ${profile.lastName ?? ''}`.trim()
+          : (profile.name ?? 'Unknown');
+
+      return {
+        _id: profile._id,
+        name,
+        image: profile.image ?? null,
+        type: role,
+      };
+    } catch {
+      return null;
+    }
   }
 
   /* ======================================================
@@ -261,5 +295,25 @@ export class PostService {
     }
 
     return this.postRepo.updateStatus(postId, status, rejectionReason);
+  }
+  // ══════════════════════════════════════════════════════════════
+  // GET STATS
+  //
+  // • DOCTOR / HOSPITAL / CENTER → global stats + their own post metrics
+  // • ADMIN                      → global stats only (no author profile)
+  //
+  // Mirrors the pattern used in QuestionsService.getStats().
+  // ══════════════════════════════════════════════════════════════
+  async getStats(authAccountId: string, role: UserRole): Promise<PostStats> {
+    // Resolve the author's profile _id so the repo can scope author metrics.
+    // resolveProfileId already handles invalid IDs gracefully (returns null).
+    const profileId = await this.resolveProfileId(authAccountId, role);
+
+    const authorProfileId =
+      profileId && Types.ObjectId.isValid(profileId)
+        ? new Types.ObjectId(profileId)
+        : null;
+
+    return this.postRepo.getStats(authorProfileId);
   }
 }
