@@ -13,7 +13,7 @@ export class SearchCountMiddleware implements NestMiddleware {
     @InjectModel(Doctor.name) private readonly doctorModel: Model<Doctor>,
     @InjectModel(Hospital.name) private readonly hospitalModel: Model<Hospital>,
     @InjectModel(Center.name) private readonly centerModel: Model<Center>,
-  ) { }
+  ) {}
 
   use(req: Request, res: Response, next: NextFunction) {
     console.log(`🔥 [Middleware HIT] ${req.method} ${req.originalUrl}`);

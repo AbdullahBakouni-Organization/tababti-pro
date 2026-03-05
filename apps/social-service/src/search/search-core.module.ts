@@ -8,7 +8,7 @@ import { SearchEnhancerService } from './enhancers/search-enhancer.service';
 import { SearchQueriesModule } from './queries/search.queries.module';
 
 @Module({
-  imports: [forwardRef(() => SearchQueriesModule)], 
+  imports: [forwardRef(() => SearchQueriesModule)],
   providers: [
     TranslationAiService,
     AiWorkerService,

@@ -17,9 +17,17 @@ import {
   Center,
   CenterSchema,
 } from '@app/common/database/schemas/center.schema';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
 
 @Module({
   imports: [
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60,
+        limit: 5,
+      },
+    ]),
     MongooseModule.forFeature([
       { name: Post.name, schema: PostSchema },
       { name: User.name, schema: UserSchema },
@@ -29,7 +37,14 @@ import {
     ]),
   ],
   controllers: [PostController],
-  providers: [PostService, PostRepository],
+  providers: [
+    PostService,
+    PostRepository,
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
+  ],
   exports: [PostService],
 })
 export class PostModule {}

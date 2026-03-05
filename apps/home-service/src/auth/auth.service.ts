@@ -30,7 +30,7 @@ export class AuthService {
     private readonly smsService: SmsService,
     private readonly kafkaProducer: KafkaService,
     private authService: AuthValidateService,
-  ) { }
+  ) {}
 
   //---------------------------------------------------------
   // REQUEST OTP
@@ -99,7 +99,7 @@ export class AuthService {
       );
 
       await Promise.allSettled([
-        this.smsService.sendOTP(phone, otp),
+        //this.smsService.sendOTP(phone, otp),
         this.kafkaProducer.emit(KAFKA_TOPICS.WHATSAPP_SEND_OTP, {
           phone,
           otp,

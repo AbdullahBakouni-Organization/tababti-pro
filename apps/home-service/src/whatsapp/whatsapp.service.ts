@@ -2,7 +2,6 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Client, LocalAuth, Message } from 'whatsapp-web.js';
 import * as qrcode from 'qrcode';
 import * as qrcodeTerminal from 'qrcode-terminal';
-import open from 'open';
 
 export type Lang = 'en' | 'ar';
 
@@ -41,7 +40,10 @@ export class WhatsappService implements OnModuleInit {
       qrcodeTerminal.generate(qr, { small: true });
 
       // Open browser once to show the QR page
-      open('http://localhost:3001/api/v1/whatsapp/qr').catch(() => { });
+      try {
+        const { default: open } = await import('open');
+        await open('http://localhost:3001/api/v1/whatsapp/qr');
+      } catch {}
     });
 
     this.client.on('ready', async () => {

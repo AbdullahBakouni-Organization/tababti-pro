@@ -5,8 +5,8 @@ import {
   RequestMethod,
 } from '@nestjs/common';
 //import { GraphQLModule } from '@nestjs/graphql';
-import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
-import { join } from 'path';
+// import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
+// import { join } from 'path';
 
 import { SocialServiceController } from './social-service.controller';
 import { SocialServiceService } from './social-service.service';
@@ -21,8 +21,6 @@ import { SearchCountMiddleware } from './search/search-count.middleware';
 import { NearbyBookingModule } from './most-searched_nearby-booking/nearby-booking.module';
 import { DoctorProfileModule } from './doctor-profile/doctor-profile.module';
 //import { DashboardModule } from './dashboard/dashboard.module';
-import { NotificationDisplayController } from './display-notifications/notification-display.controller';
-import { NotificationDisplayService } from './display-notifications/notification-display.service';
 import { RequestsModule } from './medical-equipment/request.module';
 import { DashboardModule } from './dashboard-service/dashboard.module';
 
@@ -59,8 +57,8 @@ import { DashboardModule } from './dashboard-service/dashboard.module';
     NearbyBookingModule,
     RequestsModule,
   ],
-  controllers: [SocialServiceController, NotificationDisplayController],
-  providers: [SocialServiceService, NotificationDisplayService],
+  controllers: [SocialServiceController],
+  providers: [SocialServiceService],
 })
 export class SocialServiceModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
