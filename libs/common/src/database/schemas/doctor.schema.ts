@@ -72,18 +72,51 @@ export class Doctor extends Document {
   @Prop({ required: false, type: String }) // Image is optional
   image?: string;
 
-  @Prop({ required: false, type: String })
-  certificateImage?: string;
+  @Prop({
+    type: {
+      // Certificate Image
+      certificateImage: { type: String },
+      certificateImageFileName: { type: String },
+      certificateImageBucket: { type: String },
 
-  @Prop({ required: false, type: String })
-  licenseImage?: string;
+      // License Image
+      licenseImage: { type: String },
+      licenseImageFileName: { type: String },
+      licenseImageBucket: { type: String },
 
-  @Prop({ required: false, type: String })
-  certificateDocument?: string;
+      // Certificate Document (PDF)
+      certificateDocument: { type: String },
+      certificateDocumentFileName: { type: String },
+      certificateDocumentBucket: { type: String },
 
-  @Prop({ required: false, type: String })
-  licenseDocument?: string;
+      // License Document (PDF)
+      licenseDocument: { type: String },
+      licenseDocumentFileName: { type: String },
+      licenseDocumentBucket: { type: String },
+    },
+    default: {},
+  })
+  documents: {
+    // Certificate Image
+    certificateImage?: string; // Public URL: http://localhost:9000/bucket/path/uuid.jpg
+    certificateImageFileName?: string; // MinIO filename: doctors/123/certificates/images/uuid.jpg
+    certificateImageBucket?: string; // Bucket name: tababti-doctors
 
+    // License Image
+    licenseImage?: string;
+    licenseImageFileName?: string;
+    licenseImageBucket?: string;
+
+    // Certificate Document
+    certificateDocument?: string;
+    certificateDocumentFileName?: string;
+    certificateDocumentBucket?: string;
+
+    // License Document
+    licenseDocument?: string;
+    licenseDocumentFileName?: string;
+    licenseDocumentBucket?: string;
+  };
   @Prop({
     type: [{ type: Object }],
     index: true,

@@ -18,6 +18,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { DoctorBookingsQueryService } from './doctor.service.v2';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
+import { MinioModule } from '../minio/minio.module';
 
 @Module({
   imports: [
@@ -79,6 +80,7 @@ import { APP_GUARD } from '@nestjs/core';
     }),
     CacheModule,
     FcmModule,
+    MinioModule,
   ],
   providers: [
     DoctorService,

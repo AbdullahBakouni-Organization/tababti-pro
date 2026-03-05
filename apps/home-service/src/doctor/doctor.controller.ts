@@ -18,6 +18,7 @@ import {
   Query,
   Patch,
   UnauthorizedException,
+  BadRequestException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -91,11 +92,37 @@ import { DoctorBookingsQueryService } from './doctor.service.v2';
 import { RescheduleBookingDto } from './dto/resechedula-booking.dto,';
 import { ParseMongoIdPipe } from '../../../../libs/common/src/pipes/parse-mongo-id.pipe';
 import { Throttle } from '@nestjs/throttler';
+import multer from 'multer';
+import { UploadResult, MinioService } from '../minio/minio.service';
 
 // ============================================
 // Login DTO
 // ============================================
-
+const memoryStorageConfig = {
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024,
+  },
+  fileFilter: (req: any, file: Express.Multer.File, cb: any) => {
+    const allowedImageTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    const allowedDocTypes = ['application/pdf'];
+    const isImage = file.fieldname.includes('Image');
+    const isDocument = file.fieldname.includes('Document');
+    if (isImage && allowedImageTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else if (isDocument && allowedDocTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(
+        new BadRequestException(
+          `Invalid file type for ${file.fieldname}. ` +
+            `${isImage ? 'Allowed: JPEG, PNG, WEBP' : 'Allowed: PDF'}`,
+        ),
+        false,
+      );
+    }
+  },
+};
 export class LoginDto {
   phone: string;
   password: string;
@@ -118,11 +145,13 @@ export class DoctorController {
     private DoctorService: DoctorService,
     private DoctorServiceV2: DoctorBookingsQueryService,
     private authService: AuthValidateService,
+    private minioService: MinioService,
   ) {}
 
   // ============================================
   // PUBLIC ENDPOINTS
   // ============================================
+  // Multer config for memory storage (MinIO will handle persistence)
 
   /**
    * Register a new doctor with document uploads
@@ -136,10 +165,8 @@ export class DoctorController {
         { name: 'certificateDocument', maxCount: 1 },
         { name: 'licenseDocument', maxCount: 1 },
       ],
-      doctorDocumentOptions,
+      memoryStorageConfig,
     ),
-    MultipleFileCleanupInterceptor,
-    DocumentUrlInterceptor,
   )
   @HttpCode(HttpStatus.CREATED)
   @ApiConsumes('multipart/form-data')
@@ -181,73 +208,150 @@ export class DoctorController {
       licenseDocument?: Express.Multer.File[];
     },
   ): Promise<RegistrationResponseDto> {
-    // Process uploaded files
-    const processedFiles = this.processUploadedFiles(files);
+    // Process uploaded fil
 
-    const result = await this.DoctorService.registerDoctor(dto, processedFiles);
+    const doctor = await this.DoctorService.registerDoctor(dto);
+    const doctorId = doctor._id.toString();
 
+    // Upload files to MinIO
+    const uploadedFiles = await this.uploadDoctorFiles(doctorId, files);
+
+    // Update doctor record with file URLs
+    if (uploadedFiles) {
+      await this.DoctorService.updateDoctorFiles(doctorId, uploadedFiles);
+    }
     return {
       success: true,
       message:
         'Registration submitted successfully! ' +
         'Your application is under review. ' +
         'You will be notified once approved.',
-      doctorId: result._id.toString(),
-      status: result.status,
+      doctorId,
+      status: doctor.status,
       estimatedReviewTime: '24-48 hours',
-      uploadedFiles: processedFiles
+      uploadedFiles: uploadedFiles
         ? {
-            certificateImage: processedFiles.certificateImage?.path,
-            licenseImage: processedFiles.licenseImage?.path,
-            certificateDocument: processedFiles.certificateDocument?.path,
-            licenseDocument: processedFiles.licenseDocument?.path,
+            certificateImage: uploadedFiles.certificateImage?.url,
+            licenseImage: uploadedFiles.licenseImage?.url,
+            certificateDocument: uploadedFiles.certificateDocument?.url,
+            licenseDocument: uploadedFiles.licenseDocument?.url,
           }
         : undefined,
     };
   }
 
-  /**
-   * Process uploaded files from multipart form
-   */
-  private processUploadedFiles(files?: {
-    certificateImage?: Express.Multer.File[];
-    licenseImage?: Express.Multer.File[];
-    certificateDocument?: Express.Multer.File[];
-    licenseDocument?: Express.Multer.File[];
-  }):
-    | {
-        certificateImage?: Express.Multer.File;
-        licenseImage?: Express.Multer.File;
-        certificateDocument?: Express.Multer.File;
-        licenseDocument?: Express.Multer.File;
-      }
-    | undefined {
-    if (!files) return undefined;
+  private async uploadDoctorFiles(
+    doctorId: string,
+    files?: {
+      certificateImage?: Express.Multer.File[];
+      licenseImage?: Express.Multer.File[];
+      certificateDocument?: Express.Multer.File[];
+      licenseDocument?: Express.Multer.File[];
+    },
+  ): Promise<{
+    certificateImage?: UploadResult;
+    licenseImage?: UploadResult;
+    certificateDocument?: UploadResult;
+    licenseDocument?: UploadResult;
+  } | null> {
+    if (!files) return null;
 
-    const result: {
-      certificateImage?: Express.Multer.File;
-      licenseImage?: Express.Multer.File;
-      certificateDocument?: Express.Multer.File;
-      licenseDocument?: Express.Multer.File;
+    const uploadedFiles: {
+      certificateImage?: UploadResult;
+      licenseImage?: UploadResult;
+      certificateDocument?: UploadResult;
+      licenseDocument?: UploadResult;
     } = {};
 
-    // Extract single files from arrays
-    if (files.certificateImage?.[0]) {
-      result.certificateImage = files.certificateImage[0];
-    }
-    if (files.licenseImage?.[0]) {
-      result.licenseImage = files.licenseImage[0];
-    }
-    if (files.certificateDocument?.[0]) {
-      result.certificateDocument = files.certificateDocument[0];
-    }
-    if (files.licenseDocument?.[0]) {
-      result.licenseDocument = files.licenseDocument[0];
-    }
+    try {
+      // Upload certificate image
+      if (files.certificateImage?.[0]) {
+        uploadedFiles.certificateImage =
+          await this.minioService.uploadDoctorDocument(
+            files.certificateImage[0],
+            doctorId,
+            'certificate',
+            'image',
+          );
+      }
 
-    return Object.keys(result).length > 0 ? result : undefined;
+      // Upload license image
+      if (files.licenseImage?.[0]) {
+        uploadedFiles.licenseImage =
+          await this.minioService.uploadDoctorDocument(
+            files.licenseImage[0],
+            doctorId,
+            'license',
+            'image',
+          );
+      }
+
+      // Upload certificate document (PDF)
+      if (files.certificateDocument?.[0]) {
+        uploadedFiles.certificateDocument =
+          await this.minioService.uploadDoctorDocument(
+            files.certificateDocument[0],
+            doctorId,
+            'certificate',
+            'pdf',
+          );
+      }
+
+      // Upload license document (PDF)
+      if (files.licenseDocument?.[0]) {
+        uploadedFiles.licenseDocument =
+          await this.minioService.uploadDoctorDocument(
+            files.licenseDocument[0],
+            doctorId,
+            'license',
+            'pdf',
+          );
+      }
+
+      return Object.keys(uploadedFiles).length > 0 ? uploadedFiles : null;
+    } catch (error) {
+      // If upload fails, we should clean up the doctor record
+      // and any uploaded files
+      await this.cleanupFailedRegistration(doctorId, uploadedFiles);
+      throw error;
+    }
   }
 
+  /**
+   * Cleanup files and doctor record if registration fails
+   */
+  private async cleanupFailedRegistration(
+    doctorId: string,
+    uploadedFiles: any,
+  ): Promise<void> {
+    try {
+      // Delete uploaded files
+      const filesToDelete: string[] = [];
+
+      if (uploadedFiles.certificateImage) {
+        filesToDelete.push(uploadedFiles.certificateImage.fileName);
+      }
+      if (uploadedFiles.licenseImage) {
+        filesToDelete.push(uploadedFiles.licenseImage.fileName);
+      }
+      if (uploadedFiles.certificateDocument) {
+        filesToDelete.push(uploadedFiles.certificateDocument.fileName);
+      }
+      if (uploadedFiles.licenseDocument) {
+        filesToDelete.push(uploadedFiles.licenseDocument.fileName);
+      }
+
+      if (filesToDelete.length > 0) {
+        await this.minioService.deleteFiles('tababti-doctors', filesToDelete);
+      }
+
+      // Delete doctor record
+      await this.DoctorService.deleteDoctorRecord(doctorId);
+    } catch (error) {
+      // Log but don't throw - original error is more important
+      console.error('Cleanup failed:', error);
+    }
+  }
   /**
    * Login
    */
@@ -416,7 +520,7 @@ export class DoctorController {
     accessToken: string;
     refreshToken?: string;
   }> {
-    const refreshToken = req.cookies['token']; // ← هنا المشكلة كانت
+    const refreshToken = req.cookies['token'];
 
     if (!refreshToken) {
       throw new UnauthorizedException('No refresh token found');
