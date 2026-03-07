@@ -82,7 +82,7 @@ export interface SessionData {
 
 @Injectable()
 export class AuthValidateService {
-  private readonly ACCESS_TOKEN_EXPIRY = '5h'; // 15 minutes
+  private readonly ACCESS_TOKEN_EXPIRY = '30d'; // 15 minutes
   private readonly REFRESH_TOKEN_EXPIRY = '30d'; // 30 days
   private readonly MAX_SESSIONS = 5; // Max concurrent sessions
 
@@ -195,7 +195,7 @@ export class AuthValidateService {
         secret: this.configService.get('JWT_ACCESS_SECRET'),
       });
     } catch {
-      throw new UnauthorizedException('Invalid or expired access token');
+      throw new UnauthorizedException('auth.TOKEN_INVALID');
     }
   }
 
@@ -208,7 +208,7 @@ export class AuthValidateService {
         secret: this.configService.get('JWT_REFRESH_SECRET'),
       });
     } catch {
-      throw new UnauthorizedException('Invalid or expired refresh token');
+      throw new UnauthorizedException('auth.TOKEN_INVALID');
     }
   }
 
@@ -225,7 +225,7 @@ export class AuthValidateService {
       case UserRole.USER:
         return this.userModel;
       default:
-        throw new Error(`Unknown role: ${role}`);
+        throw new UnauthorizedException('auth.INVALID_ROLE');
     }
   }
 
@@ -245,7 +245,7 @@ export class AuthValidateService {
     // 1. Get AuthAccount
     const account = await this.authAccountModel.findById(accountId);
     if (!account) {
-      throw new UnauthorizedException('Account not found');
+      if (!account) throw new UnauthorizedException('auth.ACCOUNT_NOT_FOUND');
     }
 
     // 2. Get entity (Doctor/Admin/User)
@@ -254,7 +254,7 @@ export class AuthValidateService {
       authAccountId: new Types.ObjectId(accountId.toString()),
     });
     if (!entity) {
-      throw new UnauthorizedException(`${role} entity not found`);
+      if (!entity) throw new UnauthorizedException('auth.ENTITY_NOT_FOUND');
     }
 
     const sessionId = randomUUID();
@@ -327,14 +327,12 @@ export class AuthValidateService {
     // 2. Get AuthAccount
     const account = await this.authAccountModel.findById(payload.sub);
     if (!account) {
-      throw new UnauthorizedException('Account not found');
+      if (!account) throw new UnauthorizedException('auth.ACCOUNT_NOT_FOUND');
     }
 
     // 3. Check token version (global revocation)
     if (payload.tv !== account.tokenVersion) {
-      throw new UnauthorizedException(
-        'Token revoked (password changed or logout all)',
-      );
+      throw new UnauthorizedException('auth.TOKEN_REVOKED');
     }
 
     // 4. Get entity based on role
@@ -343,7 +341,7 @@ export class AuthValidateService {
       authAccountId: new Types.ObjectId(account._id.toString()),
     });
     if (!entity) {
-      throw new UnauthorizedException(`${payload.role} entity not found`);
+      if (!entity) throw new UnauthorizedException('auth.ENTITY_NOT_FOUND');
     }
 
     // 5. Find and validate session
@@ -351,7 +349,7 @@ export class AuthValidateService {
       (s) => s.sessionId === payload.sessionId,
     );
     if (!session || !session.isActive) {
-      throw new UnauthorizedException('Session expired or invalid');
+      throw new UnauthorizedException('auth.SESSION_EXPIRED');
     }
 
     // 6. Verify stored refresh token matches
@@ -361,7 +359,7 @@ export class AuthValidateService {
     const isValidRefreshToken = timingSafeEqual(derivedKey, storedHashBuffer);
 
     if (!isValidRefreshToken) {
-      throw new UnauthorizedException('Invalid refresh token');
+      throw new UnauthorizedException('auth.TOKEN_INVALID');
     }
 
     // 7. Generate new token pair
@@ -397,21 +395,19 @@ export class AuthValidateService {
     // 2. Get AuthAccount
     const account = await this.authAccountModel.findById(payload.sub);
     if (!account) {
-      throw new UnauthorizedException('Account not found');
+      if (!account) throw new UnauthorizedException('auth.ACCOUNT_NOT_FOUND');
     }
 
     // 3. Check token version (global revocation)
     if (payload.tv !== account.tokenVersion) {
-      throw new UnauthorizedException(
-        'Token revoked (password changed or logout all)',
-      );
+      throw new UnauthorizedException('auth.TOKEN_REVOKED');
     }
 
     // 4. Get entity based on role
     const entityModel = this.getEntityModel(payload.role);
 
     if (!entityModel) {
-      throw new UnauthorizedException('Entity not found');
+      throw new UnauthorizedException('auth.ENTITY_NOT_FOUND');
     }
 
     // 7. Generate new token pair
@@ -442,7 +438,7 @@ export class AuthValidateService {
     });
 
     if (!entity) {
-      throw new UnauthorizedException('Entity not found');
+      throw new UnauthorizedException('auth.ENTITY_NOT_FOUND');
     }
 
     entity.sessions = entity.sessions.filter((s) => s.sessionId !== sessionId);
@@ -463,7 +459,7 @@ export class AuthValidateService {
     });
 
     if (!entity) {
-      throw new UnauthorizedException('Entity not found');
+      throw new UnauthorizedException('auth.ENTITY_NOT_FOUND');
     }
 
     entity.sessions = entity.sessions.filter((s) => s.deviceId !== deviceId);
@@ -480,7 +476,7 @@ export class AuthValidateService {
     });
 
     if (!entity) {
-      throw new UnauthorizedException('Entity not found');
+      throw new UnauthorizedException('auth.ENTITY_NOT_FOUND');
     }
 
     entity.sessions = [];
@@ -494,7 +490,7 @@ export class AuthValidateService {
   async revokeAllTokens(accountId: string, role: UserRole): Promise<void> {
     const account = await this.authAccountModel.findById(accountId);
     if (!account) {
-      throw new UnauthorizedException('Account not found');
+      throw new UnauthorizedException('auth.ACCOUNT_NOT_FOUND');
     }
 
     // Increment token version (invalidates all existing tokens)
@@ -521,7 +517,7 @@ export class AuthValidateService {
       .lean();
 
     if (!entity) {
-      throw new UnauthorizedException('Entity not found');
+      throw new UnauthorizedException('auth.ENTITY_NOT_FOUND');
     }
 
     return (entity.sessions || [])
@@ -577,7 +573,7 @@ export class AuthValidateService {
   async validateUser(accountId: string) {
     const account = await this.authAccountModel.findById(accountId);
     if (!account) {
-      throw new UnauthorizedException('Account not found');
+      throw new UnauthorizedException('auth.ACCOUNT_NOT_FOUND');
     }
 
     const entityModel = this.getEntityModel(account.role);
@@ -585,7 +581,7 @@ export class AuthValidateService {
       authAccountId: new Types.ObjectId(accountId.toString()),
     });
     if (!entity) {
-      throw new UnauthorizedException('Entity not found');
+      throw new UnauthorizedException('auth.ENTITY_NOT_FOUND');
     }
 
     return {
@@ -601,7 +597,7 @@ export class AuthValidateService {
   async validateUserRole(accountId: string) {
     const account = await this.authAccountModel.findById(accountId);
     if (!account) {
-      throw new UnauthorizedException('Account not found');
+      throw new UnauthorizedException('auth.ACCOUNT_NOT_FOUND');
     }
 
     const entityModel = this.getEntityModel(account.role);
@@ -610,10 +606,10 @@ export class AuthValidateService {
     });
 
     if (!entityModel) {
-      throw new UnauthorizedException('Entity Model not found');
+      throw new UnauthorizedException('auth.ENTITY_NOT_FOUND');
     }
     if (!entity && !entityModel) {
-      throw new UnauthorizedException('Entity not found');
+      throw new UnauthorizedException('auth.ENTITY_NOT_FOUND');
     }
 
     return {

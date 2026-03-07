@@ -16,6 +16,9 @@ export interface MappedAnswer {
 export interface MappedQuestion {
   _id: Types.ObjectId;
   content: string;
+  images: string[]; // ← added
+  hasText: boolean; // ← added
+  hasImages: boolean; // ← added
   status: QuestionStatus;
   specializations: any[];
   answersCount: number;
@@ -37,9 +40,7 @@ export interface QuestionPageResult {
 
 export interface ModerationResult {
   questionId: Types.ObjectId;
-  /** New status after the moderation action */
   status: QuestionStatus.APPROVED | QuestionStatus.REJECTED;
-  /** Rejection reason (only present when rejected) */
   reason?: string;
   moderatedAt: Date;
 }
@@ -68,12 +69,10 @@ export interface QuestionStats {
   rejected: number;
   deleted: number;
   acceptedByMe: number;
-
   approvedPercent: number;
   answeredPercent: number;
   pendingPercent: number;
   rejectedPercent: number;
   acceptedByMePercent: number;
-
   bySpecialization: SpecializationStat[];
 }

@@ -22,7 +22,7 @@ import { DashboardService } from '../service/dashboard.service.rest';
 import { CurrentUser } from '@app/common/decorator/current-user.decorator';
 import { UserRole } from '@app/common/database/schemas/common.enums';
 import { Types } from 'mongoose';
-import { ApiResponse } from '../../common/response/api-response'; // ✅ same import as questions
+import { ApiResponse } from '@app/common/response/api-response';
 
 import {
   DashboardQueryDto,
