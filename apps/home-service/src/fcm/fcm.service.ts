@@ -422,6 +422,154 @@ export class FcmService {
     }
   }
 
+  //Admin Approved Rejected Posts
+  async sendAdminApprovedPostNotification(
+    fcmToken: string,
+    data: {
+      postId: string;
+      doctorName: string;
+      doctorId: string;
+    },
+  ): Promise<boolean> {
+    try {
+      const message: admin.messaging.Message = {
+        token: fcmToken,
+        notification: {
+          title: 'Post Approved',
+          body: `Your post has been approved by the admin.`,
+        },
+        data: {
+          postId: data.postId,
+          doctorName: data.doctorName,
+          doctorId: data.doctorId,
+          action: 'Show Post',
+          timestamp: new Date().toISOString(),
+        },
+        android: {
+          priority: 'high',
+          notification: {
+            channelId: 'post_approved',
+            priority: 'high',
+            defaultSound: true,
+            defaultVibrateTimings: true,
+            icon: 'ic_notification',
+            color: '#FF0000',
+          },
+        },
+        apns: {
+          headers: {
+            'apns-priority': '10',
+          },
+          payload: {
+            aps: {
+              alert: {
+                title: 'Post Approved',
+                body: `Your post has been approved by the admin.`,
+              },
+              sound: 'default',
+              badge: 1,
+            },
+          },
+        },
+      };
+
+      await admin.messaging().send(message);
+
+      this.logger.log(`FCM notification sent successfully`);
+
+      return true;
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `Failed to send FCM notification: ${err.message}`,
+        err.stack,
+      );
+
+      // Handle specific FCM errors
+      if (error.code === 'messaging/invalid-registration-token') {
+        this.logger.warn(`Invalid FCM token: ${fcmToken}`);
+      } else if (error.code === 'messaging/registration-token-not-registered') {
+        this.logger.warn(`FCM token not registered: ${fcmToken}`);
+      }
+
+      return false;
+    }
+  }
+
+  async sendAdminRejectedPostNotification(
+    fcmToken: string,
+    data: {
+      postId: string;
+      doctorName: string;
+      doctorId: string;
+      reason: string;
+    },
+  ): Promise<boolean> {
+    try {
+      const message: admin.messaging.Message = {
+        token: fcmToken,
+        notification: {
+          title: 'Post Rejected',
+          body: `Your post has been rejected by the admin. Reason: ${data.reason}`,
+        },
+        data: {
+          postId: data.postId,
+          doctorName: data.doctorName,
+          doctorId: data.doctorId,
+          action: 'Show Reason',
+          timestamp: new Date().toISOString(),
+        },
+        android: {
+          priority: 'high',
+          notification: {
+            channelId: 'X post_rejected',
+            priority: 'high',
+            defaultSound: true,
+            defaultVibrateTimings: true,
+            icon: 'ic_notification',
+            color: '#FF0000',
+          },
+        },
+        apns: {
+          headers: {
+            'apns-priority': '10',
+          },
+          payload: {
+            aps: {
+              alert: {
+                title: 'Post Rejected',
+                body: `Your post has been rejected by the admin. Reason: ${data.reason}`,
+              },
+              sound: 'default',
+              badge: 1,
+            },
+          },
+        },
+      };
+
+      await admin.messaging().send(message);
+
+      this.logger.log(`FCM notification sent successfully`);
+
+      return true;
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `Failed to send FCM notification: ${err.message}`,
+        err.stack,
+      );
+
+      // Handle specific FCM errors
+      if (error.code === 'messaging/invalid-registration-token') {
+        this.logger.warn(`Invalid FCM token: ${fcmToken}`);
+      } else if (error.code === 'messaging/registration-token-not-registered') {
+        this.logger.warn(`FCM token not registered: ${fcmToken}`);
+      }
+
+      return false;
+    }
+  }
+
   /**
    * Send slot availability update notification
    */

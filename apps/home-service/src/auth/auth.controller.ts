@@ -5,18 +5,17 @@ import {
   Body,
   HttpCode,
   HttpStatus,
-  Get,
   UseGuards,
   Res,
   UseInterceptors,
   UploadedFile,
   Req,
+  BadRequestException,
 } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
   ApiResponse,
-  ApiBearerAuth,
   ApiConsumes,
   ApiBody,
 } from '@nestjs/swagger';
@@ -30,8 +29,6 @@ import {
 import { JwtAuthGuard } from '@app/common/guards/jwt.guard';
 import { User } from '@app/common/database/schemas/user.schema';
 import type { Response } from 'express';
-
-import { userImageOptions } from '@app/common/helpers/file-upload.helper';
 import { RolesGuard } from '@app/common/guards/role.guard';
 import { UserRole } from '@app/common/database/schemas/common.enums';
 import { Roles } from '@app/common/decorator/role.decorator';
@@ -40,13 +37,29 @@ import { FileInterceptor } from '@nestjs/platform-express';
 
 import type { Request } from 'express';
 import { JwtUserGuard } from '@app/common/guards/jwt-user.guard';
-import { DocumentUrlInterceptor } from '@app/common/interceptors';
 import { AuthValidateService } from '@app/common/auth-validate';
 import { JwtUserRefreshGuard } from '@app/common/guards/jwt-refresh-user.guard';
 import { ParseMongoIdPipe } from '@app/common/pipes/parse-mongo-id.pipe';
+import multer from 'multer';
 export interface RequestWithUser extends Request {
   user: User;
 }
+// Memory storage config for MinIO
+const memoryStorageConfig = {
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  fileFilter: (req: any, file: Express.Multer.File, cb: any) => {
+    const allowed = ['image/jpeg', 'image/png', 'image/webp'];
+    allowed.includes(file.mimetype)
+      ? cb(null, true)
+      : cb(
+          new BadRequestException(
+            'Invalid file type. Allowed: JPEG, PNG, WEBP',
+          ),
+          false,
+        );
+  },
+};
 @ApiTags('Authentication')
 @Controller('auth-service')
 export class AuthController {
@@ -124,10 +137,7 @@ export class AuthController {
   @UseGuards(JwtUserGuard, RolesGuard)
   @Roles(UserRole.USER)
   @Post('complete-registration')
-  @UseInterceptors(
-    FileInterceptor('image', userImageOptions),
-    DocumentUrlInterceptor,
-  )
+  @UseInterceptors(FileInterceptor('image', memoryStorageConfig))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Step 3: Complete registration with user details' })
   @ApiBody({
@@ -171,25 +181,7 @@ export class AuthController {
     @Body() completeRegistrationDto: RequestOtpDto,
     @UploadedFile() file?: Express.Multer.File,
   ) {
-    const imagePath = file?.path.replace(/\\/g, '/');
-
-    return this.authService.completeRegistration(
-      completeRegistrationDto,
-      imagePath,
-    );
-  }
-
-  @Get('profile')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Get current user profile' })
-  @ApiResponse({
-    status: 200,
-    description: 'Profile retrieved successfully',
-  })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
-  getProfile(@Req() req: RequestWithUser) {
-    return req.user;
+    return this.authService.completeRegistration(completeRegistrationDto, file);
   }
 
   @Post('logout')

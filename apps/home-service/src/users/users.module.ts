@@ -6,6 +6,7 @@ import { KafkaModule } from '@app/common/kafka/kafka.module';
 import { CacheModule } from '@app/common/cache/cache.module';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
+import { MinioModule } from '../minio/minio.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { APP_GUARD } from '@nestjs/core';
     DatabaseModule,
     KafkaModule,
     CacheModule,
+    MinioModule,
   ],
   providers: [
     UsersService,

@@ -14,23 +14,38 @@ import {
   Patch,
   UnauthorizedException,
   BadRequestException,
+  Query,
 } from '@nestjs/common';
 import { AdminService } from './admin.service';
 
 import { AdminSignInDto } from './dto/admin-signin.dto';
 
 import type { Response } from 'express';
-import { ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiParam,
+  ApiQuery,
+  ApiResponse,
+} from '@nestjs/swagger';
 import { AuthValidateService, SessionInfo } from '@app/common/auth-validate';
 import type { Request } from 'express';
 import { JwtAuthGuard } from '@app/common/guards/jwt.guard';
 import { RolesGuard } from '@app/common/guards/role.guard';
 import { Roles } from '@app/common/decorator/role.decorator';
 import {
+  GalleryImageStatus,
   PostStatus,
   UserRole,
 } from '@app/common/database/schemas/common.enums';
 import { JwtAdminRefreshGuard } from '@app/common/guards/jwt-admin-refresh.guard';
+import {
+  ApprovePostDto,
+  GetPostsFilterDto,
+  PaginatedPostsResponseDto,
+  PostActionResponseDto,
+  RejectPostDto,
+} from './dto/approved-reject-post.dto';
 
 @Controller('admin')
 export class AdminController {
@@ -218,5 +233,436 @@ export class AdminController {
       success: true,
       message: `Post status changed to ${status}`,
     };
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Get('gallery/pending')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get all pending gallery images',
+    description: `
+      Retrieve all gallery images awaiting admin approval.
+
+      **Workflow:**
+      1. Doctors upload images → Status: PENDING
+      2. Admin reviews this endpoint
+      3. Admin approves/rejects images
+      4. Approved images become visible
+      5. Rejected images are deleted from MinIO
+      `,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Pending gallery images retrieved',
+    schema: {
+      example: [
+        {
+          doctorId: '507f1f77bcf86cd799439011',
+          doctorName: 'Dr. Ahmed Hassan',
+          image: {
+            imageId: '507f1f77bcf86cd799439025',
+            url: 'http://localhost:9000/tababti-doctors/doctors/507f/gallery/uuid.jpg',
+            fileName: 'doctors/507f/gallery/uuid.jpg',
+            bucket: 'tababti-doctors',
+            description: 'Clinic interior',
+            uploadedAt: '2026-03-05T10:00:00.000Z',
+            status: 'PENDING',
+          },
+        },
+      ],
+    },
+  })
+  async getAllPendingImages() {
+    return this.adminService.getAllPendingGalleryImages();
+  }
+
+  /**
+   * Get gallery images for specific doctor (filtered by status)
+   */
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Get(':doctorId/gallery')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get doctor gallery images',
+    description:
+      'Get gallery images filtered by status (PENDING, APPROVED, REJECTED)',
+  })
+  @ApiParam({
+    name: 'doctorId',
+    description: 'Doctor MongoDB ObjectId',
+  })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    enum: GalleryImageStatus,
+    description: 'Filter by status',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Gallery images retrieved',
+  })
+  async getDoctorGallery(
+    @Param('doctorId') doctorId: string,
+    @Query('status') status?: GalleryImageStatus,
+  ) {
+    return this.adminService.getGalleryImages(doctorId, status);
+  }
+
+  /**
+   * Approve gallery image
+   */
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Post(':doctorId/gallery/:imageId/approve')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Approve gallery image',
+    description: `
+      Approve a pending gallery image.
+
+      **Effect:**
+      - Image status: PENDING → APPROVED
+      - Image becomes visible to public
+      - Records admin ID and approval timestamp
+      `,
+  })
+  @ApiParam({
+    name: 'doctorId',
+    description: 'Doctor MongoDB ObjectId',
+  })
+  @ApiParam({
+    name: 'imageId',
+    description: 'Unique image ID from gallery',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Image approved successfully',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Doctor or image not found',
+  })
+  async approveGalleryImage(
+    @Param('doctorId') doctorId: string,
+    @Param('imageId') imageId: string,
+    @Req() req: any,
+  ) {
+    const adminId: string = req.user.accountId;
+    await this.adminService.approveGalleryImage(doctorId, imageId, adminId);
+
+    return {
+      success: true,
+      message: 'Gallery image approved successfully',
+      doctorId,
+      imageId,
+      approvedBy: adminId,
+      approvedAt: new Date(),
+    };
+  }
+
+  /**
+   * Reject and delete gallery image
+   */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Post(':doctorId/gallery/:imageId/reject')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Reject gallery image',
+    description: `
+      Reject a pending gallery image and delete from MinIO.
+
+      **Effect:**
+      - Image deleted from MinIO
+      - Image removed from doctor's gallery
+      - Cannot be recovered
+      `,
+  })
+  @ApiParam({
+    name: 'doctorId',
+    description: 'Doctor MongoDB ObjectId',
+  })
+  @ApiParam({
+    name: 'imageId',
+    description: 'Unique image ID from gallery',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Image rejected and deleted',
+  })
+  async rejectGalleryImage(
+    @Param('doctorId') doctorId: string,
+    @Param('imageId') imageId: string,
+    @Body('reason') reason: string,
+    @Req() req: any,
+  ) {
+    const adminId: string = req.user.accountId;
+    if (!reason) {
+      reason = 'Image did not meet quality standards';
+    }
+
+    await this.adminService.rejectGalleryImage(doctorId, imageId, reason);
+
+    return {
+      success: true,
+      message: 'Gallery image rejected and deleted',
+      doctorId,
+      imageId,
+      reason,
+      rejectedBy: adminId,
+      rejectedAt: new Date(),
+    };
+  }
+
+  /**
+   * Get all pending posts
+   */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Get('pending')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get all pending posts',
+    description: `
+      Retrieve all posts awaiting admin approval.
+      Supports filtering by doctor name (Arabic/English).
+
+      **Features:**
+      - Powerful regex search for doctor names
+      - Supports Arabic: أحمد، محمد، علي
+      - Supports English: Ahmed, Mohammed, Ali
+      - Case-insensitive search
+      - Partial name matching
+      - Pagination support
+      `,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Pending posts retrieved',
+    type: PaginatedPostsResponseDto,
+  })
+  async getPendingPosts(
+    @Query() filters: GetPostsFilterDto,
+  ): Promise<PaginatedPostsResponseDto> {
+    // Force status to PENDING
+    filters.status = PostStatus.PENDING;
+    return this.adminService.getPosts(filters);
+  }
+
+  /**
+   * Get all approved posts
+   */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Get('approved')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get all approved posts',
+    description: 'Retrieve all approved posts with doctor name filtering.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Approved posts retrieved',
+    type: PaginatedPostsResponseDto,
+  })
+  async getApprovedPosts(
+    @Query() filters: GetPostsFilterDto,
+  ): Promise<PaginatedPostsResponseDto> {
+    // Force status to APPROVED
+    filters.status = PostStatus.APPROVED;
+    return this.adminService.getPosts(filters);
+  }
+
+  /**
+   * Get all rejected posts
+   */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Get('rejected')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get all rejected posts',
+    description: 'Retrieve all rejected posts with doctor name filtering.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Rejected posts retrieved',
+    type: PaginatedPostsResponseDto,
+  })
+  async getRejectedPosts(
+    @Query() filters: GetPostsFilterDto,
+  ): Promise<PaginatedPostsResponseDto> {
+    // Force status to REJECTED
+    filters.status = PostStatus.REJECTED;
+    return this.adminService.getPosts(filters);
+  }
+
+  /**
+   * Get all posts with flexible filtering
+   */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Get()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get all posts with filters',
+    description: `
+      Get posts with advanced filtering options.
+
+      **Query Parameters:**
+      - status: Filter by PENDING, APPROVED, or REJECTED (optional)
+      - doctorName: Search by doctor name in Arabic or English (optional)
+      - page: Page number (default: 1)
+      - limit: Items per page (default: 20, max: 100)
+
+      **Doctor Name Search Examples:**
+      - Arabic: "أحمد" → matches "أحمد حسن", "أحمد علي"
+      - English: "Ahmed" → matches "Ahmed Hassan", "Ahmed Ali"
+      - Partial: "أح" → matches any name starting with "أح"
+      - Full name: "أحمد حسن" → matches exact full name
+
+      **Features:**
+      - Powerful regex for both Arabic and English
+      - Case-insensitive search
+      - Searches firstName, lastName, and full name
+      - Unicode-aware (proper Arabic support)
+      `,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Posts retrieved successfully',
+    type: PaginatedPostsResponseDto,
+    schema: {
+      example: {
+        posts: [
+          {
+            postId: '507f1f77bcf86cd799439020',
+            content: 'Important health tips...',
+            title: 'Summer Health Tips',
+            images: [
+              'http://localhost:9000/tababti-general/posts/507f/post123/uuid.jpg',
+            ],
+            status: 'PENDING',
+            doctor: {
+              doctorId: '507f1f77bcf86cd799439011',
+              firstName: 'أحمد',
+              lastName: 'حسن',
+              fullName: 'أحمد حسن',
+              specialization: 'Cardiology',
+              image: 'http://localhost:9000/.../profile/uuid.jpg',
+            },
+            createdAt: '2026-03-05T10:00:00.000Z',
+          },
+        ],
+        pagination: {
+          currentPage: 1,
+          totalPages: 5,
+          totalItems: 100,
+          itemsPerPage: 20,
+          hasNextPage: true,
+          hasPreviousPage: false,
+        },
+        summary: {
+          totalPending: 45,
+          totalApproved: 120,
+          totalRejected: 15,
+        },
+      },
+    },
+  })
+  async getAllPosts(
+    @Query() filters: GetPostsFilterDto,
+  ): Promise<PaginatedPostsResponseDto> {
+    return this.adminService.getPosts(filters);
+  }
+
+  /**
+   * Approve post
+   */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Post(':postId/approve')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Approve post',
+    description: `
+      Approve a pending post.
+
+      **Effect:**
+      - Post status: PENDING → APPROVED
+      - Post becomes visible to public
+      - Doctor receives FCM notification via Kafka
+      - Records admin ID and approval timestamp
+      `,
+  })
+  @ApiParam({
+    name: 'postId',
+    description: 'Post MongoDB ObjectId',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Post approved successfully',
+    type: PostActionResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Post not found or already processed',
+  })
+  async approvePost(
+    @Param('postId') postId: string,
+    @Body() dto: ApprovePostDto,
+  ): Promise<PostActionResponseDto> {
+    const adminId: string = req.user.accountId;
+    return this.adminService.approvePost(postId, dto, adminId);
+  }
+
+  /**
+   * Reject post
+   */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Post(':postId/reject')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Reject post',
+    description: `
+      Reject a pending post.
+
+      **Effect:**
+      - Post status: PENDING → REJECTED
+      - Post NOT visible to public
+      - Doctor receives FCM notification with rejection reason
+      - Records admin ID, rejection timestamp, and reason
+
+      **Note:** Rejected posts are kept in database for audit trail.
+      `,
+  })
+  @ApiParam({
+    name: 'postId',
+    description: 'Post MongoDB ObjectId',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Post rejected successfully',
+    type: PostActionResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Rejection reason is required',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Post not found or already processed',
+  })
+  async rejectPost(
+    @Param('postId') postId: string,
+    @Body() dto: RejectPostDto,
+  ): Promise<PostActionResponseDto> {
+    const adminId: string = req.user.accountId;
+    return this.adminService.rejectPost(postId, dto, adminId);
   }
 }

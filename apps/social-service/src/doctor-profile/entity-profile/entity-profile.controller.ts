@@ -12,13 +12,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 
-import {
-  ApiTags,
-  ApiQuery,
-  ApiOperation,
-  ApiBody,
-  ApiConsumes,
-} from '@nestjs/swagger';
+import { ApiTags, ApiQuery, ApiBody, ApiConsumes } from '@nestjs/swagger';
 // must display all data for hpspital and center and doctor
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
@@ -33,6 +27,7 @@ import {
 } from '../dto/get-entity-profile.dto';
 
 import { ApiResponse } from '../../common/response/api-response';
+import { UserRole } from '@app/common/database/schemas/common.enums';
 
 @ApiTags('Entity Profile')
 @Controller('entity/profile')
@@ -64,7 +59,7 @@ export class EntityProfileController {
   @ApiQuery({ name: 'type', enum: EntityType, required: true })
   async getEntityProfile(
     @Param('id') id: string,
-    @Query('type') type: EntityType,
+    @Query('type') type: UserRole,
     @Headers('accept-language') lang: 'en' | 'ar' = 'en',
   ) {
     const data = await this.service.getEntityProfile(id, type);

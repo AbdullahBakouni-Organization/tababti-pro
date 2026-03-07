@@ -4,7 +4,10 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Post } from '@app/common/database/schemas/post.schema';
 import { CommonDepartment } from '@app/common/database/schemas/common_departments.schema';
-import { PostStatus } from '@app/common/database/schemas/common.enums';
+import {
+  PostStatus,
+  UserRole,
+} from '@app/common/database/schemas/common.enums';
 import { EntityProfileRepository } from './entity-profile.repository';
 import { EntityType } from '../dto/get-entity-profile.dto';
 
@@ -17,13 +20,13 @@ export class EntityProfileService {
     private readonly departmentModel: Model<CommonDepartment>,
   ) {}
 
-  async getEntityProfile(id: string, type: EntityType) {
+  async getEntityProfile(id: string, type: UserRole) {
     switch (type) {
-      case EntityType.DOCTOR:
+      case UserRole.DOCTOR:
         return this.getDoctorProfile(id);
-      case EntityType.HOSPITAL:
+      case UserRole.HOSPITAL:
         return this.getHospitalProfile(id);
-      case EntityType.CENTER:
+      case UserRole.CENTER:
         return this.getCenterProfile(id);
     }
   }
@@ -48,7 +51,7 @@ export class EntityProfileService {
       .lean();
 
     return {
-      type: EntityType.DOCTOR,
+      type: UserRole.DOCTOR,
       id: doctor._id,
       fullName: [doctor.firstName, doctor.middleName, doctor.lastName]
         .filter(Boolean)
@@ -394,8 +397,6 @@ export class EntityProfileService {
 
   async getGallery(id: string, type: EntityType): Promise<string[]> {
     switch (type) {
-      case EntityType.DOCTOR:
-        return this.repo.getDoctorGallery(id);
       case EntityType.HOSPITAL:
         return this.repo.getHospitalGallery(id);
       case EntityType.CENTER:
@@ -409,8 +410,6 @@ export class EntityProfileService {
     images: string[],
   ): Promise<string[]> {
     switch (type) {
-      case EntityType.DOCTOR:
-        return this.repo.addDoctorGallery(id, images);
       case EntityType.HOSPITAL:
         return this.repo.addHospitalGallery(id, images);
       case EntityType.CENTER:
@@ -424,8 +423,6 @@ export class EntityProfileService {
     images: string[],
   ): Promise<string[]> {
     switch (type) {
-      case EntityType.DOCTOR:
-        return this.repo.removeDoctorGallery(id, images);
       case EntityType.HOSPITAL:
         return this.repo.removeHospitalGallery(id, images);
       case EntityType.CENTER:
@@ -435,8 +432,6 @@ export class EntityProfileService {
 
   async clearGallery(id: string, type: EntityType): Promise<void> {
     switch (type) {
-      case EntityType.DOCTOR:
-        return this.repo.clearDoctorGallery(id);
       case EntityType.HOSPITAL:
         return this.repo.clearHospitalGallery(id);
       case EntityType.CENTER:

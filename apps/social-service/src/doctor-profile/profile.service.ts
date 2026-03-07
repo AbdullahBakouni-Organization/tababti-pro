@@ -203,8 +203,6 @@ export class DoctorProfileService {
       inspectionPrice: doctor.inspectionPrice ?? 0,
       inspectionDuration: doctor.inspectionDuration ?? 0,
       image: doctor.image ?? null,
-      certificateImage: doctor.certificateImage ?? null,
-      licenseImage: doctor.licenseImage ?? null,
       gallery: doctor.gallery ?? [],
       phones: doctor.phones,
       workingHours: doctor.workingHours ?? [],
