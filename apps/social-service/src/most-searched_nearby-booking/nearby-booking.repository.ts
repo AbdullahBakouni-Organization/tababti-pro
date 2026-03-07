@@ -11,6 +11,8 @@ import { BookingStatus } from '@app/common/database/schemas/common.enums';
 
 import { GetDoctorPatientsDto } from './dto/get-doctor-patients.dto';
 import { GetMyAppointmentsDto } from './dto/get-my-appointments.dto';
+import { SearchPatientsDto, SearchType } from './dto/search-patients.dto';
+import { PatientDetailDto } from './dto/patient-detail.dto';
 
 @Injectable()
 export class NearbyBookingRepository {
@@ -23,7 +25,6 @@ export class NearbyBookingRepository {
   ) {}
 
   // ── Helpers ───────────────────────────────────────────────────────────────
-
   async findUserByAuthAccountId(authAccountId: string) {
     return this.userModel
       .findOne({ authAccountId: new Types.ObjectId(authAccountId) })
@@ -36,21 +37,25 @@ export class NearbyBookingRepository {
       .lean();
   }
 
-  // ── Find Top Doctors (paginated) ──────────────────────────────────────────
-  // Returns: firstName, lastName, middleName, image, searchCount,
-  //          specialization{_id,name}, city{_id,name}, subcity{_id,name}
+  private escapeRegex(str: string): string {
+    return str.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
 
+  private safePage(p: any): number {
+    return Math.max(Number(p) || 1, 1);
+  }
+  private safeLimit(l: any): number {
+    return Math.min(Math.max(Number(l) || 10, 1), 50);
+  }
+
+  // ── Top Doctors ───────────────────────────────────────────────────────────
   async findTopDoctors(page: number, limit: number) {
     const skip = (page - 1) * limit;
-
     const [doctors, total] = await Promise.all([
       this.doctorModel.aggregate([
-        // stable sort: highest searchCount first, then _id for tiebreaker
         { $sort: { searchCount: -1, _id: 1 } },
         { $skip: skip },
         { $limit: limit },
-
-        // privateSpecialization
         {
           $lookup: {
             from: 'privatespecializations',
@@ -65,8 +70,6 @@ export class NearbyBookingRepository {
             preserveNullAndEmptyArrays: true,
           },
         },
-
-        // city (collection: 'cities')
         {
           $lookup: {
             from: 'cities',
@@ -76,8 +79,6 @@ export class NearbyBookingRepository {
           },
         },
         { $unwind: { path: '$cityData', preserveNullAndEmptyArrays: true } },
-
-        // subcity (collection: 'subcities', field: subcityId)
         {
           $lookup: {
             from: 'subcities',
@@ -87,7 +88,6 @@ export class NearbyBookingRepository {
           },
         },
         { $unwind: { path: '$subcityData', preserveNullAndEmptyArrays: true } },
-
         {
           $project: {
             _id: 1,
@@ -125,10 +125,8 @@ export class NearbyBookingRepository {
           },
         },
       ]),
-
       this.doctorModel.countDocuments(),
     ]);
-
     return {
       data: doctors,
       total,
@@ -138,32 +136,22 @@ export class NearbyBookingRepository {
     };
   }
 
-  // ── Find Upcoming Bookings For Doctor (paginated) ─────────────────────────
-  // Booking schema: patientId(ref:User), doctorId(ref:Doctor), slotId,
-  //   status, bookingDate(Date), bookingTime(String HH:MM),
-  //   bookingEndTime(String), location{type,entity_name,address},
-  //   price, createdBy, isRated, ratingId, note, completedAt
-
+  // ── Next Bookings For Doctor ──────────────────────────────────────────────
   async findNextBookingsForDoctor(
     doctorId: Types.ObjectId,
     page: number,
     limit: number,
   ) {
     const skip = (page - 1) * limit;
-
     const result = await this.bookingModel.aggregate([
       {
         $match: {
           doctorId,
-          // upcoming: only future dates, only active statuses
           status: { $in: [BookingStatus.PENDING, BookingStatus.CONFIRMED] },
           bookingDate: { $gte: new Date() },
         },
       },
-      // sort by nearest date, then earliest time slot (string HH:MM sorts correctly)
       { $sort: { bookingDate: 1, bookingTime: 1 } },
-
-      // join patient info
       {
         $lookup: {
           from: this.userModel.collection.name,
@@ -173,7 +161,6 @@ export class NearbyBookingRepository {
         },
       },
       { $unwind: { path: '$patientData', preserveNullAndEmptyArrays: true } },
-
       {
         $project: {
           _id: 1,
@@ -183,12 +170,12 @@ export class NearbyBookingRepository {
           bookingEndTime: 1,
           location: 1,
           price: 1,
-          createdBy: 1,
-          isRated: 1,
-          ratingId: 1,
           note: 1,
           slotId: 1,
           createdAt: 1,
+          createdBy: 1,
+          isRated: 1,
+          ratingId: 1,
           patient: {
             _id: '$patientData._id',
             username: '$patientData.username',
@@ -197,7 +184,6 @@ export class NearbyBookingRepository {
           },
         },
       },
-
       {
         $facet: {
           data: [{ $skip: skip }, { $limit: limit }],
@@ -205,7 +191,6 @@ export class NearbyBookingRepository {
         },
       },
     ]);
-
     const total = result[0]?.totalCount?.[0]?.count ?? 0;
     return {
       data: result[0]?.data ?? [],
@@ -216,8 +201,7 @@ export class NearbyBookingRepository {
     };
   }
 
-  // ── Find Upcoming Bookings For User (paginated) ───────────────────────────
-
+  // ── Next Bookings For User ────────────────────────────────────────────────
   async findNextBookingsForUser(
     patientId: Types.ObjectId,
     page: number,
@@ -225,19 +209,15 @@ export class NearbyBookingRepository {
     doctorId?: string,
   ) {
     const skip = (page - 1) * limit;
-
     const match: Record<string, any> = {
       patientId,
       status: { $in: [BookingStatus.PENDING, BookingStatus.CONFIRMED] },
       bookingDate: { $gte: new Date() },
     };
     if (doctorId) match.doctorId = new Types.ObjectId(doctorId);
-
     const result = await this.bookingModel.aggregate([
       { $match: match },
       { $sort: { bookingDate: 1, bookingTime: 1 } },
-
-      // join doctor info
       {
         $lookup: {
           from: this.doctorModel.collection.name,
@@ -247,7 +227,6 @@ export class NearbyBookingRepository {
         },
       },
       { $unwind: { path: '$doctorData', preserveNullAndEmptyArrays: true } },
-
       {
         $project: {
           _id: 1,
@@ -257,12 +236,12 @@ export class NearbyBookingRepository {
           bookingEndTime: 1,
           location: 1,
           price: 1,
-          createdBy: 1,
-          isRated: 1,
-          ratingId: 1,
           note: 1,
           slotId: 1,
           createdAt: 1,
+          createdBy: 1,
+          isRated: 1,
+          ratingId: 1,
           doctor: {
             _id: '$doctorData._id',
             firstName: '$doctorData.firstName',
@@ -272,7 +251,6 @@ export class NearbyBookingRepository {
           },
         },
       },
-
       {
         $facet: {
           data: [{ $skip: skip }, { $limit: limit }],
@@ -280,7 +258,6 @@ export class NearbyBookingRepository {
         },
       },
     ]);
-
     const total = result[0]?.totalCount?.[0]?.count ?? 0;
     return {
       data: result[0]?.data ?? [],
@@ -291,8 +268,7 @@ export class NearbyBookingRepository {
     };
   }
 
-  // ── Find All Bookings For User (paginated) ────────────────────────────────
-
+  // ── All Bookings For User ─────────────────────────────────────────────────
   async findAllBookingsForUser(
     patientId: Types.ObjectId,
     status?: string,
@@ -302,7 +278,6 @@ export class NearbyBookingRepository {
     const skip = (page - 1) * limit;
     const query: Record<string, any> = { patientId };
     if (status) query.status = status;
-
     const [data, total] = await Promise.all([
       this.bookingModel
         .find(query)
@@ -313,23 +288,18 @@ export class NearbyBookingRepository {
         .lean(),
       this.bookingModel.countDocuments(query),
     ]);
-
     return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
-  // ── Find Doctor Patients (paginated) ─────────────────────────────────────
-  // "Patients" = users who had COMPLETED bookings with this doctor
-  // Groups by patient, counts visits, shows last visit date
-
+  // ── Doctor Patients (completed visits only) ───────────────────────────────
   async findDoctorPatients(
     doctorId: Types.ObjectId,
     filters: GetDoctorPatientsDto,
   ) {
-    const page = Math.max(Number(filters.page) || 1, 1);
-    const limit = Math.min(Math.max(Number(filters.limit) || 10, 1), 50);
+    const page = this.safePage(filters.page);
+    const limit = this.safeLimit(filters.limit);
     const skip = (page - 1) * limit;
 
-    // only COMPLETED bookings or those with completedAt set
     const matchStage: Record<string, any> = {
       doctorId,
       $or: [
@@ -337,7 +307,6 @@ export class NearbyBookingRepository {
         { completedAt: { $ne: null, $exists: true } },
       ],
     };
-
     if (filters.fromDate || filters.toDate) {
       matchStage.bookingDate = {};
       if (filters.fromDate)
@@ -360,11 +329,12 @@ export class NearbyBookingRepository {
     ];
 
     if (filters.search) {
+      const escaped = this.escapeRegex(filters.search);
       pipeline.push({
         $match: {
           $or: [
-            { 'patient.username': { $regex: filters.search, $options: 'i' } },
-            { 'patient.phone': { $regex: filters.search, $options: 'i' } },
+            { 'patient.username': { $regex: escaped, $options: 'i' } },
+            { 'patient.phone': { $regex: escaped, $options: 'i' } },
           ],
         },
       });
@@ -402,15 +372,13 @@ export class NearbyBookingRepository {
     };
   }
 
-  // ── Find My Appointments (paginated) ─────────────────────────────────────
-  // All bookings for a doctor (PENDING + CONFIRMED + COMPLETED), sorted newest first
-
+  // ── My Appointments ───────────────────────────────────────────────────────
   async findMyAppointments(
     doctorId: Types.ObjectId,
     filters: GetMyAppointmentsDto,
   ) {
-    const page = Math.max(Number(filters.page) || 1, 1);
-    const limit = Math.min(Math.max(Number(filters.limit) || 10, 1), 50);
+    const page = this.safePage(filters.page);
+    const limit = this.safeLimit(filters.limit);
     const skip = (page - 1) * limit;
 
     const matchStage: Record<string, any> = {
@@ -423,7 +391,6 @@ export class NearbyBookingRepository {
         ],
       },
     };
-
     if (filters.fromDate || filters.toDate) {
       matchStage.bookingDate = {};
       if (filters.fromDate)
@@ -446,18 +413,18 @@ export class NearbyBookingRepository {
     ];
 
     if (filters.search) {
+      const escaped = this.escapeRegex(filters.search);
       pipeline.push({
         $match: {
           $or: [
-            { 'patient.username': { $regex: filters.search, $options: 'i' } },
-            { 'patient.phone': { $regex: filters.search, $options: 'i' } },
+            { 'patient.username': { $regex: escaped, $options: 'i' } },
+            { 'patient.phone': { $regex: escaped, $options: 'i' } },
           ],
         },
       });
     }
 
     pipeline.push(
-      // sort newest booking first, stable with _id
       { $sort: { bookingDate: -1, bookingTime: -1, _id: 1 } },
       {
         $project: {
@@ -468,13 +435,13 @@ export class NearbyBookingRepository {
           bookingEndTime: 1,
           location: 1,
           price: 1,
-          createdBy: 1,
-          isRated: 1,
-          ratingId: 1,
           note: 1,
           completedAt: 1,
           slotId: 1,
           createdAt: 1,
+          createdBy: 1,
+          isRated: 1,
+          ratingId: 1,
           patient: {
             _id: '$patient._id',
             username: '$patient.username',
@@ -502,24 +469,102 @@ export class NearbyBookingRepository {
     };
   }
 
-  // ── Search Doctor Patients (paginated) ───────────────────────────────────
-  // Searches across ALL bookings (any status) grouped by patient
-  // Returns full booking history per patient
-
-  async searchDoctorPatients(
+  // ── Search Patients V2 (filters + stats + gender breakdown) ──────────────
+  async searchDoctorPatientsV2(
     doctorId: Types.ObjectId,
-    search: string,
+    filters: SearchPatientsDto,
+  ) {
+    const page = this.safePage(filters.page);
+    const limit = this.safeLimit(filters.limit);
+    const searchType = filters.searchType ?? SearchType.ALL;
+
+    const shouldSearchPatients =
+      searchType === SearchType.ALL || searchType === SearchType.PATIENTS;
+    const shouldSearchDoctors =
+      searchType === SearchType.ALL || searchType === SearchType.DOCTORS;
+    const shouldSearchHospitals =
+      searchType === SearchType.ALL || searchType === SearchType.HOSPITALS;
+    const shouldSearchCenters =
+      searchType === SearchType.ALL || searchType === SearchType.CENTERS;
+
+    // run all searches in parallel
+    const [patientsResult, doctorsResult, hospitalsResult, centersResult] =
+      await Promise.all([
+        shouldSearchPatients
+          ? this._searchPatients(doctorId, filters, page, limit)
+          : Promise.resolve({ data: [], total: 0, stats: null }),
+
+        shouldSearchDoctors
+          ? this._searchDoctors(filters, page, limit)
+          : Promise.resolve({ data: [], total: 0 }),
+
+        shouldSearchHospitals
+          ? this._searchHospitals(filters, page, limit)
+          : Promise.resolve({ data: [], total: 0 }),
+
+        shouldSearchCenters
+          ? this._searchCenters(filters, page, limit)
+          : Promise.resolve({ data: [], total: 0 }),
+      ]);
+
+    return {
+      patients: {
+        data: patientsResult.data,
+        total: patientsResult.total,
+        stats: patientsResult.stats,
+      },
+      doctors: {
+        data: doctorsResult.data,
+        total: doctorsResult.total,
+      },
+      hospitals: {
+        data: hospitalsResult.data,
+        total: hospitalsResult.total,
+      },
+      centers: {
+        data: centersResult.data,
+        total: centersResult.total,
+      },
+      pagination: {
+        page,
+        limit,
+      },
+    };
+  }
+
+  // ── Private: Search Patients ──────────────────────────────────────────────
+  private async _searchPatients(
+    doctorId: Types.ObjectId,
+    filters: SearchPatientsDto,
     page: number,
     limit: number,
   ) {
     const skip = (page - 1) * limit;
-    const escaped = search?.trim()
-      ? search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      : null;
+
+    // booking match
+    const bookingMatch: Record<string, any> = { doctorId };
+    if (filters.status) bookingMatch.status = filters.status;
+    if (filters.locationType)
+      bookingMatch['location.type'] = filters.locationType;
+    if (filters.locationName) {
+      bookingMatch['location.entity_name'] = {
+        $regex: this.escapeRegex(filters.locationName),
+        $options: 'i',
+      };
+    }
+    if (filters.fromDate || filters.toDate) {
+      bookingMatch.bookingDate = {};
+      if (filters.fromDate)
+        bookingMatch.bookingDate.$gte = new Date(filters.fromDate);
+      if (filters.toDate) {
+        const end = new Date(filters.toDate);
+        end.setHours(23, 59, 59, 999);
+        bookingMatch.bookingDate.$lte = end;
+      }
+    }
 
     const pipeline: any[] = [
-      // only bookings for this doctor
-      { $match: { doctorId } },
+      { $match: bookingMatch },
       {
         $lookup: {
           from: this.userModel.collection.name,
@@ -531,15 +576,18 @@ export class NearbyBookingRepository {
       { $unwind: { path: '$patient', preserveNullAndEmptyArrays: false } },
     ];
 
-    if (escaped) {
-      pipeline.push({
-        $match: {
-          $or: [
-            { 'patient.username': { $regex: escaped, $options: 'i' } },
-            { 'patient.phone': { $regex: escaped, $options: 'i' } },
-          ],
-        },
-      });
+    // patient filters
+    const patientMatch: Record<string, any> = {};
+    if (filters.search) {
+      const esc = this.escapeRegex(filters.search);
+      patientMatch.$or = [
+        { 'patient.username': { $regex: esc, $options: 'i' } },
+        { 'patient.phone': { $regex: esc, $options: 'i' } },
+      ];
+    }
+    if (filters.gender) patientMatch['patient.gender'] = filters.gender;
+    if (Object.keys(patientMatch).length > 0) {
+      pipeline.push({ $match: patientMatch });
     }
 
     pipeline.push(
@@ -550,30 +598,41 @@ export class NearbyBookingRepository {
           phone: { $first: '$patient.phone' },
           image: { $first: '$patient.image' },
           gender: { $first: '$patient.gender' },
+          dateOfBirth: { $first: '$patient.DataofBirth' },
           totalVisits: { $sum: 1 },
-          lastVisit: { $max: '$bookingDate' },
-          firstVisit: { $min: '$bookingDate' },
-          bookings: {
+          completedVisits: {
+            $sum: {
+              $cond: [{ $eq: ['$status', BookingStatus.COMPLETED] }, 1, 0],
+            },
+          },
+          totalPaid: {
+            $sum: {
+              $cond: [
+                { $eq: ['$status', BookingStatus.COMPLETED] },
+                '$price',
+                0,
+              ],
+            },
+          },
+          lastVisitDate: { $max: '$bookingDate' },
+          lastVisitTime: { $last: '$bookingTime' },
+          lastVisitEndTime: { $last: '$bookingEndTime' },
+          lastVisitLocation: { $last: '$location' },
+          lastVisitStatus: { $last: '$status' },
+          recentBookings: {
             $push: {
               bookingId: '$_id',
-              slotId: '$slotId',
               status: '$status',
               bookingDate: '$bookingDate',
               bookingTime: '$bookingTime',
               bookingEndTime: '$bookingEndTime',
               location: '$location',
               price: '$price',
-              createdBy: '$createdBy',
-              isRated: '$isRated',
-              ratingId: '$ratingId',
-              note: '$note',
-              completedAt: '$completedAt',
-              createdAt: '$createdAt',
             },
           },
         },
       },
-      { $sort: { lastVisit: -1, _id: 1 } },
+      { $sort: { lastVisitDate: -1, _id: 1 } },
       {
         $facet: {
           data: [
@@ -581,31 +640,270 @@ export class NearbyBookingRepository {
             { $limit: limit },
             {
               $project: {
-                _id: 1,
+                patientId: '$_id',
+                type: { $literal: 'PATIENT' },
                 username: 1,
                 phone: 1,
                 image: 1,
                 gender: 1,
+                dateOfBirth: 1,
                 totalVisits: 1,
-                lastVisit: 1,
-                firstVisit: 1,
-                bookings: 1,
+                completedVisits: 1,
+                totalPaid: 1,
+                lastVisit: {
+                  date: '$lastVisitDate',
+                  time: '$lastVisitTime',
+                  endTime: '$lastVisitEndTime',
+                  location: '$lastVisitLocation',
+                  status: '$lastVisitStatus',
+                },
+                recentBookings: { $slice: ['$recentBookings', -3] },
               },
             },
           ],
           totalCount: [{ $count: 'count' }],
+          genderStats: [{ $group: { _id: '$gender', count: { $sum: 1 } } }],
+          totals: [
+            {
+              $group: {
+                _id: null,
+                totalRevenue: { $sum: '$totalPaid' },
+                totalVisits: { $sum: '$totalVisits' },
+              },
+            },
+          ],
         },
       },
     );
 
     const result = await this.bookingModel.aggregate(pipeline);
     const total = result[0]?.totalCount?.[0]?.count ?? 0;
+
+    const genderBreakdown: Record<string, number> = {};
+    for (const g of result[0]?.genderStats ?? []) {
+      if (g._id) genderBreakdown[g._id] = g.count;
+    }
+
     return {
       data: result[0]?.data ?? [],
       total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
+      stats: {
+        totalPatients: total,
+        totalRevenue: result[0]?.totals?.[0]?.totalRevenue ?? 0,
+        totalVisits: result[0]?.totals?.[0]?.totalVisits ?? 0,
+        genderBreakdown,
+      },
+    };
+  }
+
+  // ── Private: Search Doctors ───────────────────────────────────────────────
+  private async _searchDoctors(
+    filters: SearchPatientsDto,
+    page: number,
+    limit: number,
+  ) {
+    const skip = (page - 1) * limit;
+    if (!filters.search) return { data: [], total: 0 };
+
+    const esc = this.escapeRegex(filters.search);
+    const match: Record<string, any> = {
+      $or: [
+        { firstName: { $regex: esc, $options: 'i' } },
+        { lastName: { $regex: esc, $options: 'i' } },
+        { middleName: { $regex: esc, $options: 'i' } },
+        { 'phones.normal': { $elemMatch: { $regex: esc, $options: 'i' } } },
+      ],
+    };
+    if (filters.gender) match.gender = filters.gender;
+
+    const [data, total] = await Promise.all([
+      this.doctorModel
+        .find(match)
+        .select(
+          'firstName middleName lastName image gender city subcity ' +
+            'publicSpecialization privateSpecialization ' +
+            'inspectionPrice inspectionDuration rating phones',
+        )
+        .sort({ rating: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      this.doctorModel.countDocuments(match),
+    ]);
+
+    return {
+      data: data.map((d) => ({ ...d, type: 'DOCTOR' })),
+      total,
+    };
+  }
+
+  // ── Private: Search Hospitals ─────────────────────────────────────────────
+  private async _searchHospitals(
+    filters: SearchPatientsDto,
+    page: number,
+    limit: number,
+  ) {
+    const skip = (page - 1) * limit;
+    if (!filters.search) return { data: [], total: 0 };
+
+    const esc = this.escapeRegex(filters.search);
+    const match: Record<string, any> = {
+      $or: [
+        { name: { $regex: esc, $options: 'i' } },
+        { address: { $regex: esc, $options: 'i' } },
+      ],
+    };
+
+    const [data, total] = await Promise.all([
+      this.hospitalModel
+        .find(match)
+        .select('name address image city subcity phones')
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      this.hospitalModel.countDocuments(match),
+    ]);
+
+    return {
+      data: data.map((h) => ({ ...h, type: 'HOSPITAL' })),
+      total,
+    };
+  }
+
+  // ── Private: Search Centers ───────────────────────────────────────────────
+  private async _searchCenters(
+    filters: SearchPatientsDto,
+    page: number,
+    limit: number,
+  ) {
+    const skip = (page - 1) * limit;
+    if (!filters.search) return { data: [], total: 0 };
+
+    const esc = this.escapeRegex(filters.search);
+    const match: Record<string, any> = {
+      $or: [
+        { name: { $regex: esc, $options: 'i' } },
+        { address: { $regex: esc, $options: 'i' } },
+      ],
+    };
+
+    const [data, total] = await Promise.all([
+      this.centerModel
+        .find(match)
+        .select('name address image city subcity phones')
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      this.centerModel.countDocuments(match),
+    ]);
+
+    return {
+      data: data.map((c) => ({ ...c, type: 'CENTER' })),
+      total,
+    };
+  }
+
+  async getPatientDetail(doctorId: Types.ObjectId, dto: PatientDetailDto) {
+    const page = this.safePage(dto.page);
+    const limit = this.safeLimit(dto.limit);
+    const skip = (page - 1) * limit;
+
+    // ── patient info ─────────────────────────────────────────────────────────
+    const patient = await this.userModel
+      .findById(dto.patientId)
+      .select('username phone image gender dateOfBirth')
+      .lean();
+    if (!patient) return null;
+
+    const patientObjId = new Types.ObjectId(dto.patientId);
+
+    // ── overall stats (all bookings, all statuses) ───────────────────────────
+    const [statsResult] = await this.bookingModel.aggregate([
+      { $match: { doctorId, patientId: patientObjId } },
+      {
+        $group: {
+          _id: null,
+          totalAppointments: { $sum: 1 },
+          completedAppointments: {
+            $sum: {
+              $cond: [{ $eq: ['$status', BookingStatus.COMPLETED] }, 1, 0],
+            },
+          },
+          totalPaid: {
+            $sum: {
+              $cond: [
+                { $eq: ['$status', BookingStatus.COMPLETED] },
+                '$price',
+                0,
+              ],
+            },
+          },
+        },
+      },
+    ]);
+
+    // ── paginated bookings list ───────────────────────────────────────────────
+    const bookingMatch: Record<string, any> = {
+      doctorId,
+      patientId: patientObjId,
+    };
+    if (dto.status) bookingMatch.status = dto.status;
+
+    const [bookingsResult] = await this.bookingModel.aggregate([
+      { $match: bookingMatch },
+      { $sort: { bookingDate: -1, bookingTime: -1 } },
+      {
+        $facet: {
+          data: [
+            { $skip: skip },
+            { $limit: limit },
+            {
+              $project: {
+                bookingId: '$_id',
+                status: 1,
+                bookingDate: 1,
+                bookingTime: 1,
+                bookingEndTime: 1,
+                price: 1,
+                location: 1,
+                note: 1,
+                completedAt: 1,
+                cancellation: 1,
+                createdBy: 1,
+                isRated: 1,
+              },
+            },
+          ],
+          totalCount: [{ $count: 'count' }],
+        },
+      },
+    ]);
+
+    const total = bookingsResult?.totalCount?.[0]?.count ?? 0;
+
+    return {
+      patient: {
+        patientId: patient._id,
+        username: patient.username,
+        phone: patient.phone,
+        image: patient.image,
+        gender: patient.gender,
+        dateOfBirth: patient.DataofBirth,
+      },
+      stats: {
+        totalPaid: statsResult?.totalPaid ?? 0,
+        completedAppointments: statsResult?.completedAppointments ?? 0,
+        totalAppointments: statsResult?.totalAppointments ?? 0,
+      },
+      appointments: bookingsResult?.data ?? [],
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+        hasNextPage: page < Math.ceil(total / limit),
+        hasPreviousPage: page > 1,
+      },
     };
   }
 }

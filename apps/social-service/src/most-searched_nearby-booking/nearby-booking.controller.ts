@@ -1,9 +1,24 @@
-import { Controller, Get, Query, UseGuards, Headers } from '@nestjs/common';
-import { ApiBearerAuth, ApiHeader, ApiQuery, ApiTags } from '@nestjs/swagger';
+import {
+  Controller,
+  Get,
+  Query,
+  UseGuards,
+  Headers,
+  ValidationPipe,
+} from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiHeader,
+  ApiOperation,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
 
 import { NearbyBookingService } from './nearby-booking.service';
 import { GetDoctorPatientsDto } from './dto/get-doctor-patients.dto';
 import { GetMyAppointmentsDto } from './dto/get-my-appointments.dto';
+import { SearchPatientsDto } from './dto/search-patients.dto';
+import { PatientDetailDto } from './dto/patient-detail.dto';
 
 import { JwtAuthGuard } from '@app/common/guards/jwt.guard';
 import { RolesGuard } from '@app/common/guards/role.guard';
@@ -18,13 +33,6 @@ function resolveLang(h?: string): Lang {
   return h === 'ar' ? 'ar' : 'en';
 }
 
-function parsePage(v = '1') {
-  return Math.max(1, parseInt(v, 10));
-}
-function parseLimit(v = '10') {
-  return Math.min(Math.max(1, parseInt(v, 10)), 50);
-}
-
 const PageQuery = () =>
   ApiQuery({
     name: 'page',
@@ -33,6 +41,7 @@ const PageQuery = () =>
     example: 1,
     description: 'Page number (default: 1)',
   });
+
 const LimitQuery = () =>
   ApiQuery({
     name: 'limit',
@@ -57,15 +66,13 @@ export class NearbyBookingController {
   @Get('top-doctors')
   @PageQuery()
   @LimitQuery()
+  @ApiOperation({ summary: 'Get top searched doctors' })
   async getTopDoctors(
     @Query('page') page = '1',
     @Query('limit') limit = '10',
     @Headers('accept-language') acceptLanguage?: string,
   ) {
-    const data = await this.service.getTopDoctors(
-      parsePage(page),
-      parseLimit(limit),
-    );
+    const data = await this.service.getTopDoctors(Number(page), Number(limit));
     return ApiResponse.success({
       lang: resolveLang(acceptLanguage),
       messageKey: 'doctor.TOP_SEARCHED',
@@ -78,12 +85,8 @@ export class NearbyBookingController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.USER)
   @ApiBearerAuth()
-  @ApiQuery({
-    name: 'doctorId',
-    required: false,
-    type: String,
-    description: 'Filter by doctor ID',
-  })
+  @ApiOperation({ summary: 'Get upcoming bookings for user' })
+  @ApiQuery({ name: 'doctorId', required: false, type: String })
   @PageQuery()
   @LimitQuery()
   async getNextBookingForUser(
@@ -95,8 +98,8 @@ export class NearbyBookingController {
   ) {
     const data = await this.service.getNextBookingForUser(
       accountId,
-      parsePage(page),
-      parseLimit(limit),
+      Number(page),
+      Number(limit),
       doctorId,
     );
     return ApiResponse.success({
@@ -111,6 +114,7 @@ export class NearbyBookingController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.DOCTOR)
   @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get upcoming bookings for doctor' })
   @PageQuery()
   @LimitQuery()
   async getNextBookingForDoctor(
@@ -121,8 +125,8 @@ export class NearbyBookingController {
   ) {
     const data = await this.service.getNextBookingForDoctor(
       accountId,
-      parsePage(page),
-      parseLimit(limit),
+      Number(page),
+      Number(limit),
     );
     return ApiResponse.success({
       lang: resolveLang(acceptLanguage),
@@ -136,12 +140,8 @@ export class NearbyBookingController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.USER)
   @ApiBearerAuth()
-  @ApiQuery({
-    name: 'status',
-    required: false,
-    type: String,
-    description: 'Filter by booking status',
-  })
+  @ApiOperation({ summary: 'Get all bookings for user' })
+  @ApiQuery({ name: 'status', required: false, type: String })
   @PageQuery()
   @LimitQuery()
   async getAllBookingsForUser(
@@ -154,8 +154,8 @@ export class NearbyBookingController {
     const data = await this.service.getAllBookingsForUser(
       accountId,
       status,
-      parsePage(page),
-      parseLimit(limit),
+      Number(page),
+      Number(limit),
     );
     return ApiResponse.success({
       lang: resolveLang(acceptLanguage),
@@ -169,24 +169,10 @@ export class NearbyBookingController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.DOCTOR)
   @ApiBearerAuth()
-  @ApiQuery({
-    name: 'search',
-    required: false,
-    type: String,
-    description: 'Search by patient name or phone',
-  })
-  @ApiQuery({
-    name: 'fromDate',
-    required: false,
-    type: String,
-    description: 'Filter from date (ISO 8601)',
-  })
-  @ApiQuery({
-    name: 'toDate',
-    required: false,
-    type: String,
-    description: 'Filter to date (ISO 8601)',
-  })
+  @ApiOperation({ summary: 'Get doctor patients (completed visits)' })
+  @ApiQuery({ name: 'search', required: false, type: String })
+  @ApiQuery({ name: 'fromDate', required: false, type: String })
+  @ApiQuery({ name: 'toDate', required: false, type: String })
   @PageQuery()
   @LimitQuery()
   async getDoctorPatients(
@@ -207,24 +193,10 @@ export class NearbyBookingController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.DOCTOR)
   @ApiBearerAuth()
-  @ApiQuery({
-    name: 'search',
-    required: false,
-    type: String,
-    description: 'Search by patient name or phone',
-  })
-  @ApiQuery({
-    name: 'fromDate',
-    required: false,
-    type: String,
-    description: 'Filter from date (ISO 8601)',
-  })
-  @ApiQuery({
-    name: 'toDate',
-    required: false,
-    type: String,
-    description: 'Filter to date (ISO 8601)',
-  })
+  @ApiOperation({ summary: 'Get all appointments for doctor' })
+  @ApiQuery({ name: 'search', required: false, type: String })
+  @ApiQuery({ name: 'fromDate', required: false, type: String })
+  @ApiQuery({ name: 'toDate', required: false, type: String })
   @PageQuery()
   @LimitQuery()
   async getMyAppointments(
@@ -245,27 +217,44 @@ export class NearbyBookingController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.DOCTOR)
   @ApiBearerAuth()
-  @ApiQuery({
-    name: 'search',
-    required: false,
-    type: String,
-    description: 'Search by patient name or phone',
+  @ApiOperation({
+    summary: 'Search doctor patients with advanced filters and stats',
+    description:
+      'Search by name/phone, filter by gender, status, date range, location. ' +
+      'Returns visit stats, revenue and gender breakdown.',
   })
-  @PageQuery()
-  @LimitQuery()
   async searchDoctorPatients(
     @CurrentUser('accountId') accountId: string,
-    @Query('search') search: string,
-    @Query('page') page = '1',
-    @Query('limit') limit = '10',
+    @Query(new ValidationPipe({ whitelist: true, transform: true }))
+    query: SearchPatientsDto,
     @Headers('accept-language') acceptLanguage?: string,
   ) {
-    const data = await this.service.searchDoctorPatients(
-      accountId,
-      search,
-      parsePage(page),
-      parseLimit(limit),
-    );
+    const data = await this.service.searchDoctorPatientsV2(accountId, query);
+    return ApiResponse.success({
+      lang: resolveLang(acceptLanguage),
+      messageKey: 'booking.DOCTOR_PATIENTS',
+      data,
+    });
+  }
+
+  // ── GET /bookings/doctor/patient-detail ───────────────────────────────────
+  @Get('doctor/patient-detail')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Get patient full detail and booking history',
+    description:
+      'Returns patient info card, 3 stat cards ' +
+      '(total paid / completed / total appointments) and paginated booking history.',
+  })
+  async getPatientDetail(
+    @CurrentUser('accountId') accountId: string,
+    @Query(new ValidationPipe({ whitelist: true, transform: true }))
+    query: PatientDetailDto,
+    @Headers('accept-language') acceptLanguage?: string,
+  ) {
+    const data = await this.service.getPatientDetail(accountId, query);
     return ApiResponse.success({
       lang: resolveLang(acceptLanguage),
       messageKey: 'booking.DOCTOR_PATIENTS',
