@@ -20,6 +20,11 @@ import {
 import type { Response } from 'express';
 import { AuthValidateService } from '@app/common/auth-validate';
 import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
+import { ApiResponse } from '@app/common/response/api-response'
+
+
+type Lang = 'en' | 'ar';
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -35,7 +40,7 @@ export class AuthService {
   //---------------------------------------------------------
   // REQUEST OTP
   //---------------------------------------------------------
-  async requestOtp(dto: RequestOtpDto) {
+  async requestOtp(dto: RequestOtpDto, lang: Lang = 'en') {
     const session = await this.connection.startSession();
     session.startTransaction();
 
@@ -92,8 +97,6 @@ export class AuthService {
       await session.commitTransaction();
       console.log(`✅ [requestOtp] Transaction committed`);
 
-      // SMS: direct (synchronous — we want to know it was dispatched)
-      // WhatsApp: via Kafka (async, decoupled — won't fail the OTP flow)
       console.log(
         `📡 [requestOtp] Emitting Kafka event: ${KAFKA_TOPICS.WHATSAPP_SEND_OTP}`,
       );
@@ -111,7 +114,10 @@ export class AuthService {
         `🎉 [requestOtp] OTP flow completed successfully for: ${phone}`,
       );
 
-      return { success: true, message: 'OTP sent' };
+      return {
+        success: true,
+        message: ApiResponse.getMessage(lang, 'auth.OTP_SENT'),
+      };
     } catch (err) {
       console.error(
         `❌ [requestOtp] Error for phone ${dto.phone}:`,
@@ -123,11 +129,11 @@ export class AuthService {
       await session.endSession();
     }
   }
+
   //---------------------------------------------------------
   // VERIFY OTP (SIGN-IN + AUTO-REGISTER USER)
   //---------------------------------------------------------
-
-  async verifyOtp(dto: VerifyOtpDto, res: Response) {
+  async verifyOtp(dto: VerifyOtpDto, res: Response, lang: Lang = 'en') {
     const session = await this.connection.startSession();
     session.startTransaction();
 
@@ -137,7 +143,7 @@ export class AuthService {
       const authAccount = await this.authModel
         .findOne({ phones: phone })
         .session(session);
-      if (!authAccount) throw new NotFoundException('Auth account not found');
+      if (!authAccount) throw new NotFoundException('auth.AUTH_NOT_FOUND');
 
       const otp = await this.otpModel
         .findOne({
@@ -147,32 +153,32 @@ export class AuthService {
         .sort({ createdAt: -1 })
         .session(session);
 
-      if (!otp) throw new BadRequestException('OTP not found');
+      if (!otp) throw new BadRequestException('auth.OTP_NOT_FOUND');
 
-      if (otp.isUsed) throw new BadRequestException('OTP already used');
+      if (otp.isUsed) throw new BadRequestException('auth.OTP_ALREADY_USED');
 
       if (otp.isExpired()) {
-        throw new UnauthorizedException('رمز التحقق منتهي الصلاحية');
+        throw new UnauthorizedException('auth.OTP_EXPIRED');
       }
 
-      // Check max attempts (optional)
       if (otp.isMaxAttemptsReached()) {
-        throw new UnauthorizedException(
-          'تجاوزت الحد الأقصى من المحاولات. يرجى طلب رمز جديد',
-        );
+        throw new UnauthorizedException('auth.OTP_MAX_ATTEMPTS');
       }
+
       if (otp.code !== code) {
         otp.incrementAttempts();
         await otp.save({ session });
         await session.commitTransaction();
-        throw new UnauthorizedException('رمز التحقق غير صحيح');
+        throw new UnauthorizedException('auth.OTP_INVALID');
       }
+
       otp.isUsed = true;
       await otp.save({ session });
 
       authAccount.isActive = true;
       authAccount.lastLoginAt = new Date();
       await authAccount.save({ session });
+
       let entityExists = false;
       let entityData: any = null;
       if (authAccount) {
@@ -184,9 +190,6 @@ export class AuthService {
 
       await session.commitTransaction();
 
-      // const token = this.buildToken(authAccount);
-      // res.setHeader('x-access-token', token);
-
       if (authAccount.role === 'user' && !entityExists) {
         const tokens = await this.authService.generateTokenUserPair(
           authAccount._id.toString(),
@@ -196,27 +199,31 @@ export class AuthService {
         );
         return {
           success: true,
-          message: 'OTP verified - Profile completion required',
+          message: ApiResponse.getMessage(
+            lang,
+            'auth.OTP_VERIFIED_NEEDS_COMPLETION',
+          ),
           role: authAccount.role,
           access_token: tokens.accessToken,
           refresh_token: tokens.refreshToken,
           needsCompletion: true,
         };
       }
+
       if (!entityExists) {
-        throw new BadRequestException(
-          `${authAccount.role} profile not found. Please contact administrator.`,
-        );
+        throw new BadRequestException('auth.PROFILE_NOT_FOUND_FOR_ROLE');
       }
+
       const tokens = await this.authService.generateTokenUserPair(
         authAccount._id.toString(),
         authAccount.phones[0],
         authAccount.role,
         authAccount.tokenVersion,
       );
+
       return {
         success: true,
-        message: 'Sign in successful',
+        message: ApiResponse.getMessage(lang, 'auth.OTP_VERIFIED'),
         role: authAccount.role,
         access_token: tokens.accessToken,
         refresh_token: tokens.refreshToken,
@@ -232,11 +239,13 @@ export class AuthService {
       await session.endSession();
     }
   }
+
   //---------------------------------------------------------
   // COMPLETE REGISTRATION FOR USER ONLY
   //---------------------------------------------------------
   async completeRegistration(
     dto: RequestOtpDto,
+    lang: Lang = 'en',
     imagePath?: string,
   ): Promise<any> {
     const session = await this.connection.startSession();
@@ -245,25 +254,23 @@ export class AuthService {
     try {
       const { phone, username, gender, city, DataofBirth } = dto;
 
-      // Validate required fields first
       if (!phone || !username || !gender || !city || !DataofBirth) {
-        throw new BadRequestException('Missing required fields');
+        throw new BadRequestException('auth.REGISTRATION_MISSING_FIELDS');
       }
 
       const authAccount = await this.authModel
         .findOne({ phones: phone })
         .session(session);
-      if (!authAccount) throw new NotFoundException('AuthAccount not found');
+      if (!authAccount) throw new NotFoundException('auth.AUTH_NOT_FOUND');
 
       const existingUser = await this.userModel
         .findOne({ authAccountId: authAccount._id })
         .session(session);
 
       if (existingUser) {
-        throw new BadRequestException('User profile already completed');
+        throw new BadRequestException('auth.REGISTRATION_ALREADY_COMPLETED');
       }
-      // const processedFiles = this.processUploadedFiles(files);
-      // Create new user
+
       const [user] = await this.userModel.create(
         [
           {
@@ -271,7 +278,7 @@ export class AuthService {
             phone,
             username,
             gender: gender || Gender.MALE,
-            city: city,
+            city,
             DataofBirth,
             image: imagePath || '',
             status: ApprovalStatus.ACTIVE,
@@ -285,7 +292,7 @@ export class AuthService {
 
       return {
         success: true,
-        message: 'Registration completed',
+        message: ApiResponse.getMessage(lang, 'auth.REGISTRATION_COMPLETED'),
         user: {
           ...plainUser,
           _id: plainUser._id.toString(),
@@ -303,20 +310,23 @@ export class AuthService {
     }
   }
 
-  async resendOtp(dto: ResendOtpDto) {
+  //---------------------------------------------------------
+  // RESEND OTP
+  //---------------------------------------------------------
+  async resendOtp(dto: ResendOtpDto, lang: Lang = 'en') {
     const session = await this.connection.startSession();
     session.startTransaction();
     const { phone } = dto;
+
     try {
       const authAccount = await this.authModel
         .findOne({ phones: phone })
         .session(session);
 
       if (!authAccount) {
-        throw new NotFoundException('Auth account not found for this phone');
+        throw new NotFoundException('auth.AUTH_NOT_FOUND');
       }
 
-      // delete previous OTPs
       await this.otpModel
         .deleteMany({ authAccountId: authAccount._id })
         .session(session);
@@ -331,7 +341,7 @@ export class AuthService {
             code: otp,
             expiresAt: new Date(Date.now() + 10 * 60 * 1000),
             isUsed: false,
-            attempts: 0, // reset attempts
+            attempts: 0,
           },
         ],
         { session },
@@ -344,7 +354,7 @@ export class AuthService {
 
       return {
         success: true,
-        message: 'OTP resent successfully',
+        message: ApiResponse.getMessage(lang, 'auth.OTP_RESENT'),
       };
     } catch (error) {
       await session.abortTransaction();
@@ -353,33 +363,32 @@ export class AuthService {
     }
   }
 
-  async logout(userId: string) {
-    // 1️⃣ Find the user first
+  //---------------------------------------------------------
+  // LOGOUT
+  //---------------------------------------------------------
+  async logout(userId: string, lang: Lang = 'en') {
     const user = await this.userModel.findById(userId);
 
     if (!user) {
-      throw new NotFoundException('User not found');
+      throw new NotFoundException('user.NOT_FOUND');
     }
 
-    // 2️⃣ Ensure authAccountId exists
     if (!user.authAccountId) {
-      throw new BadRequestException('Auth account not linked');
+      throw new BadRequestException('auth.AUTH_NOT_LINKED');
     }
 
-    // 3️⃣ Increment tokenVersion in AuthAccount
     await this.authModel.findByIdAndUpdate(
       user.authAccountId,
       { $inc: { tokenVersion: 1 } },
       { new: true },
     );
 
-    // 4️⃣ Clear FCM token
     user.fcmToken = '';
     await user.save();
 
     return {
       success: true,
-      message: 'Logged out successfully',
+      message: ApiResponse.getMessage(lang, 'auth.LOGGED_OUT'),
     };
   }
 }

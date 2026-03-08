@@ -11,253 +11,370 @@ import { NearbyBookingRepository } from './nearby-booking.repository';
 import { GetDoctorPatientsDto } from './dto/get-doctor-patients.dto';
 import { GetMyAppointmentsDto } from './dto/get-my-appointments.dto';
 import { SearchPatientsDto } from './dto/search-patients.dto';
+import { PatientDetailDto } from './dto/patient-detail.dto';
 
 // ── Cache TTL constants (seconds) ─────────────────────────────────────────────
 const TTL = {
-  TOP_DOCTORS: { memory: 300, redis: 3600 },    // 5 min memory | 1 hr redis  (public, slow-changing)
-  NEXT_BOOKING: { memory: 30, redis: 120 },   // 30 s memory  | 2 min redis (real-time feel)
-  ALL_BOOKINGS: { memory: 60, redis: 300 },   // 1 min memory | 5 min redis
-  PATIENTS: { memory: 60, redis: 300 },   // 1 min memory | 5 min redis
-  APPOINTMENTS: { memory: 30, redis: 120 },   // 30 s memory  | 2 min redis
+  TOP_DOCTORS: { memory: 300, redis: 3600 },
+  NEXT_BOOKING: { memory: 30, redis: 120 },
+  ALL_BOOKINGS: { memory: 60, redis: 300 },
+  PATIENTS: { memory: 60, redis: 300 },
+  APPOINTMENTS: { memory: 30, redis: 120 },
+  PATIENT_DETAIL: { memory: 60, redis: 300 },
 } as const;
 
 // ── Cache key builders ────────────────────────────────────────────────────────
 const CK = {
-  topDoctors: (page: number, limit: number) => `booking:top-doctors:${page}:${limit}`,
-  nextUser: (userId: string, doctorId = 'any') => `booking:next-user:${userId}:${doctorId}`,
-  nextDoctor: (doctorId: string) => `booking:next-doctor:${doctorId}`,
-  allBookings: (userId: string, status = 'all') => `booking:all:${userId}:${status}`,
-  patients: (doctorId: string, q: string) => `booking:patients:${doctorId}:${q}`,
-  appointments: (doctorId: string, q: string) => `booking:appointments:${doctorId}:${q}`,
-  searchPatients: (doctorId: string, q: string) => `booking:search-patients:${doctorId}:${q}`,
+  topDoctors: (page: number, limit: number) =>
+    `booking:top-doctors:${page}:${limit}`,
+  nextUser: (userId: string, page: number, limit: number, doctorId = 'any') =>
+    `booking:next-user:${userId}:${doctorId}:${page}:${limit}`,
+  nextDoctor: (doctorId: string, page: number, limit: number) =>
+    `booking:next-doctor:${doctorId}:${page}:${limit}`,
+  allBookings: (userId: string, status = 'all', page: number, limit: number) =>
+    `booking:all:${userId}:${status}:${page}:${limit}`,
+  patients: (doctorId: string, q: string) =>
+    `booking:patients:${doctorId}:${q}`,
+  appointments: (doctorId: string, q: string) =>
+    `booking:appointments:${doctorId}:${q}`,
+  searchPatients: (doctorId: string, q: string) =>
+    `booking:search-patients:${doctorId}:${q}`,
+  patientDetail: (doctorId: string, patientId: string, q: string) =>
+    `booking:patient-detail:${doctorId}:${patientId}:${q}`,
 
-  // Invalidation patterns
-  patternUser: (userId: string) => `booking:*:${userId}:*`,
-  patternDoctor: (doctorId: string) => `booking:*:${doctorId}:*`,
+  // invalidation patterns
   patternTopDoctors: () => `booking:top-doctors:*`,
+  patternNextUser: (userId: string) => `booking:next-user:${userId}:*`,
+  patternNextDoctor: (doctorId: string) => `booking:next-doctor:${doctorId}:*`,
+  patternAllBookings: (userId: string) => `booking:all:${userId}:*`,
+  patternPatients: (doctorId: string) => `booking:patients:${doctorId}:*`,
+  patternAppointments: (doctorId: string) =>
+    `booking:appointments:${doctorId}:*`,
+  patternSearchPatients: (doctorId: string) =>
+    `booking:search-patients:${doctorId}:*`,
+  patternPatientDetail: (doctorId: string) =>
+    `booking:patient-detail:${doctorId}:*`,
 };
+
+function fromCache<T>(value: any): T | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value) as T;
+    } catch {
+      return null;
+    }
+  }
+  return value as T;
+}
+
+function safePage(p: any): number {
+  return Math.max(Number(p) || 1, 1);
+}
+function safeLimit(l: any): number {
+  return Math.min(Math.max(Number(l) || 10, 1), 50);
+}
 
 @Injectable()
 export class NearbyBookingService {
   constructor(
     private readonly repo: NearbyBookingRepository,
     private readonly cache: CacheService,
-  ) { }
+  ) {}
 
-  // ── Get Next Booking For User ─────────────────────────────────────────────
-
-  async getNextBookingForUser(authAccountId: string, doctorId?: string) {
-    this.assertValidObjectId(authAccountId);
-    if (doctorId) this.assertValidObjectId(doctorId);
-
-    const user = await this.repo.findUserByAuthAccountId(authAccountId);
-    if (!user) throw new NotFoundException('user.NOT_FOUND');
-
-    const userId = (user._id as Types.ObjectId).toString();
-    const cacheKey = CK.nextUser(userId, doctorId);
-
-    const cached = await this.cache.get(cacheKey);
-    if (cached) { console.log(`[CACHE HIT]  ${cacheKey}`); return cached; }
-    console.log(`[CACHE MISS] ${cacheKey}`);
-
-    const booking = await this.repo.findNextBookingForUser(
-      user._id as Types.ObjectId,
-      doctorId,
-    );
-    if (!booking) throw new NotFoundException('booking.NOT_FOUND_USER');
-
-    await this.cache.set(cacheKey, booking, TTL.NEXT_BOOKING.memory, TTL.NEXT_BOOKING.redis);
-    return booking;
-  }
-
-  // ── Get Next Booking For Doctor ───────────────────────────────────────────
-
-  async getNextBookingForDoctor(authAccountId: string) {
-    this.assertValidObjectId(authAccountId);
-
-    const doctor = await this.repo.findDoctorByAuthAccountId(authAccountId);
-    if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
-
-    const doctorId = (doctor._id as Types.ObjectId).toString();
-    const cacheKey = CK.nextDoctor(doctorId);
-
-    const cached = await this.cache.get(cacheKey);
-    if (cached) { console.log(`[CACHE HIT]  ${cacheKey}`); return cached; }
-    console.log(`[CACHE MISS] ${cacheKey}`);
-
-    const booking = await this.repo.findNextBookingForDoctor(
-      doctor._id as Types.ObjectId,
-    );
-    if (!booking) throw new NotFoundException('booking.NOT_FOUND_DOCTOR');
-
-    await this.cache.set(cacheKey, booking, TTL.NEXT_BOOKING.memory, TTL.NEXT_BOOKING.redis);
-    return booking;
-  }
-
-  // ── Get Top Doctors ───────────────────────────────────────────────────────
-
+  // ── Top Doctors ───────────────────────────────────────────────────────────
   async getTopDoctors(page = 1, limit = 10) {
-    const cacheKey = CK.topDoctors(page, limit);
-
-    const cached = await this.cache.get(cacheKey);
-    if (cached) {
-      console.log(`[CACHE HIT]  ${cacheKey}`);
-      return typeof cached === 'string' ? JSON.parse(cached) : cached;
-    }
-    console.log(`[CACHE MISS] ${cacheKey}`);
-
-    const data = await this.repo.findTopDoctors(page, limit);
-    await this.cache.set(cacheKey, data, TTL.TOP_DOCTORS.memory, TTL.TOP_DOCTORS.redis);
+    const p = safePage(page),
+      l = safeLimit(limit);
+    const key = CK.topDoctors(p, l);
+    const cached = fromCache(await this.cache.get(key));
+    if (cached) return cached;
+    const data = await this.repo.findTopDoctors(p, l);
+    await this.cache.set(
+      key,
+      data,
+      TTL.TOP_DOCTORS.memory,
+      TTL.TOP_DOCTORS.redis,
+    );
     return data;
   }
 
-  // ── Get All Bookings For User ─────────────────────────────────────────────
-
-  async getAllBookingsForUser(authAccountId: string, status?: string) {
-    this.assertValidObjectId(authAccountId);
-
+  // ── Next Booking For User ─────────────────────────────────────────────────
+  async getNextBookingForUser(
+    authAccountId: string,
+    page = 1,
+    limit = 10,
+    doctorId?: string,
+  ) {
+    this.assertObjectId(authAccountId);
+    if (doctorId) this.assertObjectId(doctorId);
     const user = await this.repo.findUserByAuthAccountId(authAccountId);
     if (!user) throw new NotFoundException('user.NOT_FOUND');
-
-    if (status && !Object.values(BookingStatus).includes(status as BookingStatus)) {
-      throw new BadRequestException('booking.INVALID_STATUS');
-    }
-
+    const p = safePage(page),
+      l = safeLimit(limit);
     const userId = (user._id as Types.ObjectId).toString();
-    const cacheKey = CK.allBookings(userId, status);
-
-    const cached = await this.cache.get(cacheKey);
-    if (cached) { console.log(`[CACHE HIT]  ${cacheKey}`); return cached; }
-    console.log(`[CACHE MISS] ${cacheKey}`);
-
-    const bookings = await this.repo.findAllBookingsForUser(
+    const key = CK.nextUser(userId, p, l, doctorId);
+    const cached = fromCache(await this.cache.get(key));
+    if (cached) return cached;
+    const data = await this.repo.findNextBookingsForUser(
       user._id as Types.ObjectId,
-      status,
+      p,
+      l,
+      doctorId,
     );
-
-    await this.cache.set(cacheKey, bookings, TTL.ALL_BOOKINGS.memory, TTL.ALL_BOOKINGS.redis);
-    return bookings;
+    await this.cache.set(
+      key,
+      data,
+      TTL.NEXT_BOOKING.memory,
+      TTL.NEXT_BOOKING.redis,
+    );
+    return data;
   }
 
-  // ── Get Doctor Patients ───────────────────────────────────────────────────
-
-  async getDoctorPatients(authAccountId: string, filters: GetDoctorPatientsDto) {
-    this.assertValidObjectId(authAccountId);
-
+  // ── Next Booking For Doctor ───────────────────────────────────────────────
+  async getNextBookingForDoctor(authAccountId: string, page = 1, limit = 10) {
+    this.assertObjectId(authAccountId);
     const doctor = await this.repo.findDoctorByAuthAccountId(authAccountId);
     if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
-
+    const p = safePage(page),
+      l = safeLimit(limit);
     const doctorId = (doctor._id as Types.ObjectId).toString();
-    const cacheKey = CK.patients(doctorId, this.serializeFilters(filters));
+    const key = CK.nextDoctor(doctorId, p, l);
+    const cached = fromCache(await this.cache.get(key));
+    if (cached) return cached;
+    const data = await this.repo.findNextBookingsForDoctor(
+      doctor._id as Types.ObjectId,
+      p,
+      l,
+    );
+    await this.cache.set(
+      key,
+      data,
+      TTL.NEXT_BOOKING.memory,
+      TTL.NEXT_BOOKING.redis,
+    );
+    return data;
+  }
 
-    const cached = await this.cache.get(cacheKey);
-    if (cached) { console.log(`[CACHE HIT]  ${cacheKey}`); return cached; }
-    console.log(`[CACHE MISS] ${cacheKey}`);
+  // ── All Bookings For User ─────────────────────────────────────────────────
+  async getAllBookingsForUser(
+    authAccountId: string,
+    status?: string,
+    page = 1,
+    limit = 10,
+  ) {
+    this.assertObjectId(authAccountId);
+    const user = await this.repo.findUserByAuthAccountId(authAccountId);
+    if (!user) throw new NotFoundException('user.NOT_FOUND');
+    if (
+      status &&
+      !Object.values(BookingStatus).includes(status as BookingStatus)
+    )
+      throw new BadRequestException('booking.INVALID_STATUS');
+    const p = safePage(page),
+      l = safeLimit(limit);
+    const userId = (user._id as Types.ObjectId).toString();
+    const key = CK.allBookings(userId, status, p, l);
+    const cached = fromCache(await this.cache.get(key));
+    if (cached) return cached;
+    const data = await this.repo.findAllBookingsForUser(
+      user._id as Types.ObjectId,
+      status,
+      p,
+      l,
+    );
+    await this.cache.set(
+      key,
+      data,
+      TTL.ALL_BOOKINGS.memory,
+      TTL.ALL_BOOKINGS.redis,
+    );
+    return data;
+  }
 
+  // ── Doctor Patients ───────────────────────────────────────────────────────
+  async getDoctorPatients(
+    authAccountId: string,
+    filters: GetDoctorPatientsDto,
+  ) {
+    this.assertObjectId(authAccountId);
+    const doctor = await this.repo.findDoctorByAuthAccountId(authAccountId);
+    if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
+    const p = safePage(filters.page),
+      l = safeLimit(filters.limit);
+    const doctorId = (doctor._id as Types.ObjectId).toString();
+    const key = CK.patients(
+      doctorId,
+      this.serializeFilters({ ...filters, page: p, limit: l }),
+    );
+    const cached = fromCache(await this.cache.get(key));
+    if (cached) return cached;
     const data = await this.repo.findDoctorPatients(
       doctor._id as Types.ObjectId,
       filters,
     );
-
-    await this.cache.set(cacheKey, data, TTL.PATIENTS.memory, TTL.PATIENTS.redis);
+    await this.cache.set(key, data, TTL.PATIENTS.memory, TTL.PATIENTS.redis);
     return data;
   }
 
-  // ── Get My Appointments (Doctor) ──────────────────────────────────────────
-
-  async getMyAppointments(authAccountId: string, filters: GetMyAppointmentsDto) {
-    this.assertValidObjectId(authAccountId);
-
+  // ── My Appointments ───────────────────────────────────────────────────────
+  async getMyAppointments(
+    authAccountId: string,
+    filters: GetMyAppointmentsDto,
+  ) {
+    this.assertObjectId(authAccountId);
     const doctor = await this.repo.findDoctorByAuthAccountId(authAccountId);
     if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
-
+    const p = safePage(filters.page),
+      l = safeLimit(filters.limit);
     const doctorId = (doctor._id as Types.ObjectId).toString();
-    const cacheKey = CK.appointments(doctorId, this.serializeFilters(filters));
-
-    const cached = await this.cache.get(cacheKey);
-    if (cached) { console.log(`[CACHE HIT]  ${cacheKey}`); return cached; }
-    console.log(`[CACHE MISS] ${cacheKey}`);
-
+    const key = CK.appointments(
+      doctorId,
+      this.serializeFilters({ ...filters, page: p, limit: l }),
+    );
+    const cached = fromCache(await this.cache.get(key));
+    if (cached) return cached;
     const data = await this.repo.findMyAppointments(
       doctor._id as Types.ObjectId,
       filters,
     );
-
-    await this.cache.set(cacheKey, data, TTL.APPOINTMENTS.memory, TTL.APPOINTMENTS.redis);
+    await this.cache.set(
+      key,
+      data,
+      TTL.APPOINTMENTS.memory,
+      TTL.APPOINTMENTS.redis,
+    );
     return data;
   }
 
-  // ── Search Doctor Patients ────────────────────────────────────────────────
-
-  async searchDoctorPatients(
+  // ── Search Patients V2 (with filters + stats) ─────────────────────────────
+  async searchDoctorPatientsV2(
     authAccountId: string,
-    search: string,
-    page: number,
-    limit: number,
+    filters: SearchPatientsDto,
   ) {
-    this.assertValidObjectId(authAccountId);
-
+    this.assertObjectId(authAccountId);
     const doctor = await this.repo.findDoctorByAuthAccountId(authAccountId);
     if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
-
+    const p = safePage(filters.page),
+      l = safeLimit(filters.limit);
     const doctorId = (doctor._id as Types.ObjectId).toString();
-    const cacheKey = CK.searchPatients(doctorId, `search=${search ?? ''}&page=${page}&limit=${limit}`);
-
-    const cached = await this.cache.get(cacheKey);
-    if (cached) { console.log(`[CACHE HIT]  ${cacheKey}`); return cached; }
-    console.log(`[CACHE MISS] ${cacheKey}`);
-
-    const data = await this.repo.searchDoctorPatients(
-      doctor._id as Types.ObjectId,
-      search,
-      page,
-      limit,
+    const key = CK.searchPatients(
+      doctorId,
+      this.serializeFilters({ ...filters, page: p, limit: l }),
     );
-
-    await this.cache.set(cacheKey, data, TTL.PATIENTS.memory, TTL.PATIENTS.redis);
+    const cached = fromCache(await this.cache.get(key));
+    if (cached) return cached;
+    const data = await this.repo.searchDoctorPatientsV2(
+      doctor._id as Types.ObjectId,
+      { ...filters, page: p, limit: l },
+    );
+    await this.cache.set(key, data, TTL.PATIENTS.memory, TTL.PATIENTS.redis);
     return data;
   }
 
-  // ── Cache Invalidation (call from booking mutation services) ──────────────
-
-  /**
-   * Invalidate all caches tied to a specific user (e.g. after booking created/cancelled).
-   * Pass the internal user._id (not authAccountId).
-   */
-  async invalidateUserCache(userId: string): Promise<void> {
-    await this.cache.invalidatePattern(CK.patternUser(userId));
+  // ── Patient Detail ────────────────────────────────────────────────────────
+  async getPatientDetail(authAccountId: string, dto: PatientDetailDto) {
+    this.assertObjectId(authAccountId);
+    this.assertObjectId(dto.patientId);
+    const doctor = await this.repo.findDoctorByAuthAccountId(authAccountId);
+    if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
+    const doctorId = (doctor._id as Types.ObjectId).toString();
+    const key = CK.patientDetail(
+      doctorId,
+      dto.patientId,
+      this.serializeFilters({
+        status: dto.status,
+        page: dto.page,
+        limit: dto.limit,
+      }),
+    );
+    const cached = fromCache(await this.cache.get(key));
+    if (cached) return cached;
+    const data = await this.repo.getPatientDetail(
+      doctor._id as Types.ObjectId,
+      dto,
+    );
+    if (!data) throw new NotFoundException('user.NOT_FOUND');
+    await this.cache.set(
+      key,
+      data,
+      TTL.PATIENT_DETAIL.memory,
+      TTL.PATIENT_DETAIL.redis,
+    );
+    return data;
   }
 
-  /**
-   * Invalidate all caches tied to a specific doctor (e.g. after booking status change).
-   * Pass the internal doctor._id (not authAccountId).
-   */
-  async invalidateDoctorCache(doctorId: string): Promise<void> {
-    await this.cache.invalidatePattern(CK.patternDoctor(doctorId));
-  }
-
-  /**
-   * Invalidate top-doctors list (e.g. after searchCount is incremented).
-   */
-  async invalidateTopDoctors(): Promise<void> {
+  // ══════════════════════════════════════════════════════════════════════════
+  // Cache Invalidation
+  // ══════════════════════════════════════════════════════════════════════════
+  async onDoctorSearched(): Promise<void> {
     await this.cache.invalidatePattern(CK.patternTopDoctors());
   }
 
-  // ── Private Helpers ───────────────────────────────────────────────────────
-
-  private assertValidObjectId(id: string): void {
-    if (!Types.ObjectId.isValid(id))
-      throw new BadRequestException('common.VALIDATION_ERROR');
+  async onBookingCreated(userId: string, doctorId: string): Promise<void> {
+    await Promise.all([
+      this.cache.invalidatePattern(CK.patternNextUser(userId)),
+      this.cache.invalidatePattern(CK.patternNextDoctor(doctorId)),
+      this.cache.invalidatePattern(CK.patternAllBookings(userId)),
+      this.cache.invalidatePattern(CK.patternAppointments(doctorId)),
+    ]);
   }
 
-  /**
-   * Produces a stable, compact string from a filters DTO to use as a cache key segment.
-   * Sorts keys so that { page:1, limit:10 } and { limit:10, page:1 } produce the same key.
-   */
+  async onBookingCancelled(userId: string, doctorId: string): Promise<void> {
+    await Promise.all([
+      this.cache.invalidatePattern(CK.patternNextUser(userId)),
+      this.cache.invalidatePattern(CK.patternNextDoctor(doctorId)),
+      this.cache.invalidatePattern(CK.patternAllBookings(userId)),
+      this.cache.invalidatePattern(CK.patternAppointments(doctorId)),
+      this.cache.invalidatePattern(CK.patternSearchPatients(doctorId)),
+      this.cache.invalidatePattern(CK.patternPatientDetail(doctorId)),
+    ]);
+  }
+
+  async onBookingConfirmed(userId: string, doctorId: string): Promise<void> {
+    await Promise.all([
+      this.cache.invalidatePattern(CK.patternNextUser(userId)),
+      this.cache.invalidatePattern(CK.patternNextDoctor(doctorId)),
+      this.cache.invalidatePattern(CK.patternAppointments(doctorId)),
+    ]);
+  }
+
+  async onBookingCompleted(userId: string, doctorId: string): Promise<void> {
+    await Promise.all([
+      this.cache.invalidatePattern(CK.patternNextUser(userId)),
+      this.cache.invalidatePattern(CK.patternNextDoctor(doctorId)),
+      this.cache.invalidatePattern(CK.patternAllBookings(userId)),
+      this.cache.invalidatePattern(CK.patternPatients(doctorId)),
+      this.cache.invalidatePattern(CK.patternAppointments(doctorId)),
+      this.cache.invalidatePattern(CK.patternSearchPatients(doctorId)),
+      this.cache.invalidatePattern(CK.patternPatientDetail(doctorId)),
+    ]);
+  }
+
+  async onBookingRescheduled(userId: string, doctorId: string): Promise<void> {
+    await Promise.all([
+      this.cache.invalidatePattern(CK.patternNextUser(userId)),
+      this.cache.invalidatePattern(CK.patternNextDoctor(doctorId)),
+      this.cache.invalidatePattern(CK.patternAllBookings(userId)),
+      this.cache.invalidatePattern(CK.patternAppointments(doctorId)),
+      this.cache.invalidatePattern(CK.patternSearchPatients(doctorId)),
+      this.cache.invalidatePattern(CK.patternPatientDetail(doctorId)),
+    ]);
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  private assertObjectId(id: string): void {
+    if (!Types.ObjectId.isValid(id))
+      throw new BadRequestException('common.INVALID_ID');
+  }
+
   private serializeFilters(filters: Record<string, any>): string {
     return Object.keys(filters)
       .sort()
-      .filter((k) => filters[k] !== undefined && filters[k] !== null && filters[k] !== '')
+      .filter(
+        (k) =>
+          filters[k] !== undefined && filters[k] !== null && filters[k] !== '',
+      )
       .map((k) => `${k}=${filters[k]}`)
       .join('&');
   }
