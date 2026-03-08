@@ -31,7 +31,7 @@ export const messages = {
       ROLE_NOT_FOUND: 'User role not found',
       ACCOUNT_DEACTIVATED: 'Your account has been deactivated',
       REFRESH_TOKEN_NOT_FOUND: 'Refresh token not found',
-      DUPLICATE_REGISTRATION: 'A registration request is already pending', // used in checkDuplicatePending
+      DUPLICATE_REGISTRATION: 'A registration request is already pending',
       PHONE_ALREADY_EXISTS: 'This phone number is already registered',
     },
 
@@ -126,9 +126,9 @@ export const messages = {
         'You already have a booking with this doctor at this time',
       INVALID_SLOT_ID: 'Invalid slot ID',
       FORBIDDEN: 'You are not allowed to perform this action',
-      CANCELLED: 'Booking cancelled successfully', // used in doctorCancelBooking
-      COMPLETED: 'Booking completed successfully', // used in completeBooking
-      RESCHEDULED: 'Booking rescheduled successfully', // used in rescheduleBooking
+      CANCELLED: 'Booking cancelled successfully',
+      COMPLETED: 'Booking completed successfully',
+      RESCHEDULED: 'Booking rescheduled successfully',
     },
 
     // ================= POSTS =================
@@ -169,12 +169,29 @@ export const messages = {
       ALREADY_CANCELLED: 'This request has already been cancelled',
       ALREADY_COMPLETED: 'This request has already been completed',
     },
+
+    // ================= SLOTS =================
     slot: {
       LIST: 'Available slots fetched successfully',
       INVALID_DATE: 'Date must be today or in the future',
       INVALID_DATE_RANGE: 'Start date cannot be greater than end date',
       NOT_FOUND: 'Slot not found',
-      PAUSED: 'Slots paused successfully', // used in pauseSlots
+      PAUSED: 'Slots paused successfully',
+    },
+
+    // ================= WORKING HOURS =================
+    working_hours: {
+      EMPTY: 'Working hours cannot be empty',
+      INVALID_TIME_RANGE: 'Start time must be before end time',
+      INTERNAL_OVERLAP: 'The submitted working hours overlap with each other',
+      CROSS_OVERLAP: 'The new working hours conflict with your existing schedule',
+      DUPLICATE_LOCATION: 'A working hours entry for this location on this day already exists',
+      SAME_AS_EXISTING: 'The submitted working hours are identical to the current schedule',
+      CONFLICT_WARNING: 'Updating working hours will cancel existing appointments for affected patients',
+      ADDED: 'Working hours added successfully',
+      UPDATED: 'Working hours updated successfully',
+      FETCHED: 'Working hours fetched successfully',
+      SLOTS_GENERATING: 'Working hours saved. Appointment slots are being generated.',
     },
 
     // ================= ADMIN =================
@@ -405,12 +422,31 @@ export const messages = {
       ALREADY_CANCELLED: 'تم إلغاء هذا الطلب مسبقاً',
       ALREADY_COMPLETED: 'تم إكمال هذا الطلب مسبقاً',
     },
+
+    // ================= SLOTS =================
     slot: {
       LIST: 'تم جلب المواعيد المتاحة بنجاح',
       INVALID_DATE: 'يجب أن يكون التاريخ اليوم أو في المستقبل',
       INVALID_DATE_RANGE: 'لا يمكن أن يكون تاريخ البداية أكبر من تاريخ النهاية',
       NOT_FOUND: 'الموعد غير موجود',
+      PAUSED: 'تم إيقاف المواعيد مؤقتاً بنجاح',
     },
+
+    // ================= WORKING HOURS =================
+    working_hours: {
+      EMPTY: 'لا يمكن أن تكون ساعات العمل فارغة',
+      INVALID_TIME_RANGE: 'يجب أن يكون وقت البداية قبل وقت النهاية',
+      INTERNAL_OVERLAP: 'ساعات العمل المُدخلة تتعارض مع بعضها',
+      CROSS_OVERLAP: 'ساعات العمل الجديدة تتعارض مع الجدول الحالي',
+      DUPLICATE_LOCATION: 'يوجد مدخل لهذا الموقع في هذا اليوم مسبقاً',
+      SAME_AS_EXISTING: 'ساعات العمل المُدخلة مطابقة للجدول الحالي',
+      CONFLICT_WARNING: 'تحديث ساعات العمل سيؤدي إلى إلغاء المواعيد المحجوزة للمرضى المتأثرين',
+      ADDED: 'تمت إضافة ساعات العمل بنجاح',
+      UPDATED: 'تم تحديث ساعات العمل بنجاح',
+      FETCHED: 'تم جلب ساعات العمل بنجاح',
+      SLOTS_GENERATING: 'تم حفظ ساعات العمل. جارٍ إنشاء المواعيد المتاحة.',
+    },
+
     // ================= ADMIN =================
     admin: {
       DASHBOARD: 'تم تحميل لوحة التحكم بنجاح',

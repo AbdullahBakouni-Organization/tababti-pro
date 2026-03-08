@@ -293,7 +293,7 @@ export class MedicalEquipmentService {
             ],
             [EntityRequestStatus.CONTACTED]: [
                 EntityRequestStatus.COMPLETED,
-                EntityRequestStatus.CANCELLED,
+                EntityRequestStatus.CANCELLED,//Doctor Working Hours -Legal Advice Requests Medical Equipment Requests 
             ],
             [EntityRequestStatus.COMPLETED]: [],
             [EntityRequestStatus.CANCELLED]: [],
