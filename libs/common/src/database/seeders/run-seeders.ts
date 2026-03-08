@@ -11,7 +11,7 @@ import { CitySeeder } from './citiy.seeder';
 import { SpecialtySeeder } from './spicility.seeder';
 import { CenterSeeder } from './center.seeder';
 import { DoctorSeeder } from './doctor.seeder';
-import { SlotSeeder } from './slot.seeder'; // ✅ Added
+import { SlotSeeder } from './slot.seeder';
 import { BookingSeeder } from './booking.seeder';
 import { UserSeeder } from './user.seeder';
 import { QuestionSeeder } from './question.seeder';
@@ -19,6 +19,9 @@ import { AnswerSeeder } from './answer.seeder';
 import { PostSeeder } from './post.seeder';
 import { CommonDepartmentSeeder } from './commonDepartment.seeder';
 import { Hospital } from '../schemas/hospital.schema';
+import { AuthAccount } from '../schemas/auth.schema';
+import { Doctor } from '../schemas/doctor.schema';
+import { User } from '../schemas/user.schema';
 import seedHospitals from './hospital.seeder';
 
 async function runSeeders() {
@@ -28,6 +31,16 @@ async function runSeeders() {
     await NestFactory.createApplicationContext(DatabaseModule);
 
   try {
+    // ✅ Step 1: Wipe dependent collections first (doctors, users), then authAccounts
+    const authModel = app.get<Model<AuthAccount>>(getModelToken('AuthAccount'));
+    const doctorModel = app.get<Model<Doctor>>(getModelToken('Doctor'));
+    const userModel = app.get<Model<User>>(getModelToken('User'));
+
+    await doctorModel.deleteMany({});
+    await userModel.deleteMany({});
+    await authModel.deleteMany({});
+    console.log('🗑️  Cleared doctors, users, and all auth accounts\n');
+
     console.log('🌍 Seeding Cities...');
     const citySeeder = new CitySeeder(app);
     await citySeeder.seed();
@@ -41,9 +54,7 @@ async function runSeeders() {
     await userSeeder.seed();
 
     console.log('🏥 Seeding Hospitals...');
-    const hospitalModel = app.get(
-      getModelToken(Hospital.name),
-    ) as Model<Hospital>;
+    const hospitalModel = app.get(getModelToken(Hospital.name)) as Model<Hospital>;
     const cityModel = app.get(getModelToken('Cities')) as Model<any>;
     await hospitalModel.deleteMany({});
     const cities = await cityModel.find().lean();
@@ -55,6 +66,7 @@ async function runSeeders() {
       return { ...rest, cityId };
     });
     await hospitalModel.insertMany(hospitalsToInsert);
+    console.log(`✅ Seeded ${hospitalsToInsert.length} hospitals`);
 
     console.log('📝 Seeding Posts...');
     const postSeeder = new PostSeeder(app);
@@ -68,7 +80,6 @@ async function runSeeders() {
     const doctorSeeder = new DoctorSeeder(app);
     await doctorSeeder.seed();
 
-    // ✅ Slots MUST be seeded before bookings
     console.log('📅 Seeding Slots...');
     const slotSeeder = new SlotSeeder(app);
     await slotSeeder.seed();
