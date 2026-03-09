@@ -43,7 +43,7 @@ export class SlotGenerationProcessor {
   private readonly logger = new Logger(SlotGenerationProcessor.name);
 
   // How many weeks ahead to generate slots — keep same as your original service
-  private readonly SLOT_GENERATION_WEEKS = 12;
+  private readonly SLOT_GENERATION_WEEKS = 48;
   private readonly CACHE_TTL = 3600;
 
   constructor(

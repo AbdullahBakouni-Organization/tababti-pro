@@ -20,6 +20,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { PostStats } from './post.interface';
 import { Post, PostDocument } from '@app/common/database/schemas/post.schema';
 import { MinioService } from 'apps/home-service/src/minio/minio.service';
+import { console } from 'inspector/promises';
 
 @Injectable()
 export class PostService {
@@ -220,21 +221,21 @@ export class PostService {
 
     if (
       !author ||
-      post.authorId.toString() !== (author as any)._id.toString()
+      post.authorId.toString() !== (author as any).authAccountId.toString()
     ) {
       throw new ForbiddenException('post.FORBIDDEN');
     }
 
-    if (post.imagesMetadata && post.imagesMetadata.length > 0) {
+    if (post.imagesMetadata?.length) {
       await this.deletePostImagesFromMinIO(post.imagesMetadata);
     }
 
-    // Step 2: Delete post record
-    await post.deleteOne();
+    // delete post
+    await this.postRepo.delete(postId);
 
     this.logger.log(`Post ${postId} and all images deleted successfully`);
 
-    return post.toObject();
+    return post;
   }
 
   /* ======================================================

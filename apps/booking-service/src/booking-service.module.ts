@@ -11,6 +11,7 @@ import { BullModule } from '@nestjs/bull';
 import { UsersService } from 'apps/home-service/src/users/users.service';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
+import { MinioModule } from 'apps/home-service/src/minio/minio.module';
 
 @Module({
   imports: [
@@ -59,6 +60,7 @@ import { APP_GUARD } from '@nestjs/core';
 
     // ✅ ADD THIS: Import SlotModule which contains SlotGenerationService
     SlotModule,
+    MinioModule,
   ],
   controllers: [BookingController],
   providers: [

@@ -46,6 +46,7 @@ import {
   PostActionResponseDto,
   RejectPostDto,
 } from './dto/approved-reject-post.dto';
+import { ParseMongoIdPipe } from '@app/common/pipes/parse-mongo-id.pipe';
 
 @Controller('admin')
 export class AdminController {
@@ -348,11 +349,13 @@ export class AdminController {
   })
   async approveGalleryImage(
     @Param('doctorId') doctorId: string,
-    @Param('imageId') imageId: string,
+    @Param('imageId') imageId: string[],
     @Req() req: any,
   ) {
-    const adminId: string = req.user.accountId;
-    await this.adminService.approveGalleryImage(doctorId, imageId, adminId);
+    const adminId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
+    await this.adminService.approveGalleryImages(doctorId, imageId, adminId);
 
     return {
       success: true,
@@ -396,16 +399,18 @@ export class AdminController {
   })
   async rejectGalleryImage(
     @Param('doctorId') doctorId: string,
-    @Param('imageId') imageId: string,
+    @Param('imageId') imageId: string[],
     @Body('reason') reason: string,
     @Req() req: any,
   ) {
-    const adminId: string = req.user.accountId;
+    const adminId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
     if (!reason) {
       reason = 'Image did not meet quality standards';
     }
 
-    await this.adminService.rejectGalleryImage(doctorId, imageId, reason);
+    await this.adminService.rejectGalleryImages(doctorId, imageId, reason);
 
     return {
       success: true,
@@ -458,7 +463,7 @@ export class AdminController {
    */
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
-  @Get('approved')
+  @Get('approved-posts')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Get all approved posts',
@@ -482,7 +487,7 @@ export class AdminController {
    */
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
-  @Get('rejected')
+  @Get('rejected-posts')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Get all rejected posts',
@@ -506,7 +511,7 @@ export class AdminController {
    */
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
-  @Get()
+  @Get('all-posts')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Get all posts with filters',
@@ -615,8 +620,11 @@ export class AdminController {
   async approvePost(
     @Param('postId') postId: string,
     @Body() dto: ApprovePostDto,
+    @Req() req: any,
   ): Promise<PostActionResponseDto> {
-    const adminId: string = req.user.accountId;
+    const adminId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
     return this.adminService.approvePost(postId, dto, adminId);
   }
 
@@ -661,8 +669,11 @@ export class AdminController {
   async rejectPost(
     @Param('postId') postId: string,
     @Body() dto: RejectPostDto,
+    @Req() req: any,
   ): Promise<PostActionResponseDto> {
-    const adminId: string = req.user.accountId;
+    const adminId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
     return this.adminService.rejectPost(postId, dto, adminId);
   }
 }
