@@ -7,7 +7,6 @@ import { WhatsappModule } from '../whatsapp/whatsapp.module';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { AuthValidateModule } from '@app/common/auth-validate';
-import { MinioModule } from '../minio/minio.module';
 @Module({
   imports: [
     ThrottlerModule.forRoot([
@@ -19,7 +18,6 @@ import { MinioModule } from '../minio/minio.module';
     DatabaseModule,
     AuthValidateModule,
     WhatsappModule,
-    MinioModule,
   ],
   providers: [
     AuthService,

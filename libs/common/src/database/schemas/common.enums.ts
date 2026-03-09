@@ -414,9 +414,6 @@ export enum NotificationTypes {
   PROMOTION = 'promotion',
   NEW_OFFER = 'new_offer',
   SPECIAL_DISCOUNT = 'special_discount',
-
-  ADMIN_APPROVED_POST = 'admin_approved_post',
-  ADMIN_REJECTED_POST = 'admin_rejected_post',
 }
 export enum ApprovalStatus {
   PENDING = 'pending',
@@ -810,10 +807,4 @@ export enum BlockReason {
   MAINTENANCE = 'maintenance',
   CONFERENCE = 'conference',
   OTHER = 'other',
-}
-
-export enum GalleryImageStatus {
-  PENDING = 'PENDING',
-  APPROVED = 'APPROVED',
-  REJECTED = 'REJECTED',
 }

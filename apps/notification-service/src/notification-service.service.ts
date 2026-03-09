@@ -8,8 +8,6 @@ import {
   NotificationDocument,
 } from '@app/common/database/schemas/notification.schema';
 import {
-  AdminApprovedPostEvent,
-  AdminRejectedPostEvent,
   BookingCancelledNotificationEvent,
   BookingCancelledNotificationEventByUser,
   BookingCompletedNotificationEvent,
@@ -271,64 +269,6 @@ export class NotificationService {
           `Failed to save notification to database: ${err.message}`,
         );
       }
-    }
-  }
-
-  async sendAdminApprovedPostNotification(
-    event: AdminApprovedPostEvent,
-  ): Promise<void> {
-    const sent = await this.fcmService.sendAdminApprovedPostNotification(
-      event.data.fcmToken,
-      event.data,
-    );
-
-    // Determine notification status
-    const notificationStatus = sent
-      ? NotificationStatus.SENT
-      : NotificationStatus.FAILED;
-    try {
-      await this.createNotificationRecord({
-        recipientType: UserRole.DOCTOR,
-        recipientId: new Types.ObjectId(event.data.doctorId),
-        notificationType: NotificationTypes.ADMIN_APPROVED_POST,
-        status: notificationStatus,
-        title: 'Post Approved',
-        message: `Your post has been approved by the admin.`,
-      });
-    } catch (dbError) {
-      const err = dbError as Error;
-      this.logger.error(
-        `Failed to save notification to database: ${err.message}`,
-      );
-    }
-  }
-
-  async sendAdminRejectedPostNotification(
-    event: AdminRejectedPostEvent,
-  ): Promise<void> {
-    const sent = await this.fcmService.sendAdminRejectedPostNotification(
-      event.data.fcmToken,
-      event.data,
-    );
-
-    // Determine notification status
-    const notificationStatus = sent
-      ? NotificationStatus.SENT
-      : NotificationStatus.FAILED;
-    try {
-      await this.createNotificationRecord({
-        recipientType: UserRole.DOCTOR,
-        recipientId: new Types.ObjectId(event.data.doctorId),
-        notificationType: NotificationTypes.ADMIN_REJECTED_POST,
-        status: notificationStatus,
-        title: 'Post Rejected',
-        message: `Your post has been rejected by the admin. Reason: ${event.data.reason}`,
-      });
-    } catch (dbError) {
-      const err = dbError as Error;
-      this.logger.error(
-        `Failed to save notification to database: ${err.message}`,
-      );
     }
   }
 

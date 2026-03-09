@@ -43,11 +43,4 @@ export const KAFKA_TOPICS = {
   WHATSAPP_SEND_OTP: 'whatsapp.send.otp',
 
   BOOKING_CANCELLED_NOTIFICATION: 'booking.cancelled.notification',
-
-  ADMIN_APPROVED_POST: 'admin.approved.post',
-
-  ADMIN_REJECTED_POST: 'admin.rejected.post',
-
-  ADMIN_APPROVED_GALLERY_IMAGES: 'admin.approved.gallery.images',
-  ADMIN_REJECTED_GALLERY_IMAGES: 'admin.rejected.gallery.images',
 };

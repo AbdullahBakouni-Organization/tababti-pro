@@ -1100,9 +1100,6 @@ import {
   Query,
   Patch,
   UnauthorizedException,
-  BadRequestException,
-  UploadedFile,
-  Delete,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -1116,11 +1113,7 @@ import {
   ApiQuery,
   ApiParam,
 } from '@nestjs/swagger';
-import {
-  FileFieldsInterceptor,
-  FileInterceptor,
-  FilesInterceptor,
-} from '@nestjs/platform-express';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { DoctorService } from './doctor.service';
 import {
   AuthValidateService,
@@ -1175,69 +1168,7 @@ import { DoctorBookingsQueryService } from './doctor.service.v2';
 import { RescheduleBookingDto } from './dto/resechedula-booking.dto,';
 import { ParseMongoIdPipe } from '../../../../libs/common/src/pipes/parse-mongo-id.pipe';
 import { Throttle } from '@nestjs/throttler';
-import multer from 'multer';
-import { UploadResult, MinioService } from '../minio/minio.service';
-import {
-  GalleryImagesResponseDto,
-  ProfileImageResponseDto,
-} from './dto/images.dto';
 
-// ============================================
-// Login DTO
-// ============================================
-const memoryStorageConfig = {
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 10 * 1024 * 1024,
-  },
-  fileFilter: (req: any, file: Express.Multer.File, cb: any) => {
-    const allowedImageTypes = ['image/jpeg', 'image/png', 'image/webp'];
-    const allowedDocTypes = ['application/pdf'];
-    const isImage = file.fieldname.includes('Image');
-    const isDocument = file.fieldname.includes('Document');
-    if (isImage && allowedImageTypes.includes(file.mimetype)) {
-      cb(null, true);
-    } else if (isDocument && allowedDocTypes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(
-        new BadRequestException(
-          `Invalid file type for ${file.fieldname}. ` +
-            `${isImage ? 'Allowed: JPEG, PNG, WEBP' : 'Allowed: PDF'}`,
-        ),
-        false,
-      );
-    }
-  },
-};
-const imageMemoryConfig = {
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB per image
-  },
-  fileFilter: (req: any, file: Express.Multer.File, cb: any) => {
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
-
-    if (allowedTypes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(
-        new BadRequestException('Invalid file type. Allowed: JPEG, PNG, WEBP'),
-        false,
-      );
-    }
-  },
-};
-export class LoginDto {
-  phone: string;
-  password: string;
-  deviceInfo: {
-    deviceId: string;
-    deviceName: string;
-    deviceType: 'mobile' | 'tablet' | 'desktop';
-    platform: 'ios' | 'android' | 'web';
-  };
-}
 // ── i18n ─────────────────────────────────────────────────────────────────────
 // Controllers are the ONLY layer that call getLang() and AppResponse.success().
 // Services throw dot-notation exception keys and return { messageKey, ...data }.
@@ -1253,7 +1184,10 @@ import { ApiResponse as AppResponse } from '@app/common/response/api-response';
 @Controller('doctors')
 export class DoctorController {
   constructor(
+<<<<<<< HEAD
     private minioService: MinioService,
+=======
+>>>>>>> parent of 464a1e7 (Merge pull request #17 from AbdullahBakouni/minio-bucket)
     private readonly DoctorService: DoctorService,
     private readonly DoctorServiceV2: DoctorBookingsQueryService,
     private readonly authService: AuthValidateService,
@@ -1262,7 +1196,6 @@ export class DoctorController {
   // ============================================
   // Helper — extract and normalise uploaded files
   // ============================================
-  // Multer config for memory storage (MinIO will handle persistence)
 
   private processUploadedFiles(files?: {
     certificateImage?: Express.Multer.File[];
@@ -1310,8 +1243,10 @@ export class DoctorController {
         { name: 'certificateDocument', maxCount: 1 },
         { name: 'licenseDocument', maxCount: 1 },
       ],
-      memoryStorageConfig,
+      doctorDocumentOptions,
     ),
+    MultipleFileCleanupInterceptor,
+    DocumentUrlInterceptor,
   )
   @HttpCode(HttpStatus.CREATED)
   @ApiConsumes('multipart/form-data')
@@ -1344,160 +1279,29 @@ export class DoctorController {
       licenseDocument?: Express.Multer.File[];
     },
   ): Promise<RegistrationResponseDto> {
-    // Process uploaded fil
-
-    const doctor = await this.DoctorService.registerDoctor(dto);
-    const doctorId = doctor._id.toString();
     const processedFiles = this.processUploadedFiles(files);
     const { doctor, messageKey } = await this.DoctorService.registerDoctor(
       dto,
       processedFiles,
     );
 
-    // Upload files to MinIO
-    const uploadedFiles = await this.uploadDoctorFiles(doctorId, files);
-
-    // Update doctor record with file URLs
-    if (uploadedFiles) {
-      await this.DoctorService.updateDoctorFiles(doctorId, uploadedFiles);
-    }
     return {
       success: true,
-      message:
-        'Registration submitted successfully! ' +
-        'Your application is under review. ' +
-        'You will be notified once approved.',
-      doctorId,
       message: AppResponse.getMessage(getLang(), messageKey),
       doctorId: doctor._id.toString(),
       status: doctor.status,
       estimatedReviewTime: '24-48 hours',
-      uploadedFiles: uploadedFiles
+      uploadedFiles: processedFiles
         ? {
-            certificateImage: uploadedFiles.certificateImage?.url,
-            licenseImage: uploadedFiles.licenseImage?.url,
-            certificateDocument: uploadedFiles.certificateDocument?.url,
-            licenseDocument: uploadedFiles.licenseDocument?.url,
+            certificateImage: processedFiles.certificateImage?.path,
+            licenseImage: processedFiles.licenseImage?.path,
+            certificateDocument: processedFiles.certificateDocument?.path,
+            licenseDocument: processedFiles.licenseDocument?.path,
           }
         : undefined,
     };
   }
 
-  private async uploadDoctorFiles(
-    doctorId: string,
-    files?: {
-      certificateImage?: Express.Multer.File[];
-      licenseImage?: Express.Multer.File[];
-      certificateDocument?: Express.Multer.File[];
-      licenseDocument?: Express.Multer.File[];
-    },
-  ): Promise<{
-    certificateImage?: UploadResult;
-    licenseImage?: UploadResult;
-    certificateDocument?: UploadResult;
-    licenseDocument?: UploadResult;
-  } | null> {
-    if (!files) return null;
-
-    const uploadedFiles: {
-      certificateImage?: UploadResult;
-      licenseImage?: UploadResult;
-      certificateDocument?: UploadResult;
-      licenseDocument?: UploadResult;
-    } = {};
-
-    try {
-      // Upload certificate image
-      if (files.certificateImage?.[0]) {
-        uploadedFiles.certificateImage =
-          await this.minioService.uploadDoctorDocument(
-            files.certificateImage[0],
-            doctorId,
-            'certificate',
-            'image',
-          );
-      }
-
-      // Upload license image
-      if (files.licenseImage?.[0]) {
-        uploadedFiles.licenseImage =
-          await this.minioService.uploadDoctorDocument(
-            files.licenseImage[0],
-            doctorId,
-            'license',
-            'image',
-          );
-      }
-
-      // Upload certificate document (PDF)
-      if (files.certificateDocument?.[0]) {
-        uploadedFiles.certificateDocument =
-          await this.minioService.uploadDoctorDocument(
-            files.certificateDocument[0],
-            doctorId,
-            'certificate',
-            'pdf',
-          );
-      }
-
-      // Upload license document (PDF)
-      if (files.licenseDocument?.[0]) {
-        uploadedFiles.licenseDocument =
-          await this.minioService.uploadDoctorDocument(
-            files.licenseDocument[0],
-            doctorId,
-            'license',
-            'pdf',
-          );
-      }
-
-      return Object.keys(uploadedFiles).length > 0 ? uploadedFiles : null;
-    } catch (error) {
-      // If upload fails, we should clean up the doctor record
-      // and any uploaded files
-      await this.cleanupFailedRegistration(doctorId, uploadedFiles);
-      throw error;
-    }
-  }
-
-  /**
-   * Cleanup files and doctor record if registration fails
-   */
-  private async cleanupFailedRegistration(
-    doctorId: string,
-    uploadedFiles: any,
-  ): Promise<void> {
-    try {
-      // Delete uploaded files
-      const filesToDelete: string[] = [];
-
-      if (uploadedFiles.certificateImage) {
-        filesToDelete.push(uploadedFiles.certificateImage.fileName);
-      }
-      if (uploadedFiles.licenseImage) {
-        filesToDelete.push(uploadedFiles.licenseImage.fileName);
-      }
-      if (uploadedFiles.certificateDocument) {
-        filesToDelete.push(uploadedFiles.certificateDocument.fileName);
-      }
-      if (uploadedFiles.licenseDocument) {
-        filesToDelete.push(uploadedFiles.licenseDocument.fileName);
-      }
-
-      if (filesToDelete.length > 0) {
-        await this.minioService.deleteFiles('tababti-doctors', filesToDelete);
-      }
-
-      // Delete doctor record
-      await this.DoctorService.deleteDoctorRecord(doctorId);
-    } catch (error) {
-      // Log but don't throw - original error is more important
-      console.error('Cleanup failed:', error);
-    }
-  }
-  /**
-   * Login
-   */
   // ==========================================================================
   // PUBLIC — Login
   // ==========================================================================
@@ -1645,11 +1449,6 @@ export class DoctorController {
   async refreshToken(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<{
-    success: boolean;
-    accessToken: string;
-    refreshToken?: string;
-  }> {
   ): Promise<{ success: boolean; accessToken: string }> {
     const refreshToken = req.cookies['token'];
 
@@ -2201,231 +2000,5 @@ export class DoctorController {
       messageKey: 'common.SUCCESS',
       data,
     });
-  }
-
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.DOCTOR)
-  @Post('profile-image')
-  @UseInterceptors(FileInterceptor('image', imageMemoryConfig))
-  @HttpCode(HttpStatus.OK)
-  @ApiConsumes('multipart/form-data')
-  @ApiOperation({
-    summary: 'Upload or update doctor profile image',
-    description: `
-      Upload a new profile image or replace the existing one.
-
-      **Features:**
-      - Automatically replaces old image if exists
-      - Stores in MinIO: doctors/{doctorId}/profile/
-      - Max size: 5MB
-      - Formats: JPEG, PNG, WEBP
-      - Returns public URL for immediate use
-
-      **Storage Path:**
-      - Bucket: tababti-doctors
-      - Path: doctors/{doctorId}/profile/{uuid}.jpg
-      - Public URL: http://localhost:9000/tababti-doctors/doctors/{doctorId}/profile/{uuid}.jpg
-      `,
-  })
-  @ApiParam({
-    name: 'doctorId',
-    description: 'Doctor MongoDB ObjectId',
-    example: '507f1f77bcf86cd799439011',
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Profile image uploaded/updated successfully',
-    type: ProfileImageResponseDto,
-    schema: {
-      example: {
-        success: true,
-        message: 'Profile image uploaded successfully',
-        doctorId: '507f1f77bcf86cd799439011',
-        imageUrl:
-          'http://localhost:9000/tababti-doctors/doctors/507f/profile/a1b2c3d4.jpg',
-        previousImageUrl:
-          'http://localhost:9000/tababti-doctors/doctors/507f/profile/old-uuid.jpg',
-      },
-    },
-  })
-  @ApiResponse({ status: 400, description: 'Invalid doctor ID or file type' })
-  @ApiResponse({ status: 404, description: 'Doctor not found' })
-  async uploadProfileImage(
-    @Req() req: any,
-    @UploadedFile() file?: Express.Multer.File,
-  ): Promise<ProfileImageResponseDto> {
-    const doctorId = new ParseMongoIdPipe().transform(
-      req.user.entity._id.toString(),
-    );
-    if (!file) {
-      throw new BadRequestException('No image file provided');
-    }
-
-    return this.DoctorServiceV2.uploadProfileImage(doctorId, file);
-  }
-
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.DOCTOR)
-  @Post('gallery')
-  @UseInterceptors(FilesInterceptor('images', 10, imageMemoryConfig)) // Max 10 images at once
-  @HttpCode(HttpStatus.CREATED)
-  @ApiConsumes('multipart/form-data')
-  @ApiOperation({
-    summary: 'Add images to doctor gallery',
-    description: `
-     Upload single or multiple images to doctor's gallery.
-
-     **Features:**
-     - Upload 1-10 images at once
-     - Maximum 20 total gallery images per doctor
-     - Each image max size: 5MB
-     - Formats: JPEG, PNG, WEBP
-     - Optional description for all images
-     - Automatic cleanup on error
-
-     **Use Cases:**
-     - Clinic interior photos
-     - Equipment photos
-     - Team photos
-     - Certificates/Awards
-     - Before/After patient photos (anonymized)
-
-     **Storage:**
-     - Bucket: tababti-doctors
-     - Path: doctors/{doctorId}/gallery/{uuid}.jpg
-     `,
-  })
-  @ApiParam({
-    name: 'doctorId',
-    description: 'Doctor MongoDB ObjectId',
-  })
-  @ApiQuery({
-    name: 'description',
-    required: false,
-    description: 'Optional description for the images',
-    example: 'Clinic interior photos',
-  })
-  @ApiResponse({
-    status: 201,
-    description: 'Images added to gallery successfully',
-    type: GalleryImagesResponseDto,
-    schema: {
-      example: {
-        success: true,
-        message: '3 image(s) added to gallery successfully',
-        doctorId: '507f1f77bcf86cd799439011',
-        uploadedCount: 3,
-        totalGalleryImages: 8,
-        uploadedImages: [
-          'http://localhost:9000/tababti-doctors/doctors/507f/gallery/uuid1.jpg',
-          'http://localhost:9000/tababti-doctors/doctors/507f/gallery/uuid2.jpg',
-          'http://localhost:9000/tababti-doctors/doctors/507f/gallery/uuid3.jpg',
-        ],
-      },
-    },
-  })
-  @ApiResponse({
-    status: 400,
-    description: 'Invalid doctor ID, no files, or gallery limit exceeded',
-  })
-  @ApiResponse({ status: 404, description: 'Doctor not found' })
-  async addGalleryImages(
-    @Req() req: any,
-    @Query('description') description?: string,
-    @UploadedFiles() files?: Express.Multer.File[],
-  ): Promise<GalleryImagesResponseDto> {
-    const doctorId = new ParseMongoIdPipe().transform(
-      req.user.entity._id.toString(),
-    );
-    if (!files || files.length === 0) {
-      throw new BadRequestException('No image files provided');
-    }
-    return this.DoctorServiceV2.addGalleryImages(doctorId, files, description);
-  }
-
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.DOCTOR)
-  @Delete('gallery/image')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Delete single gallery image',
-    description: 'Removes a specific image from doctor gallery.',
-  })
-  @ApiParam({
-    name: 'doctorId',
-    description: 'Doctor MongoDB ObjectId',
-  })
-  @ApiQuery({
-    name: 'imageUrl',
-    description: 'Full URL of the image to delete',
-    example:
-      'http://localhost:9000/tababti-doctors/doctors/507f/gallery/uuid.jpg',
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Gallery image deleted successfully',
-  })
-  @ApiResponse({ status: 404, description: 'Doctor or image not found' })
-  async deleteGalleryImage(
-    @Req() req: any,
-    @Query('imageUrl') imageUrl: string,
-  ) {
-    const doctorId = new ParseMongoIdPipe().transform(
-      req.user.entity._id.toString(),
-    );
-    if (!imageUrl) {
-      throw new BadRequestException('imageUrl query parameter is required');
-    }
-
-    await this.DoctorServiceV2.deleteGalleryImage(doctorId, imageUrl);
-    return {
-      success: true,
-      message: 'Gallery image deleted successfully',
-    };
-  }
-
-  /**
-   * Get doctor images (profile + gallery)
-   */
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.DOCTOR)
-  @Get('gallery-images')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Get doctor images',
-    description: 'Retrieve doctor profile image and gallery images.',
-  })
-  @ApiParam({
-    name: 'doctorId',
-    description: 'Doctor MongoDB ObjectId',
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Doctor images retrieved',
-    schema: {
-      example: {
-        profileImage:
-          'http://localhost:9000/tababti-doctors/doctors/507f/profile/uuid.jpg',
-        gallery: [
-          {
-            url: 'http://localhost:9000/tababti-doctors/doctors/507f/gallery/uuid1.jpg',
-            description: 'Clinic interior',
-            uploadedAt: '2026-03-05T10:00:00.000Z',
-          },
-          {
-            url: 'http://localhost:9000/tababti-doctors/doctors/507f/gallery/uuid2.jpg',
-            uploadedAt: '2026-03-05T10:05:00.000Z',
-          },
-        ],
-        galleryCount: 2,
-      },
-    },
-  })
-  @ApiResponse({ status: 404, description: 'Doctor not found' })
-  async getDoctorImages(@Req() req: any) {
-    const doctorId = new ParseMongoIdPipe().transform(
-      req.user.entity._id.toString(),
-    );
-    return this.DoctorServiceV2.getDoctorGalleryImages(doctorId);
   }
 }

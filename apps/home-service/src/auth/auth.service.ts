@@ -3,7 +3,6 @@ import {
   BadRequestException,
   UnauthorizedException,
   NotFoundException,
-  Logger,
 } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { Connection, Model } from 'mongoose';
@@ -28,7 +27,6 @@ type Lang = 'en' | 'ar';
 
 @Injectable()
 export class AuthService {
-  private readonly logger = new Logger(AuthService.name);
   constructor(
     @InjectModel(AuthAccount.name) private authModel: Model<AuthAccount>,
     @InjectModel(Otp.name) private otpModel: Model<OtpDocument>,
@@ -37,7 +35,6 @@ export class AuthService {
     private readonly smsService: SmsService,
     private readonly kafkaProducer: KafkaService,
     private authService: AuthValidateService,
-    private readonly minioService: MinioService,
   ) {}
 
   //---------------------------------------------------------
@@ -122,10 +119,9 @@ export class AuthService {
         message: ApiResponse.getMessage(lang, 'auth.OTP_SENT'),
       };
     } catch (err) {
-      const error = err as Error;
       console.error(
         `❌ [requestOtp] Error for phone ${dto.phone}:`,
-        error.message,
+        err.message,
       );
       await session.abortTransaction();
       throw err;
@@ -249,7 +245,6 @@ export class AuthService {
   //---------------------------------------------------------
   async completeRegistration(
     dto: RequestOtpDto,
-    profileImage?: Express.Multer.File,
     lang: Lang = 'en',
   ): Promise<any> {
     const session = await this.connection.startSession();
@@ -284,39 +279,13 @@ export class AuthService {
             gender: gender || Gender.MALE,
             city,
             DataofBirth,
+            image: imagePath || '',
             status: ApprovalStatus.ACTIVE,
           },
         ],
         { session },
       );
-      const userId = user._id.toString();
-      this.logger.log(`User created with ID: ${userId}`);
 
-      // 4. Upload profile image to MinIO if provided
-      let imageUrl: string | undefined;
-      let uploadResult: UploadResult | undefined;
-
-      if (profileImage) {
-        try {
-          uploadResult = await this.uploadUserProfileImage(
-            userId,
-            profileImage,
-          );
-          imageUrl = uploadResult.url;
-
-          // Update user with image URL
-          user.profileImage = imageUrl;
-          user.profileImageFileName = uploadResult.fileName;
-          user.profileImageBucket = uploadResult.bucket;
-          await user.save();
-
-          this.logger.log(`Profile image uploaded for user ${userId}`);
-        } catch (error) {
-          const err = error as Error;
-          this.logger.error(`Failed to upload profile image: ${err.message}`);
-          // Continue without image - don't fail registration
-        }
-      }
       await session.commitTransaction();
       const plainUser = user.toObject();
 
@@ -420,12 +389,5 @@ export class AuthService {
       success: true,
       message: ApiResponse.getMessage(lang, 'auth.LOGGED_OUT'),
     };
-  }
-  private async uploadUserProfileImage(
-    userId: string,
-    file: Express.Multer.File,
-  ): Promise<UploadResult> {
-    const folder = `patients/${userId}/profile/images`;
-    return await this.minioService.uploadFile(file, 'patients', folder);
   }
 }

@@ -13,7 +13,6 @@ import {
   Length,
   Matches,
   MaxLength,
-  MinLength,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
 const NAME_REGEX = /^[A-Za-z\u0600-\u06FF ]+$/;

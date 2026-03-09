@@ -15,7 +15,6 @@ import { BullModule } from '@nestjs/bull';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { FcmModule } from './fcm/fcm.module';
 import { UsersModule } from './users/users.module';
-import { MinioModule } from './minio/minio.module';
 
 @Module({
   imports: [
@@ -61,7 +60,6 @@ import { MinioModule } from './minio/minio.module';
     AuthModule,
     FcmModule,
     UsersModule,
-    MinioModule,
   ],
   controllers: [HomeServiceController],
   providers: [HomeServiceService],

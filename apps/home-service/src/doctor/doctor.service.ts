@@ -2130,7 +2130,6 @@ import {
   DoctorPatientStatsDto,
   GenderBreakdownDto,
 } from './dto/doctor-patient-stats.dto';
-import { UploadResult } from '../minio/minio.service';
 
 // ── i18n note ────────────────────────────────────────────────────────────────
 // Services NEVER import getLang(). They throw dot-notation keys and return
@@ -2323,7 +2322,6 @@ export class DoctorService {
 
   async registerDoctor(
     dto: DoctorRegistrationDtoValidated,
-  ): Promise<DoctorDocument> {
     files?: {
       certificateImage?: Express.Multer.File;
       licenseImage?: Express.Multer.File;
@@ -2348,7 +2346,6 @@ export class DoctorService {
         await this.checkPhoneExists(dto.phone, session);
         await this.checkDuplicatePending(dto, session);
 
-        // 3. Process uploaded files
         const processedFiles = this.processUploadedFiles(files);
 
         doctor = new this.doctorModel({
@@ -2361,6 +2358,10 @@ export class DoctorService {
           subcity: dto.subcity,
           publicSpecialization: dto.publicSpecialization,
           privateSpecialization: dto.privateSpecialization,
+          certificateImage: processedFiles.certificateImage || undefined,
+          licenseImage: processedFiles.licenseImage || undefined,
+          certificateDocument: processedFiles.certificateDocument || undefined,
+          licenseDocument: processedFiles.licenseDocument || undefined,
           gender: dto.gender,
           status: ApprovalStatus.PENDING,
           sessions: [],
@@ -2415,7 +2416,6 @@ export class DoctorService {
 
       // Outside transaction — Kafka fire-and-forget
       try {
-        this.publishDoctorRegisteredEvent(doctor!);
         await Promise.allSettled([this.publishDoctorRegisteredEvent(doctor!)]);
       } catch (error) {
         this.logger.error('Failed to publish Kafka event', error);
@@ -2431,71 +2431,6 @@ export class DoctorService {
     } finally {
       await session.endSession();
     }
-  }
-  async updateDoctorFiles(
-    doctorId: string,
-    files: {
-      certificateImage?: UploadResult;
-      licenseImage?: UploadResult;
-      certificateDocument?: UploadResult;
-      licenseDocument?: UploadResult;
-    },
-  ): Promise<void> {
-    this.logger.log(`Updating doctor ${doctorId} with uploaded file URLs`);
-
-    const updateData: any = {
-      updatedAt: new Date(),
-    };
-
-    // Build documents object
-    const documents: any = {};
-
-    if (files.certificateImage) {
-      documents.certificateImage = files.certificateImage.url;
-      documents.certificateImageFileName = files.certificateImage.fileName;
-      documents.certificateImageBucket = files.certificateImage.bucket;
-    }
-
-    if (files.licenseImage) {
-      documents.licenseImage = files.licenseImage.url;
-      documents.licenseImageFileName = files.licenseImage.fileName;
-      documents.licenseImageBucket = files.licenseImage.bucket;
-    }
-
-    if (files.certificateDocument) {
-      documents.certificateDocument = files.certificateDocument.url;
-      documents.certificateDocumentFileName =
-        files.certificateDocument.fileName;
-      documents.certificateDocumentBucket = files.certificateDocument.bucket;
-    }
-
-    if (files.licenseDocument) {
-      documents.licenseDocument = files.licenseDocument.url;
-      documents.licenseDocumentFileName = files.licenseDocument.fileName;
-      documents.licenseDocumentBucket = files.licenseDocument.bucket;
-    }
-
-    updateData.documents = documents;
-
-    await this.doctorModel.findByIdAndUpdate(doctorId, updateData).exec();
-
-    this.logger.log(`Doctor ${doctorId} files updated successfully`);
-  }
-
-  /**
-   * Delete doctor record (cleanup on failed registration)
-   */
-  async deleteDoctorRecord(doctorId: string): Promise<void> {
-    this.logger.log(`Deleting doctor record: ${doctorId}`);
-
-    if (!Types.ObjectId.isValid(doctorId)) {
-      this.logger.warn(`Invalid doctor ID for deletion: ${doctorId}`);
-      return;
-    }
-
-    await this.doctorModel.findByIdAndDelete(doctorId).exec();
-
-    this.logger.log(`Doctor record deleted: ${doctorId}`);
   }
 
   // ============================================

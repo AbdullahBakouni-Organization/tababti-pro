@@ -3,7 +3,6 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
-  Logger,
 } from '@nestjs/common';
 import { PostRepository } from './post.repository';
 import { CreatePostDto } from './dto/create-post.dto';
@@ -18,83 +17,43 @@ import { Hospital } from '@app/common/database/schemas/hospital.schema';
 import { Center } from '@app/common/database/schemas/center.schema';
 import { InjectModel } from '@nestjs/mongoose';
 import { PostStats } from './post.interface';
-import { Post, PostDocument } from '@app/common/database/schemas/post.schema';
-import { MinioService } from 'apps/home-service/src/minio/minio.service';
-import { console } from 'inspector/promises';
 
 @Injectable()
 export class PostService {
-  private readonly logger = new Logger(PostService.name);
   constructor(
     private readonly postRepo: PostRepository,
     @InjectModel(User.name) private readonly userModel: Model<User>,
     @InjectModel(Doctor.name) private readonly doctorModel: Model<Doctor>,
     @InjectModel(Hospital.name) private readonly hospitalModel: Model<Hospital>,
     @InjectModel(Center.name) private readonly centerModel: Model<Center>,
-    @InjectModel(Post.name) private readonly postModel: Model<Post>,
-    private minioService: MinioService,
   ) {}
 
-  /**
-   * Create post without images first
-   * Images will be added after upload to MinIO
-   */
-  async createWithoutImages(
+  /* ======================================================
+      CREATE
+  ====================================================== */
+  async create(
     dto: CreatePostDto,
-    accountId: string,
+    images: string[],
+    authAccountId: string,
     role: UserRole,
-  ): Promise<PostDocument> {
-    this.logger.log(`Creating post for account ${accountId}`);
+  ) {
+    if (!dto.content?.trim() && images.length === 0) {
+      throw new BadRequestException('post.INVALID_CONTENT');
+    }
 
-    const post = await this.postModel.create({
-      content: dto.content,
-      authorId: new Types.ObjectId(accountId),
+    const author = await this.getAuthor(authAccountId, role);
+
+    return this.postRepo.create({
+      authorId: author._id,
       authorType: role,
+      content: dto.content,
+      images,
       status: PostStatus.PENDING,
-      images: [], // Will be updated after MinIO upload
-      imagesMetadata: [], // MinIO metadata
-      createdAt: new Date(),
-      updatedAt: new Date(),
+      subscriptionType: dto.subscriptionType,
+      usageCount: 0,
+      likedBy: [],
+      likesCount: 0,
     });
-
-    return post;
-  }
-
-  /**
-   * Update post with image URLs from MinIO
-   */
-  async updatePostImages(
-    postId: string,
-    imagesData: Array<{
-      url: string;
-      fileName: string;
-      bucket: string;
-    }>,
-  ): Promise<void> {
-    this.logger.log(`Updating post ${postId} with ${imagesData.length} images`);
-
-    if (!Types.ObjectId.isValid(postId)) {
-      throw new NotFoundException('Invalid post ID');
-    }
-
-    const post = await this.postModel.findById(postId).exec();
-    if (!post) {
-      throw new NotFoundException('Post not found');
-    }
-
-    // Update with URLs and metadata
-    post.images = imagesData.map((img) => img.url);
-    post.imagesMetadata = imagesData.map((img) => ({
-      url: img.url,
-      fileName: img.fileName,
-      bucket: img.bucket,
-      uploadedAt: new Date(),
-    }));
-    post.updatedAt = new Date();
-
-    await post.save();
-
-    this.logger.log(`Post ${postId} updated with images`);
   }
 
   /* ======================================================
@@ -221,21 +180,12 @@ export class PostService {
 
     if (
       !author ||
-      post.authorId.toString() !== (author as any).authAccountId.toString()
+      post.authorId.toString() !== (author as any)._id.toString()
     ) {
       throw new ForbiddenException('post.FORBIDDEN');
     }
 
-    if (post.imagesMetadata?.length) {
-      await this.deletePostImagesFromMinIO(post.imagesMetadata);
-    }
-
-    // delete post
-    await this.postRepo.delete(postId);
-
-    this.logger.log(`Post ${postId} and all images deleted successfully`);
-
-    return post;
+    return this.postRepo.delete(postId);
   }
 
   /* ======================================================
@@ -365,50 +315,5 @@ export class PostService {
         : null;
 
     return this.postRepo.getStats(authorProfileId);
-  }
-  async deletePost(postId: string): Promise<void> {
-    this.logger.log(`Deleting post ${postId}`);
-
-    if (!Types.ObjectId.isValid(postId)) {
-      return;
-    }
-
-    await this.postModel.findByIdAndDelete(postId).exec();
-
-    this.logger.log(`Post ${postId} deleted`);
-  }
-
-  private async deletePostImagesFromMinIO(
-    imagesMetadata: Array<{
-      url: string;
-      fileName: string;
-      bucket: string;
-    }>,
-  ): Promise<void> {
-    if (!imagesMetadata || imagesMetadata.length === 0) {
-      return;
-    }
-
-    this.logger.log(`Deleting ${imagesMetadata.length} images from MinIO`);
-
-    try {
-      // Group by bucket (all should be same bucket)
-      const bucket = imagesMetadata[0].bucket;
-      const fileNames = imagesMetadata.map((img) => img.fileName);
-
-      // Delete all images in one call
-      await this.minioService.deleteFiles(bucket, fileNames);
-
-      this.logger.log(
-        `✅ Successfully deleted ${fileNames.length} images from MinIO`,
-      );
-    } catch (error) {
-      const err = error as Error;
-      this.logger.error(
-        `❌ Failed to delete images from MinIO: ${err.message}`,
-        err.stack,
-      );
-      // Don't throw - continue with post deletion even if MinIO cleanup fails
-    }
   }
 }

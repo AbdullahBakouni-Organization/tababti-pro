@@ -24,13 +24,17 @@ export class EntityProfileService {
     private readonly departmentModel: Model<CommonDepartment>,
   ) {}
 
-  async getEntityProfile(id: string, type: UserRole) {
+  // ══════════════════════════════════════════════════════════════════════════
+  // PUBLIC PROFILE
+  // ══════════════════════════════════════════════════════════════════════════
+
+  async getEntityProfile(id: string, type: EntityType) {
     switch (type) {
-      case UserRole.DOCTOR:
+      case EntityType.DOCTOR:
         return this.getDoctorProfile(id);
-      case UserRole.HOSPITAL:
+      case EntityType.HOSPITAL:
         return this.getHospitalProfile(id);
-      case UserRole.CENTER:
+      case EntityType.CENTER:
         return this.getCenterProfile(id);
     }
   }
@@ -138,7 +142,7 @@ export class EntityProfileService {
       .lean();
 
     return {
-      type: UserRole.DOCTOR,
+      type: EntityType.DOCTOR,
       id: doctor._id,
       fullName: [doctor.firstName, doctor.middleName, doctor.lastName]
         .filter(Boolean)
@@ -335,47 +339,33 @@ export class EntityProfileService {
     };
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // GALLERY METHODS
-  // ══════════════════════════════════════════════════════════════════════════
-
-  async getGallery(id: string, type: EntityType): Promise<string[]> {
-    switch (type) {
-      case EntityType.HOSPITAL:
-        return this.repo.getHospitalGallery(id);
-      case EntityType.CENTER:
-        return this.repo.getCenterGallery(id);
-    }
+  private calculateYears(startDate: Date): number {
+    if (!startDate) return 0;
+    const today = new Date();
+    const start = new Date(startDate);
+    let years = today.getFullYear() - start.getFullYear();
+    const m = today.getMonth() - start.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < start.getDate())) years--;
+    return years;
   }
 
-  async addGallery(
-    id: string,
-    type: EntityType,
-    images: string[],
-  ): Promise<string[]> {
-    switch (type) {
-      case EntityType.HOSPITAL:
-        return this.repo.addHospitalGallery(id, images);
-      case EntityType.CENTER:
-        return this.repo.addCenterGallery(id, images);
-    }
-  }
-
-  async removeGallery(
-    id: string,
-    type: EntityType,
-    images: string[],
-  ): Promise<string[]> {
-    switch (type) {
-      case EntityType.HOSPITAL:
-        return this.repo.removeHospitalGallery(id, images);
-      case EntityType.CENTER:
-        return this.repo.removeCenterGallery(id, images);
+  private roleToEntityType(role: UserRole): EntityType {
+    switch (role) {
+      case UserRole.DOCTOR:
+        return EntityType.DOCTOR;
+      case UserRole.HOSPITAL:
+        return EntityType.HOSPITAL;
+      case UserRole.CENTER:
+        return EntityType.CENTER;
+      default:
+        throw new BadRequestException('entity.INVALID_ROLE');
     }
   }
 
   private entityTypeToRole(type: EntityType): UserRole {
     switch (type) {
+      case EntityType.DOCTOR:
+        return UserRole.DOCTOR;
       case EntityType.HOSPITAL:
         return UserRole.HOSPITAL;
       case EntityType.CENTER:
