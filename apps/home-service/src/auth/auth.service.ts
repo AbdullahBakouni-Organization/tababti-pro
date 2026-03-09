@@ -22,8 +22,7 @@ import type { Response } from 'express';
 import { AuthValidateService } from '@app/common/auth-validate';
 import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
 import { MinioService, UploadResult } from '../minio/minio.service';
-import { ApiResponse } from '@app/common/response/api-response'
-
+import { ApiResponse } from '@app/common/response/api-response';
 
 type Lang = 'en' | 'ar';
 
@@ -107,11 +106,11 @@ export class AuthService {
 
       await Promise.allSettled([
         //this.smsService.sendOTP(phone, otp),
-        // this.kafkaProducer.emit(KAFKA_TOPICS.WHATSAPP_SEND_OTP, {
-        //   phone,
-        //   otp,
-        //   lang: dto.lang ?? 'ar',
-        // }),
+        this.kafkaProducer.emit(KAFKA_TOPICS.WHATSAPP_SEND_OTP, {
+          phone,
+          otp,
+          lang: dto.lang ?? 'ar',
+        }),
       ]);
 
       console.log(
@@ -252,7 +251,6 @@ export class AuthService {
     dto: RequestOtpDto,
     profileImage?: Express.Multer.File,
     lang: Lang = 'en',
-    imagePath?: string,
   ): Promise<any> {
     const session = await this.connection.startSession();
     session.startTransaction();

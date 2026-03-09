@@ -208,23 +208,11 @@ export class AuthController {
     @Headers('accept-language') acceptLanguage?: string,
     @UploadedFile() file?: Express.Multer.File,
   ) {
-    return this.authService.completeRegistration(completeRegistrationDto, file);
-    const imagePath = file?.path.replace(/\\/g, '/');
     return this.authService.completeRegistration(
       completeRegistrationDto,
+      file,
       resolveLang(acceptLanguage),
-      imagePath,
     );
-  }
-
-  @Get('profile')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Get current user profile' })
-  @ApiResponse({ status: 200, description: 'Profile retrieved successfully' })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
-  getProfile(@Req() req: RequestWithUser) {
-    return req.user;
   }
 
   @Post('logout')

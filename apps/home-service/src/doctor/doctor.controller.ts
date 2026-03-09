@@ -1253,9 +1253,6 @@ import { ApiResponse as AppResponse } from '@app/common/response/api-response';
 @Controller('doctors')
 export class DoctorController {
   constructor(
-    private DoctorService: DoctorService,
-    private DoctorServiceV2: DoctorBookingsQueryService,
-    private authService: AuthValidateService,
     private minioService: MinioService,
     private readonly DoctorService: DoctorService,
     private readonly DoctorServiceV2: DoctorBookingsQueryService,

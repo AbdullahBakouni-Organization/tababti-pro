@@ -25,7 +25,7 @@ export class PatientStatsCron {
    * Pre-warms the gender stats cache for ALL active doctors
    * so the first request of the day is never a cache miss
    */
-  // @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
+  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
   async refreshAllDoctorPatientStats(): Promise<void> {
     this.logger.log(
       '🕛 [PatientStatsCron] Starting daily gender stats refresh',
