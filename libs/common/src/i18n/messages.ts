@@ -1,9 +1,45 @@
 export const messages = {
   en: {
+    // ================= AUTH =================
+    auth: {
+      OTP_SENT: 'OTP sent',
+      OTP_RESENT: 'OTP resent successfully',
+      OTP_NOT_FOUND: 'OTP not found',
+      OTP_ALREADY_USED: 'OTP already used',
+      OTP_EXPIRED: 'Verification code has expired',
+      OTP_MAX_ATTEMPTS: 'Maximum attempts exceeded. Please request a new code',
+      OTP_INVALID: 'Invalid verification code',
+      OTP_VERIFIED: 'Sign in successful',
+      OTP_VERIFIED_NEEDS_COMPLETION:
+        'OTP verified - Profile completion required',
+      REGISTRATION_COMPLETED: 'Registration completed',
+      REGISTRATION_ALREADY_COMPLETED: 'User profile already completed',
+      REGISTRATION_MISSING_FIELDS: 'Missing required fields',
+      LOGGED_OUT: 'Logged out successfully',
+      ACCOUNT_NOT_FOUND: 'Account not found',
+      ENTITY_NOT_FOUND: 'Profile not found',
+      AUTH_NOT_FOUND: 'Auth account not found',
+      AUTH_NOT_LINKED: 'Auth account not linked',
+      INVALID_ROLE: 'Invalid user role',
+      PROFILE_NOT_FOUND_FOR_ROLE:
+        'Profile not found. Please contact administrator.',
+      TOKEN_INVALID: 'Invalid or expired access token',
+      TOKEN_REVOKED: 'Session revoked. Please log in again',
+      SESSION_EXPIRED: 'Session expired. Please log in again',
+      INSUFFICIENT_PERMISSIONS:
+        'You do not have permission to perform this action',
+      ROLE_NOT_FOUND: 'User role not found',
+      ACCOUNT_DEACTIVATED: 'Your account has been deactivated',
+      REFRESH_TOKEN_NOT_FOUND: 'Refresh token not found',
+      DUPLICATE_REGISTRATION: 'A registration request is already pending',
+      PHONE_ALREADY_EXISTS: 'This phone number is already registered',
+    },
+
     // ================= QUESTIONS =================
     question: {
       CREATED: 'Question submitted successfully and is pending review',
       LIST: 'Questions fetched successfully',
+      FOUND: 'Question fetched successfully',
       DETAIL: 'Question details',
       NOT_FOUND: 'Question not found',
       ANSWERED: 'Answer submitted successfully',
@@ -21,6 +57,9 @@ export const messages = {
       ONLY_PROVIDERS_CAN_ANSWER:
         'Only doctors, hospitals, and centers can answer questions',
       DELETED: 'Question deleted successfully',
+      CONTENT_OR_IMAGE_REQUIRED:
+        'Question must have text or at least one image',
+      INVALID_FILE_TYPE: 'Only jpg, jpeg, png, webp images are allowed',
     },
 
     // ================= SPECIALIZATIONS =================
@@ -30,12 +69,14 @@ export const messages = {
       INVALID_ID: 'Invalid specialization ID',
     },
 
-    // ================= USERS / AUTH =================
+    // ================= USERS =================
     user: {
       NOT_FOUND: 'User not found',
       UNAUTHORIZED: 'Unauthorized access',
       INVALID_ID: 'Invalid user ID',
       INVALID_ROLE: 'Invalid user role',
+      SESSION_EXPIRED_OR_NOT_FOUND:
+        'Session expired or user not found. Please log in again',
     },
 
     // ================= AUTHORS =================
@@ -75,6 +116,19 @@ export const messages = {
       INVALID_STATUS: 'Invalid booking status',
       DOCTOR_PATIENTS: 'Doctor patients fetched successfully',
       MY_APPOINTMENTS: 'Appointments fetched successfully',
+      CREATED: 'Booking created successfully',
+      NOT_FOUND: 'Booking not found',
+      SLOT_NOT_FOUND: 'Appointment slot not found',
+      SLOT_ALREADY_BOOKED: 'This slot is no longer available',
+      SLOT_DOCTOR_MISMATCH: 'Slot does not belong to this doctor',
+      SLOT_RESERVE_FAILED: 'Unable to reserve slot. Please try again',
+      DUPLICATE_BOOKING:
+        'You already have a booking with this doctor at this time',
+      INVALID_SLOT_ID: 'Invalid slot ID',
+      FORBIDDEN: 'You are not allowed to perform this action',
+      CANCELLED: 'Booking cancelled successfully',
+      COMPLETED: 'Booking completed successfully',
+      RESCHEDULED: 'Booking rescheduled successfully',
     },
 
     // ================= POSTS =================
@@ -97,7 +151,7 @@ export const messages = {
       STATS: 'Post statistics fetched successfully',
     },
 
-    // ================= REQUESTS (Legal Advice / Medical Equipment) =================
+    // ================= REQUESTS =================
     request: {
       CREATED: 'Request submitted successfully',
       FETCHED: 'Requests fetched successfully',
@@ -114,6 +168,30 @@ export const messages = {
       STATISTICS: 'Request statistics fetched successfully',
       ALREADY_CANCELLED: 'This request has already been cancelled',
       ALREADY_COMPLETED: 'This request has already been completed',
+    },
+
+    // ================= SLOTS =================
+    slot: {
+      LIST: 'Available slots fetched successfully',
+      INVALID_DATE: 'Date must be today or in the future',
+      INVALID_DATE_RANGE: 'Start date cannot be greater than end date',
+      NOT_FOUND: 'Slot not found',
+      PAUSED: 'Slots paused successfully',
+    },
+
+    // ================= WORKING HOURS =================
+    working_hours: {
+      EMPTY: 'Working hours cannot be empty',
+      INVALID_TIME_RANGE: 'Start time must be before end time',
+      INTERNAL_OVERLAP: 'The submitted working hours overlap with each other',
+      CROSS_OVERLAP: 'The new working hours conflict with your existing schedule',
+      DUPLICATE_LOCATION: 'A working hours entry for this location on this day already exists',
+      SAME_AS_EXISTING: 'The submitted working hours are identical to the current schedule',
+      CONFLICT_WARNING: 'Updating working hours will cancel existing appointments for affected patients',
+      ADDED: 'Working hours added successfully',
+      UPDATED: 'Working hours updated successfully',
+      FETCHED: 'Working hours fetched successfully',
+      SLOTS_GENERATING: 'Working hours saved. Appointment slots are being generated.',
     },
 
     // ================= ADMIN =================
@@ -144,11 +222,24 @@ export const messages = {
 
     // ================= ENTITY PROFILE =================
     entity: {
+      LIST: 'Entities fetched successfully',
       PROFILE_FETCHED: 'Profile fetched successfully',
+      NOT_FOUND: 'Entity not found',
+      FORBIDDEN: 'You do not have permission to modify this entity',
+      INVALID_TYPE: 'Invalid entity type',
+      INVALID_ROLE: 'Invalid role for this operation',
+      INVALID_FILE_TYPE: 'Only jpg, jpeg, png, webp files are allowed',
+      NO_FILES_UPLOADED: 'No images were uploaded',
+      REJECTION_REASON_REQUIRED: 'Rejection reason is required',
+      APPROVED: 'Entity approved successfully',
+      REJECTED: 'Entity rejected successfully',
       GALLERY_FETCHED: 'Gallery fetched successfully',
       GALLERY_UPDATED: 'Gallery updated successfully',
       GALLERY_CLEARED: 'Gallery cleared successfully',
-      NOT_FOUND: 'Entity not found',
+      GALLERY_APPROVED: 'Gallery images approved successfully',
+      GALLERY_REJECTED: 'Gallery images rejected successfully',
+      GALLERY_PENDING_APPROVAL: 'Images uploaded and pending admin approval',
+      GALLERY_REQUEST_SUBMITTED: 'Gallery request submitted for approval',
     },
 
     // ================= COMMON =================
@@ -160,13 +251,50 @@ export const messages = {
     },
   },
 
-  // =====================================================================
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ARABIC
+  // ═══════════════════════════════════════════════════════════════════════════
 
   ar: {
+    // ================= AUTH =================
+    auth: {
+      OTP_SENT: 'تم إرسال رمز التحقق',
+      OTP_RESENT: 'تم إعادة إرسال رمز التحقق بنجاح',
+      OTP_NOT_FOUND: 'رمز التحقق غير موجود',
+      OTP_ALREADY_USED: 'رمز التحقق مستخدم مسبقاً',
+      OTP_EXPIRED: 'رمز التحقق منتهي الصلاحية',
+      OTP_MAX_ATTEMPTS: 'تجاوزت الحد الأقصى من المحاولات. يرجى طلب رمز جديد',
+      OTP_INVALID: 'رمز التحقق غير صحيح',
+      OTP_VERIFIED: 'تم تسجيل الدخول بنجاح',
+      OTP_VERIFIED_NEEDS_COMPLETION:
+        'تم التحقق - يرجى إكمال بيانات الملف الشخصي',
+      REGISTRATION_COMPLETED: 'تم إكمال التسجيل بنجاح',
+      REGISTRATION_ALREADY_COMPLETED: 'الملف الشخصي مكتمل مسبقاً',
+      REGISTRATION_MISSING_FIELDS: 'بيانات مطلوبة مفقودة',
+      LOGGED_OUT: 'تم تسجيل الخروج بنجاح',
+      ACCOUNT_NOT_FOUND: 'الحساب غير موجود',
+      ENTITY_NOT_FOUND: 'الملف الشخصي غير موجود',
+      AUTH_NOT_FOUND: 'حساب المصادقة غير موجود',
+      AUTH_NOT_LINKED: 'حساب المصادقة غير مرتبط',
+      INVALID_ROLE: 'صلاحية المستخدم غير صالحة',
+      PROFILE_NOT_FOUND_FOR_ROLE:
+        'الملف الشخصي غير موجود. يرجى التواصل مع المشرف.',
+      TOKEN_INVALID: 'رمز الوصول غير صالح أو منتهي الصلاحية',
+      TOKEN_REVOKED: 'تم إلغاء الجلسة. يرجى تسجيل الدخول مجدداً',
+      SESSION_EXPIRED: 'انتهت الجلسة. يرجى تسجيل الدخول مجدداً',
+      INSUFFICIENT_PERMISSIONS: 'ليس لديك صلاحية لتنفيذ هذا الإجراء',
+      ROLE_NOT_FOUND: 'صلاحية المستخدم غير موجودة',
+      ACCOUNT_DEACTIVATED: 'تم تعطيل حسابك',
+      REFRESH_TOKEN_NOT_FOUND: 'رمز التحديث غير موجود',
+      DUPLICATE_REGISTRATION: 'يوجد طلب تسجيل معلّق مسبقاً',
+      PHONE_ALREADY_EXISTS: 'رقم الهاتف مسجّل مسبقاً',
+    },
+
     // ================= QUESTIONS =================
     question: {
       CREATED: 'تم إرسال السؤال بنجاح وهو قيد المراجعة',
       LIST: 'تم جلب الأسئلة بنجاح',
+      FOUND: 'تم جلب السؤال بنجاح',
       DETAIL: 'تفاصيل السؤال',
       NOT_FOUND: 'السؤال غير موجود',
       ANSWERED: 'تم إرسال الإجابة بنجاح',
@@ -183,6 +311,9 @@ export const messages = {
       ONLY_PROVIDERS_CAN_ANSWER:
         'يمكن للأطباء والمستشفيات والمراكز فقط الإجابة على الأسئلة',
       DELETED: 'تم حذف السؤال بنجاح',
+      CONTENT_OR_IMAGE_REQUIRED:
+        'يجب أن يحتوي السؤال على نص أو صورة واحدة على الأقل',
+      INVALID_FILE_TYPE: 'يُسمح فقط بصور jpg وjpeg وpng وwebp',
     },
 
     // ================= SPECIALIZATIONS =================
@@ -192,12 +323,14 @@ export const messages = {
       INVALID_ID: 'معرّف التخصص غير صالح',
     },
 
-    // ================= USERS / AUTH =================
+    // ================= USERS =================
     user: {
       NOT_FOUND: 'المستخدم غير موجود',
       UNAUTHORIZED: 'دخول غير مصرح به',
       INVALID_ID: 'معرّف المستخدم غير صالح',
       INVALID_ROLE: 'صلاحية المستخدم غير صالحة',
+      SESSION_EXPIRED_OR_NOT_FOUND:
+        'انتهت الجلسة أو المستخدم غير موجود. يرجى تسجيل الدخول مجدداً',
     },
 
     // ================= AUTHORS =================
@@ -237,6 +370,19 @@ export const messages = {
       INVALID_STATUS: 'حالة الحجز غير صالحة',
       DOCTOR_PATIENTS: 'تم جلب قائمة مرضى الطبيب بنجاح',
       MY_APPOINTMENTS: 'تم جلب قائمة المواعيد بنجاح',
+      CREATED: 'تم إنشاء الحجز بنجاح',
+      NOT_FOUND: 'الحجز غير موجود',
+      SLOT_NOT_FOUND: 'الموعد غير موجود',
+      SLOT_ALREADY_BOOKED: 'هذا الموعد لم يعد متاحاً',
+      SLOT_DOCTOR_MISMATCH: 'الموعد لا ينتمي إلى هذا الطبيب',
+      SLOT_RESERVE_FAILED: 'تعذّر حجز الموعد، يرجى المحاولة مجدداً',
+      DUPLICATE_BOOKING: 'لديك حجز مسبق مع هذا الطبيب في نفس الوقت',
+      INVALID_SLOT_ID: 'معرّف الموعد غير صالح',
+      FORBIDDEN: 'غير مصرح لك بتنفيذ هذا الإجراء',
+      PAUSED: 'تم إيقاف المواعيد مؤقتاً بنجاح',
+      CANCELLED: 'تم إلغاء الحجز بنجاح',
+      COMPLETED: 'تم إكمال الحجز بنجاح',
+      RESCHEDULED: 'تم إعادة جدولة الحجز بنجاح',
     },
 
     // ================= POSTS =================
@@ -258,7 +404,7 @@ export const messages = {
       STATS: 'تم جلب إحصائيات المنشورات بنجاح',
     },
 
-    // ================= REQUESTS (Legal Advice / Medical Equipment) =================
+    // ================= REQUESTS =================
     request: {
       CREATED: 'تم إرسال الطلب بنجاح',
       FETCHED: 'تم جلب الطلبات بنجاح',
@@ -275,6 +421,30 @@ export const messages = {
       STATISTICS: 'تم جلب إحصائيات الطلبات بنجاح',
       ALREADY_CANCELLED: 'تم إلغاء هذا الطلب مسبقاً',
       ALREADY_COMPLETED: 'تم إكمال هذا الطلب مسبقاً',
+    },
+
+    // ================= SLOTS =================
+    slot: {
+      LIST: 'تم جلب المواعيد المتاحة بنجاح',
+      INVALID_DATE: 'يجب أن يكون التاريخ اليوم أو في المستقبل',
+      INVALID_DATE_RANGE: 'لا يمكن أن يكون تاريخ البداية أكبر من تاريخ النهاية',
+      NOT_FOUND: 'الموعد غير موجود',
+      PAUSED: 'تم إيقاف المواعيد مؤقتاً بنجاح',
+    },
+
+    // ================= WORKING HOURS =================
+    working_hours: {
+      EMPTY: 'لا يمكن أن تكون ساعات العمل فارغة',
+      INVALID_TIME_RANGE: 'يجب أن يكون وقت البداية قبل وقت النهاية',
+      INTERNAL_OVERLAP: 'ساعات العمل المُدخلة تتعارض مع بعضها',
+      CROSS_OVERLAP: 'ساعات العمل الجديدة تتعارض مع الجدول الحالي',
+      DUPLICATE_LOCATION: 'يوجد مدخل لهذا الموقع في هذا اليوم مسبقاً',
+      SAME_AS_EXISTING: 'ساعات العمل المُدخلة مطابقة للجدول الحالي',
+      CONFLICT_WARNING: 'تحديث ساعات العمل سيؤدي إلى إلغاء المواعيد المحجوزة للمرضى المتأثرين',
+      ADDED: 'تمت إضافة ساعات العمل بنجاح',
+      UPDATED: 'تم تحديث ساعات العمل بنجاح',
+      FETCHED: 'تم جلب ساعات العمل بنجاح',
+      SLOTS_GENERATING: 'تم حفظ ساعات العمل. جارٍ إنشاء المواعيد المتاحة.',
     },
 
     // ================= ADMIN =================
@@ -305,11 +475,24 @@ export const messages = {
 
     // ================= ENTITY PROFILE =================
     entity: {
+      LIST: 'تم جلب الكيانات بنجاح',
       PROFILE_FETCHED: 'تم جلب الملف الشخصي بنجاح',
+      NOT_FOUND: 'الكيان غير موجود',
+      FORBIDDEN: 'ليس لديك صلاحية لتعديل هذا الكيان',
+      INVALID_TYPE: 'نوع الكيان غير صالح',
+      INVALID_ROLE: 'الدور غير صالح لهذه العملية',
+      INVALID_FILE_TYPE: 'يُسمح فقط بملفات jpg و jpeg و png و webp',
+      NO_FILES_UPLOADED: 'لم يتم رفع أي صور',
+      REJECTION_REASON_REQUIRED: 'سبب الرفض مطلوب',
+      APPROVED: 'تمت الموافقة على الكيان بنجاح',
+      REJECTED: 'تم رفض الكيان بنجاح',
       GALLERY_FETCHED: 'تم جلب معرض الصور بنجاح',
       GALLERY_UPDATED: 'تم تحديث معرض الصور بنجاح',
       GALLERY_CLEARED: 'تم مسح معرض الصور بنجاح',
-      NOT_FOUND: 'الكيان غير موجود',
+      GALLERY_APPROVED: 'تمت الموافقة على صور المعرض بنجاح',
+      GALLERY_REJECTED: 'تم رفض صور المعرض',
+      GALLERY_PENDING_APPROVAL: 'تم رفع الصور وهي بانتظار موافقة المشرف',
+      GALLERY_REQUEST_SUBMITTED: 'تم إرسال طلب معرض الصور للمراجعة',
     },
 
     // ================= COMMON =================

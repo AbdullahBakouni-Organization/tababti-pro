@@ -173,6 +173,7 @@ export class QuestionsRepository {
   // ══════════════════════════════════════════════════════════════════════════
   // GENERAL FEED
   // ══════════════════════════════════════════════════════════════════════════
+
   async findQuestionsWithAnswers(
     match: Record<string, any> = {},
     skip = 0,
@@ -190,6 +191,7 @@ export class QuestionsRepository {
   // ══════════════════════════════════════════════════════════════════════════
   // DOCTOR FEED
   // ══════════════════════════════════════════════════════════════════════════
+
   async findDoctorQuestionsWithAnswers(
     match: Record<string, any> = {},
     skip = 0,
@@ -214,6 +216,7 @@ export class QuestionsRepository {
       { $match: match },
       { $sort: { createdAt: -1 } },
 
+      // ── Specializations ─────────────────────────────────────────────────
       {
         $lookup: {
           from: 'privatespecializations',
@@ -223,6 +226,7 @@ export class QuestionsRepository {
         },
       },
 
+      // ── Asker (User) ─────────────────────────────────────────────────────
       {
         $lookup: {
           from: 'users',
@@ -234,6 +238,7 @@ export class QuestionsRepository {
       { $addFields: { asker: { $arrayElemAt: ['$askerArr', 0] } } },
       { $project: { askerArr: 0 } },
 
+      // ── Answers ──────────────────────────────────────────────────────────
       {
         $lookup: {
           from: 'answers',
@@ -261,6 +266,7 @@ export class QuestionsRepository {
 
       { $unwind: { path: '$answers', preserveNullAndEmptyArrays: true } },
 
+      // ── Responder lookups ─────────────────────────────────────────────────
       {
         $lookup: {
           from: 'doctors',
@@ -311,10 +317,14 @@ export class QuestionsRepository {
         },
       },
 
+      // ── Re-group ──────────────────────────────────────────────────────────
       {
         $group: {
           _id: '$_id',
           content: { $first: '$content' },
+          images: { $first: '$images' }, // ← added
+          hasText: { $first: '$hasText' }, // ← added
+          hasImages: { $first: '$hasImages' }, // ← added
           status: { $first: '$status' },
           userId: { $first: '$userId' },
           specializationId: { $first: '$specializationId' },
@@ -326,6 +336,8 @@ export class QuestionsRepository {
           updatedAt: { $first: '$updatedAt' },
         },
       },
+
+      // Remove null answer slots (from preserveNullAndEmptyArrays)
       {
         $addFields: {
           answers: {
@@ -337,6 +349,7 @@ export class QuestionsRepository {
           },
         },
       },
+
       { $sort: { createdAt: -1 } },
       { $skip: skip },
       { $limit: limit },

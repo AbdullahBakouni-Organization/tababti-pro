@@ -11,6 +11,7 @@ import {
   UploadedFile,
   Req,
   BadRequestException,
+  Headers,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -18,6 +19,7 @@ import {
   ApiResponse,
   ApiConsumes,
   ApiBody,
+  ApiHeader,
 } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import {
@@ -60,13 +62,31 @@ const memoryStorageConfig = {
         );
   },
 };
+
+type Lang = 'en' | 'ar';
+
+export interface RequestWithUser extends Request {
+  user: User;
+}
+
+function resolveLang(acceptLanguage?: string): Lang {
+  return acceptLanguage === 'ar' ? 'ar' : 'en';
+}
+
 @ApiTags('Authentication')
+@ApiHeader({
+  name: 'accept-language',
+  description: 'Response language (en | ar). Defaults to en.',
+  required: false,
+  schema: { default: 'en', enum: ['en', 'ar'] },
+})
 @Controller('auth-service')
 export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private authValidateService: AuthValidateService,
   ) {}
+
   @Throttle({ default: { limit: 3, ttl: 60 } })
   @Post('request-otp')
   @HttpCode(HttpStatus.OK)
@@ -86,8 +106,12 @@ export class AuthController {
   })
   async requestOtp(
     @Body() requestOtpDto: RequestOtpDto,
+    @Headers('accept-language') acceptLanguage?: string,
   ): Promise<AuthResponseDto> {
-    return await this.authService.requestOtp(requestOtpDto);
+    return this.authService.requestOtp(
+      requestOtpDto,
+      resolveLang(acceptLanguage),
+    );
   }
 
   @Throttle({ default: { limit: 5, ttl: 300 } })
@@ -102,36 +126,38 @@ export class AuthController {
     description: 'OTP verified successfully',
     type: AuthResponseDto,
   })
-  @ApiResponse({
-    status: 400,
-    description: 'Invalid or expired OTP',
-  })
-  @ApiResponse({
-    status: 401,
-    description: 'Unauthorized - Invalid OTP code',
-  })
+  @ApiResponse({ status: 400, description: 'Invalid or expired OTP' })
+  @ApiResponse({ status: 401, description: 'Unauthorized - Invalid OTP code' })
   async verifyOtp(
     @Body() verifyOtpDto: VerifyOtpDto,
     @Res({ passthrough: true }) res: Response,
+    @Headers('accept-language') acceptLanguage?: string,
   ): Promise<AuthResponseDto> {
-    return await this.authService.verifyOtp(verifyOtpDto, res);
+    return this.authService.verifyOtp(
+      verifyOtpDto,
+      res,
+      resolveLang(acceptLanguage),
+    );
   }
+
   @Throttle({ default: { limit: 2, ttl: 120 } })
   @Post('resend-otp')
   @ApiOperation({ summary: 'Resend OTP code' })
   @ApiResponse({
     status: 200,
     description: 'OTP resent successfully',
-    schema: {
-      example: {
-        message: 'New OTP sent successfully',
-      },
-    },
+    schema: { example: { message: 'New OTP sent successfully' } },
   })
   @ApiResponse({ status: 400, description: 'User already verified' })
   @ApiResponse({ status: 404, description: 'No pending registration found' })
-  async resendOtp(@Body() resendOtpDto: ResendOtpDto) {
-    return this.authService.resendOtp(resendOtpDto);
+  async resendOtp(
+    @Body() resendOtpDto: ResendOtpDto,
+    @Headers('accept-language') acceptLanguage?: string,
+  ) {
+    return this.authService.resendOtp(
+      resendOtpDto,
+      resolveLang(acceptLanguage),
+    );
   }
 
   @UseGuards(JwtUserGuard, RolesGuard)
@@ -179,19 +205,36 @@ export class AuthController {
   @ApiResponse({ status: 409, description: 'Username already exists' })
   async completeRegistration(
     @Body() completeRegistrationDto: RequestOtpDto,
+    @Headers('accept-language') acceptLanguage?: string,
     @UploadedFile() file?: Express.Multer.File,
   ) {
     return this.authService.completeRegistration(completeRegistrationDto, file);
+    const imagePath = file?.path.replace(/\\/g, '/');
+    return this.authService.completeRegistration(
+      completeRegistrationDto,
+      resolveLang(acceptLanguage),
+      imagePath,
+    );
+  }
+
+  @Get('profile')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get current user profile' })
+  @ApiResponse({ status: 200, description: 'Profile retrieved successfully' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  getProfile(@Req() req: RequestWithUser) {
+    return req.user;
   }
 
   @Post('logout')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.USER)
-  logout(@Req() req: any) {
+  logout(@Req() req: any, @Headers('accept-language') acceptLanguage?: string) {
     const patientId = new ParseMongoIdPipe().transform(
       req.user.entity._id.toString(),
     );
-    return this.authService.logout(patientId);
+    return this.authService.logout(patientId, resolveLang(acceptLanguage));
   }
 
   @Post('refresh')

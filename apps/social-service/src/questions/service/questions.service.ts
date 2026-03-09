@@ -40,21 +40,17 @@ interface AnswerQuestionParams {
   content: string;
 }
 
-/** Round a ratio to 2 decimal places as a percentage (0–100). */
 function pct(part: number, total: number): number {
   if (total === 0) return 0;
   return Math.round((part / total) * 10_000) / 100;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// VISIBILITY RULE
-//
-//   PENDING  → submitted, awaiting admin moderation  → HIDDEN from all feeds
-//   APPROVED → approved by admin                     → VISIBLE in all feeds
-//   ANSWERED → at least one answer received          → VISIBLE in all feeds
-//   REJECTED → rejected by admin                     → HIDDEN from all feeds
-//   DELETED  → soft-deleted by owner or admin        → HIDDEN from all feeds
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Visibility rule ───────────────────────────────────────────────────────────
+// PENDING  → awaiting admin moderation  → hidden
+// APPROVED → approved by admin          → visible
+// ANSWERED → at least one answer        → visible
+// REJECTED → rejected by admin          → hidden
+// DELETED  → soft-deleted               → hidden
 const VISIBLE_STATUSES: QuestionStatus[] = [
   QuestionStatus.APPROVED,
   QuestionStatus.ANSWERED,
@@ -77,10 +73,10 @@ export class QuestionsService {
     @InjectModel(Center.name) private readonly centerModel: Model<Center>,
   ) {}
 
-  // ══════════════════════════════════════════════════════════════
-  // CREATE
-  // New questions start as PENDING until admin approves them.
-  // ══════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════
+  // CREATE — text only, images only, or both
+  // ══════════════════════════════════════════════════════════════════════════
+
   async create(
     dto: CreateQuestionDto,
     authAccountId: string,
@@ -88,6 +84,13 @@ export class QuestionsService {
   ): Promise<Question> {
     if (!Types.ObjectId.isValid(authAccountId))
       throw new BadRequestException('user.INVALID_ID');
+
+    // ── Must have text OR images (or both) ──────────────────────────────────
+    const hasText = !!dto.content?.trim();
+    const hasImages = !!dto.images?.length;
+
+    if (!hasText && !hasImages)
+      throw new BadRequestException('question.CONTENT_OR_IMAGE_REQUIRED');
 
     const user = await this.userModel
       .findOne({ authAccountId: new Types.ObjectId(authAccountId) })
@@ -101,20 +104,19 @@ export class QuestionsService {
 
     return this.repo.create({
       userId: (user as any)._id,
-      content: dto.content,
+      content: dto.content ?? '',
+      images: dto.images ?? [],
       specializationId: specializationIds,
-      status: QuestionStatus.PENDING, // always starts pending
+      hasText,
+      hasImages,
+      status: QuestionStatus.PENDING,
     });
   }
 
-  // ══════════════════════════════════════════════════════════════
-  // MODERATE — APPROVE or REJECT  (ADMIN only)
-  //
-  // • Only PENDING questions can be moderated.
-  // • APPROVE  → QuestionStatus.APPROVED  (question becomes visible)
-  // • REJECT   → QuestionStatus.REJECTED  (question stays hidden, reason stored)
-  // • Once moderated the question cannot be moderated again.
-  // ══════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════
+  // MODERATE — approve or reject (ADMIN only)
+  // ══════════════════════════════════════════════════════════════════════════
+
   async moderateQuestion(
     questionId: string,
     dto: ModerateQuestionDto,
@@ -127,17 +129,11 @@ export class QuestionsService {
       .lean();
     if (!question) throw new NotFoundException('question.NOT_FOUND');
 
-    // Only PENDING questions may be moderated
-    if ((question as any).status !== QuestionStatus.PENDING) {
-      throw new BadRequestException(
-        `question.ALREADY_MODERATED — current status: ${(question as any).status}`,
-      );
-    }
+    if ((question as any).status !== QuestionStatus.PENDING)
+      throw new BadRequestException('question.ALREADY_MODERATED');
 
-    // A rejection reason is mandatory
-    if (dto.action === ModerationAction.REJECT && !dto.reason?.trim()) {
+    if (dto.action === ModerationAction.REJECT && !dto.reason?.trim())
       throw new BadRequestException('question.REJECTION_REASON_REQUIRED');
-    }
 
     const newStatus =
       dto.action === ModerationAction.APPROVE
@@ -156,9 +152,6 @@ export class QuestionsService {
       { $set: updatePayload },
     );
 
-    // TODO: notify the question author via NotificationsService
-    // NotificationTypes.QUESTION_ANSWERED (or add a dedicated type)
-
     return {
       questionId: (question as any)._id,
       status: newStatus as QuestionStatus.APPROVED | QuestionStatus.REJECTED,
@@ -167,10 +160,10 @@ export class QuestionsService {
     };
   }
 
-  // ══════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════
   // GET SINGLE QUESTION BY ID
-  // Enforces visibility: only APPROVED or ANSWERED questions.
-  // ══════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════
+
   async getQuestionById(
     questionId: string,
     authAccountId: string,
@@ -201,14 +194,13 @@ export class QuestionsService {
 
     if (!result.questions.length)
       throw new NotFoundException('question.NOT_FOUND');
-
     return this.mapQuestion(result.questions[0]);
   }
 
-  // ══════════════════════════════════════════════════════════════
-  // GET QUESTIONS — General feed
-  // Visibility gate: only APPROVED + ANSWERED questions.
-  // ══════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════
+  // GET QUESTIONS — general feed
+  // ══════════════════════════════════════════════════════════════════════════
+
   async getQuestions(
     authAccountId: string,
     filter: 'allQuestions' | 'answered' | 'pending' | 'public' = 'allQuestions',
@@ -218,14 +210,9 @@ export class QuestionsService {
     limit = 10,
   ): Promise<QuestionPageResult> {
     try {
-      const match: Record<string, any> = {
-        status: { $in: VISIBLE_STATUSES },
-      };
+      const match: Record<string, any> = { status: { $in: VISIBLE_STATUSES } };
 
-      // Narrow by user filter
       if (filter === 'answered') match.status = QuestionStatus.ANSWERED;
-      // 'pending' bypasses the visibility gate — restrict this to ADMIN role
-      // in the controller via @Roles(UserRole.ADMIN) if needed.
       if (filter === 'pending') match.status = QuestionStatus.PENDING;
 
       if (privateSpecializationIds?.length) {
@@ -278,10 +265,10 @@ export class QuestionsService {
     }
   }
 
-  // ══════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════
   // GET DOCTOR QUESTIONS
-  // Visibility gate: only APPROVED + ANSWERED questions.
-  // ══════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════
+
   async getDoctorQuestions(
     authAccountId: string,
     filter: 'all' | 'specialization' | 'myAnswers' = 'all',
@@ -330,10 +317,10 @@ export class QuestionsService {
     };
   }
 
-  // ══════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════
   // ANSWER QUESTION
-  // Guard: only APPROVED or ANSWERED questions can be answered.
-  // ══════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════
+
   async answerQuestion(params: AnswerQuestionParams): Promise<Answer> {
     const { questionId, responderType, responderId, content } = params;
 
@@ -348,13 +335,11 @@ export class QuestionsService {
       responderType,
       responderId,
     );
-
     const question = await this.repo.findById(questionId);
     if (!question) throw new NotFoundException('question.NOT_FOUND');
 
     const status = (question as any).status as QuestionStatus;
 
-    // Reject attempts to answer non-visible questions
     if (!VISIBLE_STATUSES.includes(status)) {
       throw new ForbiddenException(
         status === QuestionStatus.PENDING
@@ -387,9 +372,10 @@ export class QuestionsService {
     return answer;
   }
 
-  // ══════════════════════════════════════════════════════════════
-  // GET STATISTICS
-  // ══════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════
+  // STATISTICS
+  // ══════════════════════════════════════════════════════════════════════════
+
   async getStats(
     authAccountId: string,
     role: UserRole,
@@ -456,9 +442,10 @@ export class QuestionsService {
     }
   }
 
-  // ══════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════
   // DELETE QUESTION (owner only)
-  // ══════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════
+
   async deleteQuestion(
     questionId: string,
     authAccountId: string,
@@ -485,9 +472,9 @@ export class QuestionsService {
     return this.repo.delete(questionId);
   }
 
-  // ══════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════
   // PRIVATE HELPERS
-  // ══════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════
 
   private async resolveResponderId(
     role: UserRole,
@@ -525,40 +512,25 @@ export class QuestionsService {
     return answers.map((a) => a.questionId as Types.ObjectId);
   }
 
-  /**
-   * buildDoctorMatch
-   *
-   * 'all'            → All visible questions, excluding doctor's already-answered
-   * 'specialization' → Visible questions scoped to doctor's field
-   * 'myAnswers'      → Questions this doctor has already answered
-   *                    (no visibility gate — they were already visible when answered)
-   */
   private async buildDoctorMatch(
     filter: 'all' | 'specialization' | 'myAnswers',
     answeredIds: Types.ObjectId[],
     doctor: any,
   ): Promise<Record<string, any>> {
-    if (filter === 'myAnswers') {
-      return { _id: { $in: answeredIds } };
-    }
+    if (filter === 'myAnswers') return { _id: { $in: answeredIds } };
 
-    const match: Record<string, any> = {
-      status: { $in: VISIBLE_STATUSES },
-    };
+    const match: Record<string, any> = { status: { $in: VISIBLE_STATUSES } };
 
     if (filter === 'specialization' && doctor.publicSpecialization) {
       const privateSpecIds = await this.specializationsService
         .getPrivateIdsByPublicName(doctor.publicSpecialization)
         .catch(() => [] as Types.ObjectId[]);
 
-      if (privateSpecIds.length) {
+      if (privateSpecIds.length)
         match.specializationId = { $in: privateSpecIds };
-      }
     }
 
-    if (answeredIds.length) {
-      match._id = { $nin: answeredIds };
-    }
+    if (answeredIds.length) match._id = { $nin: answeredIds };
 
     return match;
   }
@@ -569,6 +541,9 @@ export class QuestionsService {
     return {
       _id: q._id,
       content: q.content,
+      images: q.images?.[0] ?? null,
+      hasText: q.hasText ?? !!q.content,
+      hasImages: q.hasImages ?? !!q.images?.length,
       status: q.status,
       specializations: q.specializations ?? [],
       answersCount: q.answersCount ?? q.answers?.length ?? 0,
@@ -594,7 +569,6 @@ export class QuestionsService {
       a.responder?.middleName,
       a.responder?.lastName,
     ].filter(Boolean);
-
     return {
       _id: a._id,
       content: a.content,

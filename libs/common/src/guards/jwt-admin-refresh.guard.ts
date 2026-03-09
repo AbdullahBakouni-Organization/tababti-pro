@@ -14,7 +14,7 @@ export class JwtAdminRefreshGuard extends AuthGuard('jwt-refresh-admin') {
   handleRequest(err: any, user: any) {
     if (err || !user) {
       throw (
-        err || new UnauthorizedException('Invalid or expired refresh token')
+        err || new UnauthorizedException('auth.TOKEN_INVALID')
       );
     }
     return user;
