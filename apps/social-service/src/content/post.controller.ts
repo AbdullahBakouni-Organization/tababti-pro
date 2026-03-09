@@ -17,7 +17,6 @@ import {
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { PostService } from './post.service';
 import { CreatePostDto } from './dto/create-post.dto';
-import { doctorImageOptions } from '@app/common/helpers/file-upload.helper';
 import { JwtAuthGuard } from '@app/common/guards/jwt.guard';
 import { RolesGuard } from '@app/common/guards/role.guard';
 import { Roles } from '@app/common/decorator/role.decorator';
@@ -28,16 +27,36 @@ import {
 import { CurrentUser } from '@app/common/decorator/current-user.decorator';
 import { ApiResponse } from '@app/common/response/api-response';
 import { Types } from 'mongoose';
-import * as fs from 'fs';
 import { UpdatePostStatusDto } from './dto/update-post-status.dto';
 import { ApiOperation } from '@nestjs/swagger';
-
+import multer from 'multer';
+import { MinioService } from 'apps/home-service/src/minio/minio.service';
+const postImagesMemoryConfig = {
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB per image
+  },
+  fileFilter: (req: any, file: Express.Multer.File, cb: any) => {
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    allowedTypes.includes(file.mimetype)
+      ? cb(null, true)
+      : cb(
+          new BadRequestException(
+            'Invalid file type. Allowed: JPEG, PNG, WEBP',
+          ),
+          false,
+        );
+  },
+};
 @Controller('posts')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class PostController {
   private readonly logger = new Logger(PostController.name);
 
-  constructor(private readonly postService: PostService) {}
+  constructor(
+    private readonly postService: PostService,
+    private minioService: MinioService,
+  ) {}
 
   /* ======================================================
       CREATE POST
@@ -47,7 +66,7 @@ export class PostController {
   @UseInterceptors(
     FileFieldsInterceptor(
       [{ name: 'images', maxCount: 5 }],
-      doctorImageOptions,
+      postImagesMemoryConfig,
     ),
   )
   async create(
@@ -57,20 +76,49 @@ export class PostController {
     @CurrentUser('role') role: UserRole,
     @Headers('accept-language') lang: 'en' | 'ar' = 'en',
   ) {
+    // Validate account ID
+    if (!Types.ObjectId.isValid(accountId)) {
+      throw new BadRequestException('user.INVALID_ID');
+    }
+
+    let postId: string | undefined;
+    let uploadedImageData: Array<{
+      url: string;
+      fileName: string;
+      bucket: string;
+    }> = [];
+
     try {
-      if (!Types.ObjectId.isValid(accountId)) {
-        throw new BadRequestException('user.INVALID_ID');
-      }
-
-      const imagePaths =
-        files?.images?.map((f) => f.path.replace(/\\/g, '/')) ?? [];
-
-      const post = await this.postService.create(
+      // Step 1: Create post record first (without images)
+      const post = await this.postService.createWithoutImages(
         dto,
-        imagePaths,
         accountId,
         role,
       );
+      postId = post._id.toString();
+
+      this.logger.log(`Post created with ID: ${postId}`);
+
+      // Step 2: Upload images to MinIO with correct postId
+      if (files?.images?.length) {
+        this.logger.log(
+          `Uploading ${files.images.length} images for post ${postId}`,
+        );
+
+        uploadedImageData = await this.uploadPostImages(
+          accountId,
+          postId,
+          files.images,
+        );
+
+        // Extract URLs
+        const imageUrls = uploadedImageData.map((img) => img.url);
+
+        // Step 3: Update post with image URLs and metadata
+        await this.postService.updatePostImages(postId, uploadedImageData);
+
+        post.images = imageUrls;
+      }
 
       return ApiResponse.success({
         lang,
@@ -80,17 +128,19 @@ export class PostController {
     } catch (error) {
       this.logger.error('Create post error', error);
 
-      if (files?.images?.length) {
-        for (const file of files.images) {
-          try {
-            if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
-          } catch (unlinkErr) {
-            this.logger.warn(
-              `Failed to delete uploaded file: ${file.path}`,
-              unlinkErr,
-            );
-          }
-        }
+      // Cleanup on error
+      if (postId) {
+        // Delete post record
+        await this.postService
+          .deletePost(postId)
+          .catch((err) =>
+            this.logger.warn(`Failed to delete post: ${err.message}`),
+          );
+      }
+
+      if (uploadedImageData.length > 0) {
+        // Delete uploaded images from MinIO
+        await this.cleanupUploadedImages(uploadedImageData);
       }
 
       throw error;
@@ -313,5 +363,76 @@ export class PostController {
       user.role,
       dto.rejectionReason,
     );
+  }
+
+  private async uploadPostImages(
+    accountId: string,
+    postId: string,
+    files: Express.Multer.File[],
+  ): Promise<Array<{ url: string; fileName: string; bucket: string }>> {
+    const uploadedImages: Array<{
+      url: string;
+      fileName: string;
+      bucket: string;
+    }> = [];
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+
+      try {
+        const folder = `posts/${accountId}/${postId}`;
+        const result = await this.minioService.uploadFile(
+          file,
+          'general',
+          folder,
+        );
+
+        uploadedImages.push({
+          url: result.url,
+          fileName: result.fileName,
+          bucket: result.bucket,
+        });
+
+        this.logger.log(`Image ${i + 1}/${files.length} uploaded successfully`);
+      } catch (error) {
+        const err = error as Error;
+        this.logger.error(
+          `Failed to upload image ${i + 1}: ${err.message}`,
+          err.stack,
+        );
+
+        // Cleanup already uploaded images
+        await this.cleanupUploadedImages(uploadedImages);
+
+        throw new BadRequestException(
+          `Failed to upload image ${i + 1}: ${err.message}`,
+        );
+      }
+    }
+
+    return uploadedImages;
+  }
+
+  /**
+   * Cleanup uploaded images on error
+   */
+  private async cleanupUploadedImages(
+    images: Array<{ url: string; fileName: string; bucket: string }>,
+  ): Promise<void> {
+    if (!images.length) return;
+
+    this.logger.log(`Cleaning up ${images.length} uploaded images from MinIO`);
+
+    try {
+      const fileNames = images.map((img) => img.fileName);
+      const bucket = images[0].bucket; // All images in same bucket
+
+      await this.minioService.deleteFiles(bucket, fileNames);
+      this.logger.log('✅ Cleanup completed successfully');
+    } catch (error) {
+      const err = error as Error;
+      this.logger.warn(`⚠️ Failed to cleanup images: ${err.message}`);
+      // Don't throw - cleanup is best effort
+    }
   }
 }

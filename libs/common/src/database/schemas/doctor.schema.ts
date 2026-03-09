@@ -1,6 +1,12 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
-import { ApprovalStatus, Days, Gender, WorkigEntity } from './common.enums';
+import {
+  ApprovalStatus,
+  Days,
+  GalleryImageStatus,
+  Gender,
+  WorkigEntity,
+} from './common.enums';
 import { Session, SessionSchema } from './session.schema';
 import { scrypt, randomBytes, timingSafeEqual } from 'crypto';
 import { promisify } from 'util';
@@ -13,7 +19,18 @@ export interface DoctorMethods {
   removeAllSessions?: () => Promise<void>;
   removeDevice?: (deviceId: string) => void;
 }
-
+interface GalleryImageWithStatus {
+  imageId: string; // Unique ID for this image
+  url: string; // Public URL
+  fileName: string; // MinIO filename
+  bucket: string; // MinIO bucket
+  description?: string; // Optional description
+  uploadedAt: Date; // Upload timestamp
+  status: GalleryImageStatus; // ✅ PENDING, APPROVED, REJECTED
+  approvedAt?: Date; // When approved
+  approvedBy?: string; // Admin ID who approved
+  rejectionReason?: string; // Why rejected
+}
 const scryptAsync = promisify(scrypt);
 @Schema({ timestamps: true, collection: 'doctors' })
 export class Doctor extends Document {
@@ -72,18 +89,89 @@ export class Doctor extends Document {
   @Prop({ required: false, type: String }) // Image is optional
   image?: string;
 
-  @Prop({ required: false, type: String })
-  certificateImage?: string;
+  @Prop()
+  imageFileName?: string;
 
-  @Prop({ required: false, type: String })
-  licenseImage?: string;
+  /**
+   * Profile image bucket name
+   * Example: tababti-doctors
+   */
+  @Prop()
+  imageBucket?: string;
 
-  @Prop({ required: false, type: String })
-  certificateDocument?: string;
+  /**
+   * Gallery Images (multiple images)
+   * Array of images showing clinic, equipment, team, etc.
+   * Maximum 20 images per doctor
+   */
+  @Prop({
+    type: [
+      {
+        imageId: { type: String, required: true },
+        url: { type: String, required: true },
+        fileName: { type: String, required: true },
+        bucket: { type: String, required: true },
+        description: { type: String },
+        uploadedAt: { type: Date, default: Date.now },
+        status: {
+          type: String,
+          enum: Object.values(GalleryImageStatus),
+          default: GalleryImageStatus.PENDING,
+        },
+        approvedAt: { type: Date },
+        approvedBy: { type: String },
+        rejectionReason: { type: String },
+      },
+    ],
+    default: [],
+  })
+  gallery?: GalleryImageWithStatus[];
 
-  @Prop({ required: false, type: String })
-  licenseDocument?: string;
+  @Prop({
+    type: {
+      // Certificate Image
+      certificateImage: { type: String },
+      certificateImageFileName: { type: String },
+      certificateImageBucket: { type: String },
 
+      // License Image
+      licenseImage: { type: String },
+      licenseImageFileName: { type: String },
+      licenseImageBucket: { type: String },
+
+      // Certificate Document (PDF)
+      certificateDocument: { type: String },
+      certificateDocumentFileName: { type: String },
+      certificateDocumentBucket: { type: String },
+
+      // License Document (PDF)
+      licenseDocument: { type: String },
+      licenseDocumentFileName: { type: String },
+      licenseDocumentBucket: { type: String },
+    },
+    default: {},
+  })
+  documents: {
+    // Certificate Image
+    certificateImage?: string; // Public URL: http://localhost:9000/bucket/path/uuid.jpg
+    certificateImageFileName?: string; // MinIO filename: doctors/123/certificates/images/uuid.jpg
+    certificateImageBucket?: string; // Bucket name: tababti-doctors
+
+    // License Image
+    licenseImage?: string;
+    licenseImageFileName?: string;
+    licenseImageBucket?: string;
+
+    // Certificate Document
+    certificateDocument?: string;
+    certificateDocumentFileName?: string;
+    certificateDocumentBucket?: string;
+
+    // License Document
+    licenseDocument?: string;
+    licenseDocumentFileName?: string;
+    licenseDocumentBucket?: string;
+  };
   @Prop({
     type: [{ type: Object }],
     index: true,
@@ -209,8 +297,6 @@ export class Doctor extends Document {
   @Prop({ type: Date })
   yearsOfExperience: Date;
 
-  @Prop({ type: [String], default: [] })
-  gallery: string[];
   // ==================== SECURITY ====================
 
   @Prop({ default: 0 })

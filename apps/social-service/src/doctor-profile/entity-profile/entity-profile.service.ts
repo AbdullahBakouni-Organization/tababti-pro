@@ -24,17 +24,13 @@ export class EntityProfileService {
     private readonly departmentModel: Model<CommonDepartment>,
   ) {}
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // PUBLIC PROFILE
-  // ══════════════════════════════════════════════════════════════════════════
-
-  async getEntityProfile(id: string, type: EntityType) {
+  async getEntityProfile(id: string, type: UserRole) {
     switch (type) {
-      case EntityType.DOCTOR:
+      case UserRole.DOCTOR:
         return this.getDoctorProfile(id);
-      case EntityType.HOSPITAL:
+      case UserRole.HOSPITAL:
         return this.getHospitalProfile(id);
-      case EntityType.CENTER:
+      case UserRole.CENTER:
         return this.getCenterProfile(id);
     }
   }
@@ -142,7 +138,7 @@ export class EntityProfileService {
       .lean();
 
     return {
-      type: EntityType.DOCTOR,
+      type: UserRole.DOCTOR,
       id: doctor._id,
       fullName: [doctor.firstName, doctor.middleName, doctor.lastName]
         .filter(Boolean)
@@ -339,33 +335,47 @@ export class EntityProfileService {
     };
   }
 
-  private calculateYears(startDate: Date): number {
-    if (!startDate) return 0;
-    const today = new Date();
-    const start = new Date(startDate);
-    let years = today.getFullYear() - start.getFullYear();
-    const m = today.getMonth() - start.getMonth();
-    if (m < 0 || (m === 0 && today.getDate() < start.getDate())) years--;
-    return years;
+  // ══════════════════════════════════════════════════════════════════════════
+  // GALLERY METHODS
+  // ══════════════════════════════════════════════════════════════════════════
+
+  async getGallery(id: string, type: EntityType): Promise<string[]> {
+    switch (type) {
+      case EntityType.HOSPITAL:
+        return this.repo.getHospitalGallery(id);
+      case EntityType.CENTER:
+        return this.repo.getCenterGallery(id);
+    }
   }
 
-  private roleToEntityType(role: UserRole): EntityType {
-    switch (role) {
-      case UserRole.DOCTOR:
-        return EntityType.DOCTOR;
-      case UserRole.HOSPITAL:
-        return EntityType.HOSPITAL;
-      case UserRole.CENTER:
-        return EntityType.CENTER;
-      default:
-        throw new BadRequestException('entity.INVALID_ROLE');
+  async addGallery(
+    id: string,
+    type: EntityType,
+    images: string[],
+  ): Promise<string[]> {
+    switch (type) {
+      case EntityType.HOSPITAL:
+        return this.repo.addHospitalGallery(id, images);
+      case EntityType.CENTER:
+        return this.repo.addCenterGallery(id, images);
+    }
+  }
+
+  async removeGallery(
+    id: string,
+    type: EntityType,
+    images: string[],
+  ): Promise<string[]> {
+    switch (type) {
+      case EntityType.HOSPITAL:
+        return this.repo.removeHospitalGallery(id, images);
+      case EntityType.CENTER:
+        return this.repo.removeCenterGallery(id, images);
     }
   }
 
   private entityTypeToRole(type: EntityType): UserRole {
     switch (type) {
-      case EntityType.DOCTOR:
-        return UserRole.DOCTOR;
       case EntityType.HOSPITAL:
         return UserRole.HOSPITAL;
       case EntityType.CENTER:

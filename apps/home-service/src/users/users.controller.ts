@@ -8,8 +8,22 @@ import {
   HttpStatus,
   Req,
   UseGuards,
+  Put,
+  BadRequestException,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiQuery,
+  ApiConsumes,
+  ApiParam,
+  ApiBody,
+  ApiBearerAuth,
+  ApiOkResponse,
+} from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import {
   PatientCancelBookingDto,
@@ -26,7 +40,28 @@ import { RolesGuard } from '@app/common/guards/role.guard';
 import { Roles } from '@app/common/decorator/role.decorator';
 import { JwtUserGuard } from '@app/common/guards/jwt-user.guard';
 import { ParseMongoIdPipe } from '@app/common/pipes/parse-mongo-id.pipe';
-
+import multer from 'multer';
+import { FileInterceptor } from '@nestjs/platform-express';
+import {
+  UpdateUserDto,
+  UpdateUserResponseDto,
+} from './dto/update-user-info.dto';
+import { UserProfileResponseDto } from './dto/get-user-profile';
+const memoryStorageConfig = {
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  fileFilter: (req: any, file: Express.Multer.File, cb: any) => {
+    const allowed = ['image/jpeg', 'image/png', 'image/webp'];
+    allowed.includes(file.mimetype)
+      ? cb(null, true)
+      : cb(
+          new BadRequestException(
+            'Invalid file type. Allowed: JPEG, PNG, WEBP',
+          ),
+          false,
+        );
+  },
+};
 @ApiTags('Patient Bookings')
 @Controller('users')
 export class UsersController {
@@ -166,7 +201,10 @@ export class UsersController {
     const userId = new ParseMongoIdPipe().transform(
       req.user.entity._id.toString(),
     );
-    return this.patientBookingService.updateFCMToken(userId, dto.fcmToken);
+    return await this.patientBookingService.updateFCMToken(
+      userId,
+      dto.fcmToken,
+    );
   }
 
   @UseGuards(JwtUserGuard, RolesGuard)
@@ -233,7 +271,124 @@ export class UsersController {
   })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async getMyBookings(@Query() dto: GetUserBookingsDto, @Req() req: any) {
-    const userId = req.user.entity._id.toString();
+    const userId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
     return this.patientBookingService.getUserBookings(userId, dto);
+  }
+
+  @UseGuards(JwtUserGuard, RolesGuard)
+  @Roles(UserRole.USER)
+  @Put('update')
+  @UseInterceptors(FileInterceptor('image', memoryStorageConfig))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({
+    summary: 'Update user profile',
+    description: `
+      تحديث معلومات المستخدم مع إمكانية رفع صورة جديدة
+      - يمكن تحديث: username, gender, city, DataofBirth, image
+      - لا يمكن تحديث: phone (محمي)
+      - إذا تم رفع صورة جديدة، يتم حذف الصورة القديمة تلقائياً
+      - يستخدم MongoDB transactions لضمان سلامة البيانات
+      - جميع الحقول اختيارية (يمكن تحديث حقل واحد أو أكثر)
+      `,
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'User MongoDB ObjectId',
+    type: String,
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        username: {
+          type: 'string',
+          example: 'john_doe',
+          description: 'New username (optional)',
+        },
+        gender: {
+          type: 'string',
+          enum: ['Male', 'Female'],
+          example: 'Male',
+          description: 'Gender (optional)',
+        },
+        city: {
+          type: 'string',
+          example: 'New York',
+          description: 'City (optional)',
+        },
+        DataofBirth: {
+          type: 'string',
+          example: '1990-01-15',
+          description: 'Date of Birth in YYYY-MM-DD format (optional)',
+        },
+        image: {
+          type: 'string',
+          format: 'binary',
+          description: 'Profile image (optional) - Max 5MB',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'User updated successfully',
+    type: UpdateUserResponseDto,
+    schema: {
+      example: {
+        message: 'User updated successfully',
+        user: {
+          _id: '507f1f77bcf86cd799439011',
+          authAccountId: '507f1f77bcf86cd799439012',
+          username: 'john_doe',
+          phone: '+1234567890',
+          gender: 'Male',
+          city: 'New York',
+          DataofBirth: '1990-01-15',
+          image: 'http://localhost:3000/uploads/profiles/image.jpg',
+          isVerified: true,
+          createdAt: '2024-01-01T00:00:00.000Z',
+          updatedAt: '2024-01-02T00:00:00.000Z',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'User not found',
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'Username already exists',
+  })
+  async updateUser(
+    @Req() req: any,
+    @Body() updateUserDto: UpdateUserDto,
+    @UploadedFile() file?: Express.Multer.File,
+  ): Promise<UpdateUserResponseDto> {
+    const userId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
+
+    const result = await this.patientBookingService.updateUser(
+      userId,
+      updateUserDto,
+      file,
+    );
+
+    return result;
+  }
+
+  @UseGuards(JwtUserGuard, RolesGuard)
+  @Roles(UserRole.USER)
+  @Get('profile')
+  @ApiBearerAuth()
+  @ApiOkResponse({ type: UserProfileResponseDto })
+  getMyProfile(@Req() req: any) {
+    const userId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
+    return this.patientBookingService.getUserProfile(userId);
   }
 }

@@ -206,3 +206,33 @@ export interface BookingRescheduledNotificationEvent {
     version: string;
   };
 }
+
+export interface AdminApprovedPostEvent {
+  eventType: 'ADMIN_APPROVED_POST';
+  timestamp: Date;
+  data: {
+    doctorId: string;
+    doctorName: string;
+    fcmToken: string;
+    postId: string;
+  };
+  metadata: {
+    source: string;
+    version: string;
+  };
+}
+export interface AdminRejectedPostEvent {
+  eventType: 'ADMIN_REJECTED_POST';
+  timestamp: Date;
+  data: {
+    doctorId: string;
+    doctorName: string;
+    fcmToken: string;
+    postId: string;
+    reason: string;
+  };
+  metadata: {
+    source: string;
+    version: string;
+  };
+}

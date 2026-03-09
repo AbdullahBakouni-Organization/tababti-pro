@@ -4,9 +4,10 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  ConflictException,
 } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
+import { InjectConnection, InjectModel } from '@nestjs/mongoose';
+import { Model, Types, Connection } from 'mongoose';
 import {
   Booking,
   BookingDocument,
@@ -36,6 +37,11 @@ import {
   UserBookingsResponse,
 } from './interfaces/user-bookings-response.interface';
 import { CacheService } from '@app/common/cache/cache.service';
+import {
+  UpdateUserDto,
+  UpdateUserResponseDto,
+} from './dto/update-user-info.dto';
+import { MinioService, UploadResult } from '../minio/minio.service';
 
 @Injectable()
 export class UsersService {
@@ -55,6 +61,8 @@ export class UsersService {
     private userModel: Model<UserDocument>,
     private readonly kafkaService: KafkaService,
     private readonly cacheManager: CacheService,
+    @InjectConnection() private connection: Connection,
+    private minioService: MinioService,
   ) {}
 
   /**
@@ -650,5 +658,132 @@ export class UsersService {
     }
 
     return item;
+  }
+
+  async updateUser(
+    userId: string,
+    updateUserDto: UpdateUserDto,
+    newImage: Express.Multer.File | undefined,
+  ): Promise<UpdateUserResponseDto> {
+    if (!Types.ObjectId.isValid(userId)) {
+      throw new NotFoundException(`Invalid user ID: ${userId}`);
+    }
+
+    const session = await this.connection.startSession();
+    session.startTransaction();
+
+    try {
+      const user = await this.userModel
+        .findById(userId)
+        .session(session)
+        .exec();
+
+      if (!user) {
+        throw new NotFoundException(`User with ID ${userId} not found`);
+      }
+
+      if (updateUserDto.username && updateUserDto.username !== user.username) {
+        const existingUser = await this.userModel
+          .findOne({ username: updateUserDto.username })
+          .session(session)
+          .exec();
+
+        if (existingUser) {
+          throw new ConflictException('Username already exists');
+        }
+      }
+
+      if (updateUserDto.username !== undefined) {
+        user.username = updateUserDto.username;
+      }
+      if (updateUserDto.gender !== undefined) {
+        user.gender = updateUserDto.gender;
+      }
+      if (updateUserDto.city !== undefined) {
+        user.city = updateUserDto.city;
+      }
+      if (updateUserDto.DataofBirth !== undefined) {
+        user.DataofBirth = updateUserDto.DataofBirth;
+      }
+
+      if (user.profileImageFileName && user.profileImageBucket) {
+        try {
+          await this.minioService.deleteFile(
+            user.profileImageBucket,
+            user.profileImageFileName,
+          );
+          this.logger.log(`Old profile image deleted for user ${userId}`);
+        } catch (error) {
+          const err = error as Error;
+          this.logger.warn(`Failed to delete old image: ${err.message}`);
+        }
+      }
+
+      // Upload new image
+      const uploadResult = await this.uploadUserProfileImage(userId, newImage);
+
+      // Update user record
+      if (uploadResult) {
+        user.profileImage = uploadResult.url;
+        user.profileImageFileName = uploadResult.fileName;
+        user.profileImageBucket = uploadResult.bucket;
+      }
+      await user.save();
+
+      this.logger.log(`Profile image updated for user ${userId}`);
+
+      await user.save({ session });
+
+      await session.commitTransaction();
+
+      return {
+        message: 'User updated successfully',
+        user: {
+          _id: user._id.toString(),
+          authAccountId: user.authAccountId.toString(),
+          username: user.username,
+          phone: user.phone,
+          gender: user.gender,
+          image: user.profileImage,
+          city: user.city,
+          DataofBirth: user.DataofBirth.toISOString(),
+          isVerified: true,
+        },
+      };
+    } catch (error) {
+      await session.abortTransaction();
+      throw error;
+    } finally {
+      await session.endSession();
+    }
+  }
+  private async uploadUserProfileImage(
+    userId: string,
+    file: Express.Multer.File | undefined,
+  ): Promise<UploadResult | undefined> {
+    if (!file) return undefined;
+    const folder = `patients/${userId}/profile/images`;
+    return await this.minioService.uploadFile(file, 'patients', folder);
+  }
+
+  async getUserProfile(userId: string) {
+    const user = await this.userModel
+      .findById(userId)
+      .select('-password')
+      .exec();
+
+    if (!user) {
+      throw new BadRequestException('User not found');
+    }
+
+    return {
+      id: user._id.toString(),
+      username: user.username,
+      phone: user.phone,
+      city: user.city,
+      gender: user.gender,
+      DataofBirth: user.DataofBirth,
+      profileImage: user.profileImage,
+    };
   }
 }

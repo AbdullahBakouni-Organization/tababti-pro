@@ -19,6 +19,7 @@ import {
 } from '@app/common/database/schemas/center.schema';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
+import { MinioModule } from 'apps/home-service/src/minio/minio.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { APP_GUARD } from '@nestjs/core';
       { name: Hospital.name, schema: HospitalSchema },
       { name: Center.name, schema: CenterSchema },
     ]),
+    MinioModule,
   ],
   controllers: [PostController],
   providers: [

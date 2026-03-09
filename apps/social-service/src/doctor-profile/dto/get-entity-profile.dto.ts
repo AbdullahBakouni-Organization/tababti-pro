@@ -1,15 +1,7 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import {
-  IsArray,
-  IsIn,
-  IsOptional,
-  IsString,
-  ArrayMinSize,
-} from 'class-validator';
+import { ApiProperty } from '@nestjs/swagger';
+import { IsEnum, IsMongoId, IsArray, IsString } from 'class-validator';
 
-// ── Entity type enum ──────────────────────────────────────────────────────────
 export enum EntityType {
-  DOCTOR = 'doctor',
   HOSPITAL = 'hospital',
   CENTER = 'center',
 }

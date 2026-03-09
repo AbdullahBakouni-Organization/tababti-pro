@@ -159,6 +159,7 @@ import { BullModule } from '@nestjs/bull';
 import { UsersService } from 'apps/home-service/src/users/users.service';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
+import { MinioModule } from 'apps/home-service/src/minio/minio.module';
 import { PassportModule } from '@nestjs/passport';
 import { JwtModule } from '@nestjs/jwt';
 import { AuthValidateModule } from '@app/common/auth-validate';
@@ -218,6 +219,7 @@ import { LangMiddleware } from '@app/common/middlewares/lang.middleware';
     DatabaseModule,
     CacheModule,
     SlotModule,
+    MinioModule,
   ],
   controllers: [BookingController],
   providers: [
