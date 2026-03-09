@@ -1184,10 +1184,7 @@ import { ApiResponse as AppResponse } from '@app/common/response/api-response';
 @Controller('doctors')
 export class DoctorController {
   constructor(
-<<<<<<< HEAD
     private minioService: MinioService,
-=======
->>>>>>> parent of 464a1e7 (Merge pull request #17 from AbdullahBakouni/minio-bucket)
     private readonly DoctorService: DoctorService,
     private readonly DoctorServiceV2: DoctorBookingsQueryService,
     private readonly authService: AuthValidateService,
