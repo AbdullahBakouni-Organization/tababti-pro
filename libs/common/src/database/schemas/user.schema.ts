@@ -22,22 +22,8 @@ export class User extends Document {
   @Prop({ type: String, enum: Gender, required: true }) // Added Gender Enum
   gender: Gender;
 
-  @Prop()
-  profileImage?: string;
-
-  /**
-   * MinIO filename (for deletion/management)
-   * Example: patients/507f1f77bcf86cd799439011/profile/images/a1b2c3d4-e5f6-7890.jpg
-   */
-  @Prop()
-  profileImageFileName?: string;
-
-  /**
-   * MinIO bucket name
-   * Example: tababti-patients
-   */
-  @Prop()
-  profileImageBucket?: string;
+  @Prop({ required: false, trim: true, maxlength: 500 }) // Image is optional
+  image?: string;
 
   @Prop({ type: String, enum: City, required: true }) // Added City Enum
   city: City;

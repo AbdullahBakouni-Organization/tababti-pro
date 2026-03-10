@@ -5,6 +5,7 @@ import {
   Body,
   HttpCode,
   HttpStatus,
+  Get,
   UseGuards,
   Res,
   UseInterceptors,
@@ -16,6 +17,7 @@ import {
   ApiTags,
   ApiOperation,
   ApiResponse,
+  ApiBearerAuth,
   ApiConsumes,
   ApiBody,
 } from '@nestjs/swagger';
@@ -29,6 +31,8 @@ import {
 import { JwtAuthGuard } from '@app/common/guards/jwt.guard';
 import { User } from '@app/common/database/schemas/user.schema';
 import type { Response } from 'express';
+
+import { userImageOptions } from '@app/common/helpers/file-upload.helper';
 import { RolesGuard } from '@app/common/guards/role.guard';
 import { UserRole } from '@app/common/database/schemas/common.enums';
 import { Roles } from '@app/common/decorator/role.decorator';
@@ -37,6 +41,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 
 import type { Request } from 'express';
 import { JwtUserGuard } from '@app/common/guards/jwt-user.guard';
+import { DocumentUrlInterceptor } from '@app/common/interceptors';
 import { AuthValidateService } from '@app/common/auth-validate';
 import { JwtUserRefreshGuard } from '@app/common/guards/jwt-refresh-user.guard';
 import { ParseMongoIdPipe } from '@app/common/pipes/parse-mongo-id.pipe';
@@ -137,7 +142,10 @@ export class AuthController {
   @UseGuards(JwtUserGuard, RolesGuard)
   @Roles(UserRole.USER)
   @Post('complete-registration')
-  @UseInterceptors(FileInterceptor('image', memoryStorageConfig))
+  @UseInterceptors(
+    FileInterceptor('image', userImageOptions),
+    DocumentUrlInterceptor,
+  )
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Step 3: Complete registration with user details' })
   @ApiBody({

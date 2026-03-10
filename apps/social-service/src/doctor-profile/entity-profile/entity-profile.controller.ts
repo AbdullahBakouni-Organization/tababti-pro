@@ -11,9 +11,15 @@ import {
   UploadedFiles,
   BadRequestException,
 } from '@nestjs/common';
-
-import { ApiTags, ApiQuery, ApiBody, ApiConsumes } from '@nestjs/swagger';
-// must display all data for hpspital and center and doctor
+import {
+  ApiTags,
+  ApiQuery,
+  ApiOperation,
+  ApiBody,
+  ApiConsumes,
+  ApiBearerAuth,
+  ApiHeader,
+} from '@nestjs/swagger';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname, join } from 'path';
@@ -26,8 +32,57 @@ import {
   RemoveGalleryDto,
 } from '../dto/get-entity-profile.dto';
 
-import { ApiResponse } from '../../common/response/api-response';
+import { JwtAuthGuard } from '@app/common/guards/jwt.guard';
+import { JwtUserGuard } from '@app/common/guards/jwt-user.guard';
+import { RolesGuard } from '@app/common/guards/role.guard';
+import { Roles } from '@app/common/decorator/role.decorator';
+import { CurrentUser } from '@app/common/decorator/current-user.decorator';
 import { UserRole } from '@app/common/database/schemas/common.enums';
+import { ApiResponse } from '@app/common/response/api-response';
+
+type Lang = 'en' | 'ar';
+function resolveLang(h?: string): Lang {
+  return h === 'ar' ? 'ar' : 'en';
+}
+
+// ── Multer factory ────────────────────────────────────────────────────────────
+function galleryInterceptor(maxCount = 10) {
+  return FilesInterceptor('images', maxCount, {
+    limits: { fileSize: 5 * 1024 * 1024 },
+    storage: diskStorage({
+      destination: (req, _file, cb) => {
+        try {
+          const type = req.query.type as EntityType;
+          if (!Object.values(EntityType).includes(type)) {
+            return cb(new BadRequestException('entity.INVALID_TYPE'), '');
+          }
+          const uploadPath = join(
+            process.cwd(),
+            'uploads',
+            `${type}s`,
+            'gallery',
+          );
+          fs.mkdirSync(uploadPath, { recursive: true });
+          cb(null, uploadPath);
+        } catch (err) {
+          cb(err, '');
+        }
+      },
+      filename: (_req, file, cb) => {
+        cb(
+          null,
+          `${Date.now()}-${Math.round(Math.random() * 1e9)}${extname(file.originalname)}`,
+        );
+      },
+    }),
+    fileFilter: (_req, file, cb) => {
+      if (!file.mimetype.match(/\/(jpg|jpeg|png|webp)$/)) {
+        return cb(new BadRequestException('entity.INVALID_FILE_TYPE'), false);
+      }
+      cb(null, true);
+    },
+  });
+}
 
 @ApiTags('Entity Profile')
 @Controller('entity/profile')
@@ -59,8 +114,8 @@ export class EntityProfileController {
   @ApiQuery({ name: 'type', enum: EntityType, required: true })
   async getEntityProfile(
     @Param('id') id: string,
-    @Query('type') type: UserRole,
-    @Headers('accept-language') lang: 'en' | 'ar' = 'en',
+    @Query('type') type: EntityType,
+    @Headers('accept-language') acceptLanguage?: string,
   ) {
     const data = await this.service.getEntityProfile(id, type);
 

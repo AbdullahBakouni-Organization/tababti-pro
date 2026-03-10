@@ -293,6 +293,10 @@ export class DoctorService {
           subcity: dto.subcity,
           publicSpecialization: dto.publicSpecialization,
           privateSpecialization: dto.privateSpecialization,
+          certificateImage: processedFiles.certificateImage || undefined,
+          licenseImage: processedFiles.licenseImage || undefined,
+          certificateDocument: processedFiles.certificateDocument || undefined,
+          licenseDocument: processedFiles.licenseDocument || undefined,
           gender: dto.gender,
           status: ApprovalStatus.PENDING,
           sessions: [],
@@ -369,71 +373,6 @@ export class DoctorService {
     } finally {
       await session.endSession();
     }
-  }
-  async updateDoctorFiles(
-    doctorId: string,
-    files: {
-      certificateImage?: UploadResult;
-      licenseImage?: UploadResult;
-      certificateDocument?: UploadResult;
-      licenseDocument?: UploadResult;
-    },
-  ): Promise<void> {
-    this.logger.log(`Updating doctor ${doctorId} with uploaded file URLs`);
-
-    const updateData: any = {
-      updatedAt: new Date(),
-    };
-
-    // Build documents object
-    const documents: any = {};
-
-    if (files.certificateImage) {
-      documents.certificateImage = files.certificateImage.url;
-      documents.certificateImageFileName = files.certificateImage.fileName;
-      documents.certificateImageBucket = files.certificateImage.bucket;
-    }
-
-    if (files.licenseImage) {
-      documents.licenseImage = files.licenseImage.url;
-      documents.licenseImageFileName = files.licenseImage.fileName;
-      documents.licenseImageBucket = files.licenseImage.bucket;
-    }
-
-    if (files.certificateDocument) {
-      documents.certificateDocument = files.certificateDocument.url;
-      documents.certificateDocumentFileName =
-        files.certificateDocument.fileName;
-      documents.certificateDocumentBucket = files.certificateDocument.bucket;
-    }
-
-    if (files.licenseDocument) {
-      documents.licenseDocument = files.licenseDocument.url;
-      documents.licenseDocumentFileName = files.licenseDocument.fileName;
-      documents.licenseDocumentBucket = files.licenseDocument.bucket;
-    }
-
-    updateData.documents = documents;
-
-    await this.doctorModel.findByIdAndUpdate(doctorId, updateData).exec();
-
-    this.logger.log(`Doctor ${doctorId} files updated successfully`);
-  }
-
-  /**
-   * Delete doctor record (cleanup on failed registration)
-   */
-  async deleteDoctorRecord(doctorId: string): Promise<void> {
-    this.logger.log(`Deleting doctor record: ${doctorId}`);
-
-    if (!Types.ObjectId.isValid(doctorId)) {
-      this.logger.warn(`Invalid doctor ID for deletion: ${doctorId}`);
-      return;
-    }
-
-    await this.doctorModel.findByIdAndDelete(doctorId).exec();
-
-    this.logger.log(`Doctor record deleted: ${doctorId}`);
   }
 
   // Login

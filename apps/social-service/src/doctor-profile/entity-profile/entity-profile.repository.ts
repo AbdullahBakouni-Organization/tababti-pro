@@ -6,7 +6,15 @@ import { Doctor } from '@app/common/database/schemas/doctor.schema';
 import { Hospital } from '@app/common/database/schemas/hospital.schema';
 import { Center } from '@app/common/database/schemas/center.schema';
 import { CommonDepartment } from '@app/common/database/schemas/common_departments.schema';
-import { GalleryImage } from 'apps/home-service/src/doctor/dto/images.dto';
+import { UserRole } from '@app/common/database/schemas/common.enums';
+import { EntityType } from '../dto/get-entity-profile.dto';
+
+// Doctor → status, Hospital → status, Center → approvalStatus
+const STATUS_FIELD: Record<EntityType, string> = {
+  [EntityType.DOCTOR]: 'status',
+  [EntityType.HOSPITAL]: 'status',
+  [EntityType.CENTER]: 'approvalStatus',
+};
 
 @Injectable()
 export class EntityProfileRepository {
@@ -126,7 +134,7 @@ export class EntityProfileRepository {
   // GALLERY METHODS - GET
   // ══════════════════════════════════════════════════════════════════════════
 
-  async getDoctorGallery(id: string): Promise<GalleryImage[]> {
+  async getGallery(id: string, type: EntityType): Promise<string[]> {
     this.assertValidId(id);
     const doc = await this.doctorModel
       .findOne({ _id: new Types.ObjectId(id) })
@@ -157,7 +165,11 @@ export class EntityProfileRepository {
   // GALLERY METHODS - ADD
   // ══════════════════════════════════════════════════════════════════════════
 
-  async addHospitalGallery(id: string, images: string[]): Promise<string[]> {
+  async addGallery(
+    id: string,
+    type: EntityType,
+    images: string[],
+  ): Promise<string[]> {
     this.assertValidId(id);
     const doc = await this.hospitalModel
       .findOneAndUpdate(
@@ -187,23 +199,11 @@ export class EntityProfileRepository {
   // GALLERY METHODS - REMOVE
   // ══════════════════════════════════════════════════════════════════════════
 
-  async removeDoctorGallery(
+  async removeGallery(
     id: string,
+    type: EntityType,
     images: string[],
-  ): Promise<GalleryImage[]> {
-    this.assertValidId(id);
-    const doc = await this.doctorModel
-      .findOneAndUpdate(
-        { _id: new Types.ObjectId(id) },
-        { $pullAll: { gallery: images } },
-        { new: true },
-      )
-      .select('gallery')
-      .lean();
-    return doc?.gallery ?? [];
-  }
-
-  async removeHospitalGallery(id: string, images: string[]): Promise<string[]> {
+  ): Promise<string[]> {
     this.assertValidId(id);
     const doc = await this.hospitalModel
       .findOneAndUpdate(

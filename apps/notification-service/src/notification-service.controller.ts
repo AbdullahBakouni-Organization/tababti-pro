@@ -1,7 +1,5 @@
 import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
 import type {
-  AdminApprovedPostEvent,
-  AdminRejectedPostEvent,
   BookingCancelledNotificationEvent,
   BookingCancelledNotificationEventByUser,
   BookingCompletedNotificationEvent,
@@ -113,50 +111,6 @@ export class NotificationServiceController {
       const err = error as Error;
       this.logger.error(
         `❌ Failed to process booking completion notification: ${err.message}`,
-        err.stack,
-      );
-    }
-  }
-
-  @EventPattern(KAFKA_TOPICS.ADMIN_APPROVED_POST)
-  async handleAdminApprovedPost(
-    @Payload() event: AdminApprovedPostEvent,
-  ): Promise<void> {
-    this.logger.log(
-      `🎯 Received ADMIN_APPROVED_POST event for post ${event.data.postId}`,
-    );
-
-    try {
-      await this.notificationService.sendAdminApprovedPostNotification(event);
-      this.logger.log(
-        `✅ Successfully sent completion notification to Doctor ${event.data.doctorName}`,
-      );
-    } catch (error) {
-      const err = error as Error;
-      this.logger.error(
-        `❌ Failed to process booking completion notification: ${err.message}`,
-        err.stack,
-      );
-    }
-  }
-
-  @EventPattern(KAFKA_TOPICS.ADMIN_REJECTED_POST)
-  async handleAdminRejectedPost(
-    @Payload() event: AdminRejectedPostEvent,
-  ): Promise<void> {
-    this.logger.log(
-      `🎯 Received ADMIN_REJECTED_POST event for post ${event.data.postId}`,
-    );
-
-    try {
-      await this.notificationService.sendAdminRejectedPostNotification(event);
-      this.logger.log(
-        `✅ Successfully sent rejection notification to Doctor ${event.data.doctorName}`,
-      );
-    } catch (error) {
-      const err = error as Error;
-      this.logger.error(
-        `❌ Failed to process rejection notification: ${err.message}`,
         err.stack,
       );
     }

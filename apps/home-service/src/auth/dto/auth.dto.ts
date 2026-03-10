@@ -14,10 +14,8 @@ import {
   Length,
   Matches,
   MaxLength,
-  MinLength,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
-import { BadRequestException } from '@nestjs/common';
 const NAME_REGEX = /^[A-Za-z\u0600-\u06FF ]+$/;
 export class RequestOtpDto {
   @ApiProperty({
@@ -47,7 +45,6 @@ export class RequestOtpDto {
   @IsString()
   @IsNotEmpty()
   @MinLength(3)
-  @MaxLength(50)
   @Matches(NAME_REGEX, {
     message: 'username must contain only Arabic or English letters',
   })

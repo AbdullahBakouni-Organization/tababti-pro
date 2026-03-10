@@ -18,9 +18,6 @@ import {
   Query,
   Patch,
   UnauthorizedException,
-  BadRequestException,
-  UploadedFile,
-  Delete,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -34,11 +31,7 @@ import {
   ApiQuery,
   ApiParam,
 } from '@nestjs/swagger';
-import {
-  FileFieldsInterceptor,
-  FileInterceptor,
-  FilesInterceptor,
-} from '@nestjs/platform-express';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { DoctorService } from './doctor.service';
 import {
   AuthValidateService,
@@ -94,12 +87,6 @@ import { DoctorBookingsQueryService } from './doctor.service.v2';
 import { RescheduleBookingDto } from './dto/resechedula-booking.dto,';
 import { ParseMongoIdPipe } from '../../../../libs/common/src/pipes/parse-mongo-id.pipe';
 import { Throttle } from '@nestjs/throttler';
-import multer from 'multer';
-import { UploadResult, MinioService } from '../minio/minio.service';
-import {
-  GalleryImagesResponseDto,
-  ProfileImageResponseDto,
-} from './dto/images.dto';
 
 // ============================================
 // Login DTO
@@ -166,16 +153,12 @@ export class LoginDto {
 @Controller('doctors')
 export class DoctorController {
   constructor(
-    private DoctorService: DoctorService,
-    private DoctorServiceV2: DoctorBookingsQueryService,
-    private authService: AuthValidateService,
     private minioService: MinioService,
   ) {}
 
   // ============================================
   // PUBLIC ENDPOINTS
   // ============================================
-  // Multer config for memory storage (MinIO will handle persistence)
 
   /**
    * Register a new doctor with document uploads
@@ -189,8 +172,10 @@ export class DoctorController {
         { name: 'certificateDocument', maxCount: 1 },
         { name: 'licenseDocument', maxCount: 1 },
       ],
-      memoryStorageConfig,
+      doctorDocumentOptions,
     ),
+    MultipleFileCleanupInterceptor,
+    DocumentUrlInterceptor,
   )
   @HttpCode(HttpStatus.CREATED)
   @ApiConsumes('multipart/form-data')
@@ -237,13 +222,6 @@ export class DoctorController {
     const doctor = await this.DoctorService.registerDoctor(dto);
     const doctorId = doctor._id.toString();
 
-    // Upload files to MinIO
-    const uploadedFiles = await this.uploadDoctorFiles(doctorId, files);
-
-    // Update doctor record with file URLs
-    if (uploadedFiles) {
-      await this.DoctorService.updateDoctorFiles(doctorId, uploadedFiles);
-    }
     return {
       success: true,
       message:
@@ -253,12 +231,12 @@ export class DoctorController {
       doctorId,
       status: doctor.status,
       estimatedReviewTime: '24-48 hours',
-      uploadedFiles: uploadedFiles
+      uploadedFiles: processedFiles
         ? {
-            certificateImage: uploadedFiles.certificateImage?.url,
-            licenseImage: uploadedFiles.licenseImage?.url,
-            certificateDocument: uploadedFiles.certificateDocument?.url,
-            licenseDocument: uploadedFiles.licenseDocument?.url,
+            certificateImage: processedFiles.certificateImage?.path,
+            licenseImage: processedFiles.licenseImage?.path,
+            certificateDocument: processedFiles.certificateDocument?.path,
+            licenseDocument: processedFiles.licenseDocument?.path,
           }
         : undefined,
     };
@@ -1205,231 +1183,5 @@ export class DoctorController {
       ...query,
     };
     return this.DoctorServiceV2.getDoctorBookings(dto, doctorId);
-  }
-
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.DOCTOR)
-  @Post('profile-image')
-  @UseInterceptors(FileInterceptor('image', imageMemoryConfig))
-  @HttpCode(HttpStatus.OK)
-  @ApiConsumes('multipart/form-data')
-  @ApiOperation({
-    summary: 'Upload or update doctor profile image',
-    description: `
-      Upload a new profile image or replace the existing one.
-
-      **Features:**
-      - Automatically replaces old image if exists
-      - Stores in MinIO: doctors/{doctorId}/profile/
-      - Max size: 5MB
-      - Formats: JPEG, PNG, WEBP
-      - Returns public URL for immediate use
-
-      **Storage Path:**
-      - Bucket: tababti-doctors
-      - Path: doctors/{doctorId}/profile/{uuid}.jpg
-      - Public URL: http://localhost:9000/tababti-doctors/doctors/{doctorId}/profile/{uuid}.jpg
-      `,
-  })
-  @ApiParam({
-    name: 'doctorId',
-    description: 'Doctor MongoDB ObjectId',
-    example: '507f1f77bcf86cd799439011',
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Profile image uploaded/updated successfully',
-    type: ProfileImageResponseDto,
-    schema: {
-      example: {
-        success: true,
-        message: 'Profile image uploaded successfully',
-        doctorId: '507f1f77bcf86cd799439011',
-        imageUrl:
-          'http://localhost:9000/tababti-doctors/doctors/507f/profile/a1b2c3d4.jpg',
-        previousImageUrl:
-          'http://localhost:9000/tababti-doctors/doctors/507f/profile/old-uuid.jpg',
-      },
-    },
-  })
-  @ApiResponse({ status: 400, description: 'Invalid doctor ID or file type' })
-  @ApiResponse({ status: 404, description: 'Doctor not found' })
-  async uploadProfileImage(
-    @Req() req: any,
-    @UploadedFile() file?: Express.Multer.File,
-  ): Promise<ProfileImageResponseDto> {
-    const doctorId = new ParseMongoIdPipe().transform(
-      req.user.entity._id.toString(),
-    );
-    if (!file) {
-      throw new BadRequestException('No image file provided');
-    }
-
-    return this.DoctorServiceV2.uploadProfileImage(doctorId, file);
-  }
-
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.DOCTOR)
-  @Post('gallery')
-  @UseInterceptors(FilesInterceptor('images', 10, imageMemoryConfig)) // Max 10 images at once
-  @HttpCode(HttpStatus.CREATED)
-  @ApiConsumes('multipart/form-data')
-  @ApiOperation({
-    summary: 'Add images to doctor gallery',
-    description: `
-     Upload single or multiple images to doctor's gallery.
-
-     **Features:**
-     - Upload 1-10 images at once
-     - Maximum 20 total gallery images per doctor
-     - Each image max size: 5MB
-     - Formats: JPEG, PNG, WEBP
-     - Optional description for all images
-     - Automatic cleanup on error
-
-     **Use Cases:**
-     - Clinic interior photos
-     - Equipment photos
-     - Team photos
-     - Certificates/Awards
-     - Before/After patient photos (anonymized)
-
-     **Storage:**
-     - Bucket: tababti-doctors
-     - Path: doctors/{doctorId}/gallery/{uuid}.jpg
-     `,
-  })
-  @ApiParam({
-    name: 'doctorId',
-    description: 'Doctor MongoDB ObjectId',
-  })
-  @ApiQuery({
-    name: 'description',
-    required: false,
-    description: 'Optional description for the images',
-    example: 'Clinic interior photos',
-  })
-  @ApiResponse({
-    status: 201,
-    description: 'Images added to gallery successfully',
-    type: GalleryImagesResponseDto,
-    schema: {
-      example: {
-        success: true,
-        message: '3 image(s) added to gallery successfully',
-        doctorId: '507f1f77bcf86cd799439011',
-        uploadedCount: 3,
-        totalGalleryImages: 8,
-        uploadedImages: [
-          'http://localhost:9000/tababti-doctors/doctors/507f/gallery/uuid1.jpg',
-          'http://localhost:9000/tababti-doctors/doctors/507f/gallery/uuid2.jpg',
-          'http://localhost:9000/tababti-doctors/doctors/507f/gallery/uuid3.jpg',
-        ],
-      },
-    },
-  })
-  @ApiResponse({
-    status: 400,
-    description: 'Invalid doctor ID, no files, or gallery limit exceeded',
-  })
-  @ApiResponse({ status: 404, description: 'Doctor not found' })
-  async addGalleryImages(
-    @Req() req: any,
-    @Query('description') description?: string,
-    @UploadedFiles() files?: Express.Multer.File[],
-  ): Promise<GalleryImagesResponseDto> {
-    const doctorId = new ParseMongoIdPipe().transform(
-      req.user.entity._id.toString(),
-    );
-    if (!files || files.length === 0) {
-      throw new BadRequestException('No image files provided');
-    }
-    return this.DoctorServiceV2.addGalleryImages(doctorId, files, description);
-  }
-
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.DOCTOR)
-  @Delete('gallery/image')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Delete single gallery image',
-    description: 'Removes a specific image from doctor gallery.',
-  })
-  @ApiParam({
-    name: 'doctorId',
-    description: 'Doctor MongoDB ObjectId',
-  })
-  @ApiQuery({
-    name: 'imageUrl',
-    description: 'Full URL of the image to delete',
-    example:
-      'http://localhost:9000/tababti-doctors/doctors/507f/gallery/uuid.jpg',
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Gallery image deleted successfully',
-  })
-  @ApiResponse({ status: 404, description: 'Doctor or image not found' })
-  async deleteGalleryImage(
-    @Req() req: any,
-    @Query('imageUrl') imageUrl: string,
-  ) {
-    const doctorId = new ParseMongoIdPipe().transform(
-      req.user.entity._id.toString(),
-    );
-    if (!imageUrl) {
-      throw new BadRequestException('imageUrl query parameter is required');
-    }
-
-    await this.DoctorServiceV2.deleteGalleryImage(doctorId, imageUrl);
-    return {
-      success: true,
-      message: 'Gallery image deleted successfully',
-    };
-  }
-
-  /**
-   * Get doctor images (profile + gallery)
-   */
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.DOCTOR)
-  @Get('gallery-images')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Get doctor images',
-    description: 'Retrieve doctor profile image and gallery images.',
-  })
-  @ApiParam({
-    name: 'doctorId',
-    description: 'Doctor MongoDB ObjectId',
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Doctor images retrieved',
-    schema: {
-      example: {
-        profileImage:
-          'http://localhost:9000/tababti-doctors/doctors/507f/profile/uuid.jpg',
-        gallery: [
-          {
-            url: 'http://localhost:9000/tababti-doctors/doctors/507f/gallery/uuid1.jpg',
-            description: 'Clinic interior',
-            uploadedAt: '2026-03-05T10:00:00.000Z',
-          },
-          {
-            url: 'http://localhost:9000/tababti-doctors/doctors/507f/gallery/uuid2.jpg',
-            uploadedAt: '2026-03-05T10:05:00.000Z',
-          },
-        ],
-        galleryCount: 2,
-      },
-    },
-  })
-  @ApiResponse({ status: 404, description: 'Doctor not found' })
-  async getDoctorImages(@Req() req: any) {
-    const doctorId = new ParseMongoIdPipe().transform(
-      req.user.entity._id.toString(),
-    );
-    return this.DoctorServiceV2.getDoctorGalleryImages(doctorId);
   }
 }
