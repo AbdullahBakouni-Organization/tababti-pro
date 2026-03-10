@@ -1,7 +1,7 @@
+import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import { ApiGatewayModule } from './api-gateway.module';
 import { ValidationPipe } from '@nestjs/common';
-import { join } from 'path';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
@@ -21,32 +21,31 @@ async function bootstrap() {
       },
     }),
   );
-
   // ================= Security =================
-  app.use(
-    helmet({
-      crossOriginResourcePolicy: true,
-      contentSecurityPolicy: true,
-      crossOriginEmbedderPolicy: true,
-      crossOriginOpenerPolicy: true,
-      dnsPrefetchControl: true,
-      frameguard: true,
-      hidePoweredBy: true,
-      hsts: true,
-      ieNoOpen: true,
-      noSniff: true,
-      originAgentCluster: true,
-      permittedCrossDomainPolicies: true,
-      referrerPolicy: true,
-      xssFilter: true, // Allow CORS for images/static
-    }),
-  );
+  // app.use(
+  //   helmet({
+  //     crossOriginResourcePolicy: true,
+  //     contentSecurityPolicy: true,
+  //     crossOriginEmbedderPolicy: true,
+  //     crossOriginOpenerPolicy: true,
+  //     dnsPrefetchControl: true,
+  //     frameguard: true,
+  //     hidePoweredBy: true,
+  //     hsts: true,
+  //     ieNoOpen: true,
+  //     noSniff: true,
+  //     originAgentCluster: true,
+  //     permittedCrossDomainPolicies: true,
+  //     referrerPolicy: true,
+  //     xssFilter: true, // Allow CORS for images/static
+  //   }),
+  // );
 
   // ================= CORS =================
   const allowedOrigins = process.env.ALLOWED_ORIGINS
     ? process.env.ALLOWED_ORIGINS.split(',')
-    : []; // Support multiple origins via comma-separated env
-
+    : ['*']; // ← fallback لو الـ env فاضي
+  console.log('allow', allowedOrigins);
   app.enableCors({
     origin: (origin: string | undefined, callback) => {
       if (!origin) {
@@ -61,11 +60,6 @@ async function bootstrap() {
     credentials: true, // Allow cookies and Authorization headers
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'], // Allow common methods
     allowedHeaders: ['Content-Type', 'Authorization'], // Explicit allowed headers
-  });
-
-  // ================= Static Assets =================
-  app.useStaticAssets(join(process.cwd(), 'uploads'), {
-    prefix: '/uploads/',
   });
 
   // ================= Start Server =================
