@@ -19,7 +19,11 @@ async function bootstrap() {
   );
 
   const app = await NestFactory.create(SocialServiceModule);
-
+  app.enableCors({
+    origin: '*',
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  });
   // ── Global pipes ──────────────────────────────────────────────────────────
   app.useGlobalPipes(
     new ValidationPipe({

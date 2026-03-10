@@ -10,6 +10,11 @@ async function bootstrap() {
 
   // Create the main HTTP application
   const app = await NestFactory.create(HomeServiceModule);
+  app.enableCors({
+    origin: '*',
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  });
   app.use(cookieParser());
 
   app.useGlobalPipes(

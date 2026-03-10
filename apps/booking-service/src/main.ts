@@ -9,6 +9,11 @@ async function bootstrap() {
 
   // Create the main HTTP application
   const app = await NestFactory.create(BookingServiceModule);
+  app.enableCors({
+    origin: '*',
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  });
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
