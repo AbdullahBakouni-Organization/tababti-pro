@@ -3,7 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import { SocialServiceModule } from './social-service.module';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import { ValidationPipe, Logger } from '@nestjs/common';
-import { I18nExceptionFilter } from '@app/common/filters/i18n-exception.filter';
+import { I18nExceptionFilter } from './common/filters/i18n-exception.filter';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');

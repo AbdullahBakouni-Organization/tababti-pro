@@ -20,7 +20,7 @@ import { Roles } from '@app/common/decorator/role.decorator';
 import { UserRole } from '@app/common/database/schemas/common.enums';
 import { CurrentUser } from '@app/common/decorator/current-user.decorator';
 import { doctorImageOptions } from '@app/common/helpers/file-upload.helper';
-import { ApiResponse } from '@app/common/response/api-response';
+import { ApiResponse } from '../common/response/api-response';
 import {
   UpdateDoctorProfileDto,
   UploadedProfileFiles,

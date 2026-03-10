@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  Logger,
-  OnModuleDestroy,
-  OnModuleInit,
-} from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Client, LocalAuth, Message } from 'whatsapp-web.js';
 import * as qrcode from 'qrcode';
 import * as qrcodeTerminal from 'qrcode-terminal';
@@ -17,7 +12,7 @@ interface PendingMessage {
 }
 
 @Injectable()
-export class WhatsappService implements OnModuleInit, OnModuleDestroy {
+export class WhatsappService implements OnModuleInit {
   private client: Client;
   private readonly logger = new Logger(WhatsappService.name);
 
@@ -44,6 +39,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       console.log('\nScan this QR with WhatsApp:\n');
       qrcodeTerminal.generate(qr, { small: true });
 
+      // Open browser once to show the QR page
       try {
         const { default: open } = await import('open');
         await open('http://localhost:3001/api/v1/whatsapp/qr');
@@ -67,17 +63,6 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     });
 
     this.client.initialize();
-  }
-
-  // ── يُغلق Chrome بشكل نظيف عند إيقاف الـ service ─────────────────────────
-  async onModuleDestroy() {
-    try {
-      this.isReady = false;
-      await this.client.destroy();
-      this.logger.log('✅ WhatsApp client destroyed cleanly');
-    } catch (err) {
-      this.logger.warn(`⚠️ Error destroying WhatsApp client: ${err.message}`);
-    }
   }
 
   // ── Public API ────────────────────────────────────────────────────────────
@@ -141,6 +126,7 @@ If you did not request this login, you can safely ignore this message.`;
   // ── Private Helpers ───────────────────────────────────────────────────────
 
   private formatPhone(phone: string): string {
+    // Strip all non-digit characters then append WhatsApp suffix
     return phone.replace(/\D/g, '') + '@c.us';
   }
 

@@ -25,7 +25,7 @@ import {
   PostStatus,
 } from '@app/common/database/schemas/common.enums';
 import { CurrentUser } from '@app/common/decorator/current-user.decorator';
-import { ApiResponse } from '@app/common/response/api-response';
+import { ApiResponse } from '../common/response/api-response';
 import { Types } from 'mongoose';
 import { UpdatePostStatusDto } from './dto/update-post-status.dto';
 import { ApiOperation } from '@nestjs/swagger';

@@ -2,7 +2,6 @@ import {
   Controller,
   Get,
   Post,
-  Patch,
   Delete,
   Param,
   Query,
@@ -11,7 +10,6 @@ import {
   UseInterceptors,
   UploadedFiles,
   BadRequestException,
-  UseGuards,
 } from '@nestjs/common';
 
 import { ApiTags, ApiQuery, ApiBody, ApiConsumes } from '@nestjs/swagger';
@@ -26,115 +24,38 @@ import {
   EntityType,
   AddGalleryDto,
   RemoveGalleryDto,
-  ReviewEntityDto,
 } from '../dto/get-entity-profile.dto';
 
 import { ApiResponse } from '../../common/response/api-response';
 import { UserRole } from '@app/common/database/schemas/common.enums';
 
 @ApiTags('Entity Profile')
-@ApiHeader({
-  name: 'accept-language',
-  description: 'Response language: en | ar',
-  required: false,
-  schema: { default: 'en', enum: ['en', 'ar'] },
-})
 @Controller('entity/profile')
 export class EntityProfileController {
   constructor(private readonly service: EntityProfileService) {}
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // PUBLIC — browse approved entities (paginated)
-  // ══════════════════════════════════════════════════════════════════════════
+  // ─────────────────────────────────────────────
+  // Helper: Validate & Build Upload Path
+  // ─────────────────────────────────────────────
+  private buildUploadPath(type: EntityType): string {
+    if (!Object.values(EntityType).includes(type)) {
+      throw new BadRequestException('Invalid entity type');
+    }
 
-  @Get()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.USER)
-  @ApiOperation({ summary: 'Browse approved entities (public, paginated)' })
-  @ApiQuery({ name: 'type', enum: EntityType, required: true })
-  @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
-  @ApiQuery({ name: 'limit', required: false, type: Number, example: 10 })
-  async browseEntities(
-    @Query('type') type: EntityType,
-    @Query('page') page = '1',
-    @Query('limit') limit = '10',
-    @Headers('accept-language') acceptLanguage?: string,
-  ) {
-    const data = await this.service.browseEntities(
-      type,
-      Math.max(1, parseInt(page, 10)),
-      Math.min(Math.max(1, parseInt(limit, 10)), 50),
-    );
-    return ApiResponse.success({
-      lang: resolveLang(acceptLanguage),
-      messageKey: 'entity.LIST',
-      data,
-    });
+    const folder = `${type}s`;
+    const uploadPath = join(process.cwd(), 'uploads', folder, 'gallery');
+
+    if (!fs.existsSync(uploadPath)) {
+      fs.mkdirSync(uploadPath, { recursive: true });
+    }
+
+    return uploadPath;
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // OWNER — get own profile
-  // ══════════════════════════════════════════════════════════════════════════
-
-  @Get('me')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.DOCTOR, UserRole.HOSPITAL, UserRole.CENTER)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Entity owner: get own full profile' })
-  async getMyProfile(
-    @CurrentUser('accountId') accountId: string,
-    @CurrentUser('role') role: UserRole,
-    @Headers('accept-language') acceptLanguage?: string,
-  ) {
-    const data = await this.service.getMyProfile(accountId, role);
-    return ApiResponse.success({
-      lang: resolveLang(acceptLanguage),
-      messageKey: 'entity.PROFILE_FETCHED',
-      data,
-    });
-  }
-
-  // ══════════════════════════════════════════════════════════════════════════
-  // ADMIN — list all entities (any status)
-  // ══════════════════════════════════════════════════════════════════════════
-
-  @Get('admin/list')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Admin: list all entities with any status' })
-  @ApiQuery({ name: 'type', enum: EntityType, required: true })
-  @ApiQuery({ name: 'status', required: false, type: String })
-  @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
-  @ApiQuery({ name: 'limit', required: false, type: Number, example: 10 })
-  async adminListEntities(
-    @Query('type') type: EntityType,
-    @Query('status') status?: string,
-    @Query('page') page = '1',
-    @Query('limit') limit = '10',
-    @Headers('accept-language') acceptLanguage?: string,
-  ) {
-    const data = await this.service.adminListEntities(
-      type,
-      status,
-      Math.max(1, parseInt(page, 10)),
-      Math.min(Math.max(1, parseInt(limit, 10)), 50),
-    );
-    return ApiResponse.success({
-      lang: resolveLang(acceptLanguage),
-      messageKey: 'entity.LIST',
-      data,
-    });
-  }
-
-  // ══════════════════════════════════════════════════════════════════════════
-  // PUBLIC — get full entity profile by id
-  // ══════════════════════════════════════════════════════════════════════════
-
+  // ─────────────────────────────────────────────
+  // GET Full Profile
+  // ─────────────────────────────────────────────
   @Get(':id')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.USER)
-  @ApiOperation({ summary: 'Get full entity profile (public)' })
   @ApiQuery({ name: 'type', enum: EntityType, required: true })
   async getEntityProfile(
     @Param('id') id: string,
@@ -142,187 +63,153 @@ export class EntityProfileController {
     @Headers('accept-language') lang: 'en' | 'ar' = 'en',
   ) {
     const data = await this.service.getEntityProfile(id, type);
+
     return ApiResponse.success({
-      lang: resolveLang(acceptLanguage),
+      lang,
       messageKey: 'entity.PROFILE_FETCHED',
       data,
     });
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // ADMIN — approve / reject entity profile
-  // ══════════════════════════════════════════════════════════════════════════
-
-  @Patch(':id/review')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Admin: approve or reject an entity profile' })
-  @ApiQuery({ name: 'type', enum: EntityType, required: true })
-  @ApiBody({ type: ReviewEntityDto })
-  async reviewEntity(
-    @Param('id') id: string,
-    @Query('type') type: EntityType,
-    @Body() dto: ReviewEntityDto,
-    @Headers('accept-language') acceptLanguage?: string,
-  ) {
-    if (dto.action === 'reject' && !dto.rejectionReason?.trim()) {
-      throw new BadRequestException('entity.REJECTION_REASON_REQUIRED');
-    }
-    const data = await this.service.reviewEntity(id, type, dto);
-    return ApiResponse.success({
-      lang: resolveLang(acceptLanguage),
-      messageKey:
-        dto.action === 'approve' ? 'entity.APPROVED' : 'entity.REJECTED',
-      data,
-    });
-  }
-
-  // ══════════════════════════════════════════════════════════════════════════
-  // PUBLIC — get gallery
-  // ══════════════════════════════════════════════════════════════════════════
-
+  // ─────────────────────────────────────────────
+  // GET Gallery
+  // ─────────────────────────────────────────────
   @Get(':id/gallery')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.USER)
-  @ApiOperation({ summary: 'Get entity gallery (public)' })
   @ApiQuery({ name: 'type', enum: EntityType, required: true })
   async getGallery(
     @Param('id') id: string,
     @Query('type') type: EntityType,
-    @Headers('accept-language') acceptLanguage?: string,
+    @Headers('accept-language') lang: 'en' | 'ar' = 'en',
   ) {
-    const gallery = await this.service.getGallery(id, type);
+    const data = await this.service.getGallery(id, type);
+
     return ApiResponse.success({
-      lang: resolveLang(acceptLanguage),
+      lang,
       messageKey: 'entity.GALLERY_FETCHED',
-      data: { gallery, total: gallery.length },
+      data: { gallery: data, total: data.length },
     });
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // OWNER — upload gallery images (goes directly into gallery)
-  // ══════════════════════════════════════════════════════════════════════════
-
+  // ─────────────────────────────────────────────
+  // POST Upload Images (Dynamic by Type)
+  // ─────────────────────────────────────────────
   @Post(':id/gallery')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.DOCTOR, UserRole.HOSPITAL, UserRole.CENTER)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Entity owner: upload gallery images' })
   @ApiConsumes('multipart/form-data')
   @ApiQuery({ name: 'type', enum: EntityType, required: true })
   @ApiBody({ type: AddGalleryDto })
-  @UseInterceptors(galleryInterceptor(10))
-  async uploadGallery(
+  @UseInterceptors(
+    FilesInterceptor('images', 10, {
+      limits: { fileSize: 5 * 1024 * 1024 },
+      storage: diskStorage({
+        destination: (req, file, cb) => {
+          try {
+            const type = req.query.type as EntityType;
+            const folder = `${type}s`;
+            const uploadPath = join(
+              process.cwd(),
+              'uploads',
+              folder,
+              'gallery',
+            );
+
+            if (!fs.existsSync(uploadPath)) {
+              fs.mkdirSync(uploadPath, { recursive: true });
+            }
+
+            cb(null, uploadPath);
+          } catch (error) {
+            cb(error, '');
+          }
+        },
+        filename: (req, file, cb) => {
+          const uniqueName = Date.now() + '-' + Math.round(Math.random() * 1e9);
+          cb(null, uniqueName + extname(file.originalname));
+        },
+      }),
+      fileFilter: (req, file, cb) => {
+        if (!file.mimetype.match(/\/(jpg|jpeg|png|webp)$/)) {
+          return cb(new BadRequestException('Only image files allowed'), false);
+        }
+        cb(null, true);
+      },
+    }),
+  )
+  async addGallery(
     @Param('id') id: string,
     @Query('type') type: EntityType,
     @UploadedFiles() files: Express.Multer.File[],
-    @CurrentUser('accountId') accountId: string,
-    @Headers('accept-language') acceptLanguage?: string,
+    @Headers('accept-language') lang: 'en' | 'ar' = 'en',
   ) {
-    if (!files?.length)
-      throw new BadRequestException('entity.NO_FILES_UPLOADED');
-
-    await this.service.assertEntityOwner(id, type, accountId);
+    if (!files?.length) {
+      throw new BadRequestException('No images uploaded');
+    }
 
     const imagePaths = files.map(
-      (f) => `uploads/${type}s/gallery/${f.filename}`,
+      (file) => `uploads/${type}s/gallery/${file.filename}`,
     );
-    const gallery = await this.service.addGallery(id, type, imagePaths);
+
+    const data = await this.service.addGallery(id, type, imagePaths);
+
     return ApiResponse.success({
-      lang: resolveLang(acceptLanguage),
+      lang,
       messageKey: 'entity.GALLERY_UPDATED',
-      data: { gallery, total: gallery.length },
+      data: { gallery: data, total: data.length },
     });
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // OWNER — remove own gallery images
-  // ══════════════════════════════════════════════════════════════════════════
-
+  // ─────────────────────────────────────────────
+  // DELETE Remove Specific Images
+  // ─────────────────────────────────────────────
   @Delete(':id/gallery')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.DOCTOR, UserRole.HOSPITAL, UserRole.CENTER)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Entity owner: remove specific gallery images' })
   @ApiQuery({ name: 'type', enum: EntityType, required: true })
   @ApiBody({ type: RemoveGalleryDto })
   async removeGallery(
     @Param('id') id: string,
     @Query('type') type: EntityType,
     @Body() dto: RemoveGalleryDto,
-    @CurrentUser('accountId') accountId: string,
-    @Headers('accept-language') acceptLanguage?: string,
+    @Headers('accept-language') lang: 'en' | 'ar' = 'en',
   ) {
-    await this.service.assertEntityOwner(id, type, accountId);
-    const gallery = await this.service.removeGallery(id, type, dto.images);
+    // delete from DB first
+    const data = await this.service.removeGallery(id, type, dto.images);
 
-    dto.images.forEach((p) => {
-      const fp = join(process.cwd(), p);
-      if (fs.existsSync(fp)) fs.unlinkSync(fp);
+    // delete physically
+    dto.images.forEach((imagePath) => {
+      const fullPath = join(process.cwd(), imagePath);
+      if (fs.existsSync(fullPath)) {
+        fs.unlinkSync(fullPath);
+      }
     });
 
     return ApiResponse.success({
-      lang: resolveLang(acceptLanguage),
+      lang,
       messageKey: 'entity.GALLERY_UPDATED',
-      data: { gallery, total: gallery.length },
+      data: { gallery: data, total: data.length },
     });
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // ADMIN — remove any gallery images
-  // ══════════════════════════════════════════════════════════════════════════
-
-  @Delete(':id/gallery/admin')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
-  @ApiBearerAuth()
-  @ApiOperation({
-    summary: 'Admin: remove specific gallery images from any entity',
-  })
-  @ApiQuery({ name: 'type', enum: EntityType, required: true })
-  @ApiBody({ type: RemoveGalleryDto })
-  async adminRemoveGallery(
-    @Param('id') id: string,
-    @Query('type') type: EntityType,
-    @Body() dto: RemoveGalleryDto,
-    @Headers('accept-language') acceptLanguage?: string,
-  ) {
-    const gallery = await this.service.removeGallery(id, type, dto.images);
-    dto.images.forEach((p) => {
-      const fp = join(process.cwd(), p);
-      if (fs.existsSync(fp)) fs.unlinkSync(fp);
-    });
-    return ApiResponse.success({
-      lang: resolveLang(acceptLanguage),
-      messageKey: 'entity.GALLERY_UPDATED',
-      data: { gallery, total: gallery.length },
-    });
-  }
-
-  // ══════════════════════════════════════════════════════════════════════════
-  // ADMIN — clear entire gallery
-  // ══════════════════════════════════════════════════════════════════════════
-
+  // ─────────────────────────────────────────────
+  // DELETE Clear Entire Gallery
+  // ─────────────────────────────────────────────
   @Delete(':id/gallery/all')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Admin: clear entire gallery for an entity' })
   @ApiQuery({ name: 'type', enum: EntityType, required: true })
   async clearGallery(
     @Param('id') id: string,
     @Query('type') type: EntityType,
-    @Headers('accept-language') acceptLanguage?: string,
+    @Headers('accept-language') lang: 'en' | 'ar' = 'en',
   ) {
-    const existing = await this.service.getGallery(id, type);
+    const existingImages = await this.service.getGallery(id, type);
+
     await this.service.clearGallery(id, type);
-    existing.forEach((p) => {
-      const fp = join(process.cwd(), p);
-      if (fs.existsSync(fp)) fs.unlinkSync(fp);
+
+    existingImages.forEach((imagePath) => {
+      const fullPath = join(process.cwd(), imagePath);
+      if (fs.existsSync(fullPath)) {
+        fs.unlinkSync(fullPath);
+      }
     });
+
     return ApiResponse.success({
-      lang: resolveLang(acceptLanguage),
+      lang,
       messageKey: 'entity.GALLERY_CLEARED',
       data: { gallery: [], total: 0 },
     });

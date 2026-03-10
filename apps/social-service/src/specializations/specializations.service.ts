@@ -21,7 +21,7 @@ export class SpecializationsService {
     private readonly publicSpecializationModel: Model<PublicSpecializationDocument>,
   ) {}
 
-  // ── Private helpers ───────────────────────────────────────────────────────
+  // ── existing methods unchanged ────────────────────────────────────────────
 
   private toObjectIds(ids: string[]): Types.ObjectId[] {
     return ids.map((id) => {
@@ -30,8 +30,6 @@ export class SpecializationsService {
       return new Types.ObjectId(id);
     });
   }
-
-  // ── Private specializations ───────────────────────────────────────────────
 
   async validateAndGetIds(ids: string[]): Promise<Types.ObjectId[]> {
     if (!ids || !Array.isArray(ids) || !ids.length)
@@ -60,6 +58,8 @@ export class SpecializationsService {
     return data;
   }
 
+  // ── NEW: paginated specializations ────────────────────────────────────────
+
   async getPaginatedList(page = 1, limit = 10) {
     const safePage = Math.max(page, 1);
     const safeLimit = Math.min(Math.max(limit, 1), 50);
@@ -87,58 +87,7 @@ export class SpecializationsService {
     };
   }
 
-  // ── Public specializations ────────────────────────────────────────────────
-
-  /**
-   * Returns all public specializations (GeneralSpecialty enum values).
-   * Each item includes the _id and name so the client can use _id
-   * to filter private specializations via getPrivateIdsByPublic().
-   */
-  async getPublicList() {
-    const data = await this.publicSpecializationModel
-      .find()
-      .select('_id name')
-      .sort({ name: 1 })
-      .lean();
-
-    if (!data.length) throw new NotFoundException('specialization.NOT_FOUND');
-    return data;
-  }
-
-  /**
-   * Returns public specializations with their private children nested.
-   * Useful for building a two-level picker in the UI.
-   */
-  async getPublicWithPrivate() {
-    const publicSpecs = await this.publicSpecializationModel
-      .find()
-      .select('_id name')
-      .sort({ name: 1 })
-      .lean();
-
-    if (!publicSpecs.length)
-      throw new NotFoundException('specialization.NOT_FOUND');
-
-    const result = await Promise.all(
-      publicSpecs.map(async (pub) => {
-        const privateSpecs = await this.specializationModel
-          .find({ publicSpecializationId: pub._id })
-          .select('_id name')
-          .sort({ name: 1 })
-          .lean();
-
-        return {
-          _id: pub._id,
-          name: pub.name,
-          children: privateSpecs,
-        };
-      }),
-    );
-
-    return result;
-  }
-
-  // ── Entities ──────────────────────────────────────────────────────────────
+  // ── NEW: entities list from enum ──────────────────────────────────────────
 
   getEntities() {
     return Object.values(WorkigEntity).map((value) => ({
@@ -157,8 +106,6 @@ export class SpecializationsService {
     };
     return labels[entity];
   }
-
-  // ── Query helpers ─────────────────────────────────────────────────────────
 
   async getPrivateIdsByPublic(
     publicSpecializationId: string,

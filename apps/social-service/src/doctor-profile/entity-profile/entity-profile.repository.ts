@@ -1,8 +1,5 @@
-import {
-  Injectable,
-  BadRequestException,
-  NotFoundException,
-} from '@nestjs/common';
+// entity-profile.repository.ts (ENHANCED)
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Doctor } from '@app/common/database/schemas/doctor.schema';
@@ -21,39 +18,13 @@ export class EntityProfileRepository {
     private readonly departmentModel: Model<CommonDepartment>,
   ) {}
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
-
   private assertValidId(id: string) {
     if (!Types.ObjectId.isValid(id))
       throw new BadRequestException('common.INVALID_ID');
   }
 
-  private modelFor(type: EntityType): Model<any> {
-    switch (type) {
-      case EntityType.DOCTOR:
-        return this.doctorModel;
-      case EntityType.HOSPITAL:
-        return this.hospitalModel;
-      case EntityType.CENTER:
-        return this.centerModel;
-    }
-  }
-
-  private modelByRole(role: UserRole): Model<any> {
-    switch (role) {
-      case UserRole.DOCTOR:
-        return this.doctorModel;
-      case UserRole.HOSPITAL:
-        return this.hospitalModel;
-      case UserRole.CENTER:
-        return this.centerModel;
-      default:
-        throw new BadRequestException('entity.INVALID_ROLE');
-    }
-  }
-
   // ══════════════════════════════════════════════════════════════════════════
-  // FIND — single entity (approved only, public)
+  // FIND BY ID METHODS (with lean for performance)
   // ══════════════════════════════════════════════════════════════════════════
 
   async findDoctorById(id: string) {
@@ -81,122 +52,139 @@ export class EntityProfileRepository {
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // FIND — by authAccountId (owner check)
+  // DEPARTMENT METHODS (NEW)
   // ══════════════════════════════════════════════════════════════════════════
 
-  async findByAuthAccountId(authAccountId: string, role: UserRole) {
-    this.assertValidId(authAccountId);
-    return this.modelByRole(role)
-      .findOne({ authAccountId: new Types.ObjectId(authAccountId) })
+  async findHospitalDepartments(hospitalId: string) {
+    this.assertValidId(hospitalId);
+    return this.departmentModel
+      .find({ hospitalId: new Types.ObjectId(hospitalId) })
+      .lean();
+  }
+
+  async findCenterDepartments(centerId: string) {
+    this.assertValidId(centerId);
+    return this.departmentModel
+      .find({ centerId: new Types.ObjectId(centerId) })
+      .lean();
+  }
+
+  async findDepartmentByIdAndHospital(
+    hospitalId: string,
+    departmentId: string,
+  ) {
+    this.assertValidId(hospitalId);
+    this.assertValidId(departmentId);
+    return this.departmentModel
+      .findOne({
+        _id: new Types.ObjectId(departmentId),
+        hospitalId: new Types.ObjectId(hospitalId),
+      })
+      .lean();
+  }
+
+  async findDepartmentByIdAndCenter(centerId: string, departmentId: string) {
+    this.assertValidId(centerId);
+    this.assertValidId(departmentId);
+    return this.departmentModel
+      .findOne({
+        _id: new Types.ObjectId(departmentId),
+        centerId: new Types.ObjectId(centerId),
+      })
       .lean();
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // BROWSE / LIST (paginated)
+  // PROFILE VIEWS (INCREMENT)
   // ══════════════════════════════════════════════════════════════════════════
 
-  async findApprovedEntities(type: EntityType, page: number, limit: number) {
-    const skip = (page - 1) * limit;
-    const model = this.modelFor(type);
-    const query = { [STATUS_FIELD[type]]: 'approved' };
-
-    const [data, total] = await Promise.all([
-      model.find(query).skip(skip).limit(limit).lean(),
-      model.countDocuments(query),
-    ]);
-
-    return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
-  }
-
-  async findAllEntities(
-    type: EntityType,
-    status?: string,
-    page = 1,
-    limit = 10,
-  ) {
-    const skip = (page - 1) * limit;
-    const model = this.modelFor(type);
-    const query: Record<string, any> = status
-      ? { [STATUS_FIELD[type]]: status }
-      : {};
-
-    const [data, total] = await Promise.all([
-      model.find(query).skip(skip).limit(limit).lean(),
-      model.countDocuments(query),
-    ]);
-
-    return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
-  }
-
-  // ══════════════════════════════════════════════════════════════════════════
-  // APPROVE / REJECT entity profile
-  // ══════════════════════════════════════════════════════════════════════════
-
-  async updateEntityStatus(
-    id: string,
-    type: EntityType,
-    status: string,
-    rejectionReason?: string,
-  ) {
+  async incrementDoctorViews(id: string) {
     this.assertValidId(id);
-    const update: Record<string, any> = { [STATUS_FIELD[type]]: status };
-    if (rejectionReason) update.rejectionReason = rejectionReason;
-
-    const updated = await this.modelFor(type)
-      .findByIdAndUpdate(
-        new Types.ObjectId(id),
-        { $set: update },
-        { new: true },
-      )
-      .lean();
-
-    if (!updated) throw new NotFoundException('entity.NOT_FOUND');
-    return updated;
+    await this.doctorModel.updateOne(
+      { _id: new Types.ObjectId(id) },
+      { $inc: { profileViews: 1 } },
+    );
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // PROFILE VIEWS
-  // ══════════════════════════════════════════════════════════════════════════
-
-  async incrementViews(id: string, type: EntityType) {
+  async incrementHospitalViews(id: string) {
     this.assertValidId(id);
-    await this.modelFor(type).updateOne(
+    await this.hospitalModel.updateOne(
+      { _id: new Types.ObjectId(id) },
+      { $inc: { profileViews: 1 } },
+    );
+  }
+
+  async incrementCenterViews(id: string) {
+    this.assertValidId(id);
+    await this.centerModel.updateOne(
       { _id: new Types.ObjectId(id) },
       { $inc: { profileViews: 1 } },
     );
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // GALLERY — GET
+  // GALLERY METHODS - GET
   // ══════════════════════════════════════════════════════════════════════════
 
   async getDoctorGallery(id: string): Promise<GalleryImage[]> {
     this.assertValidId(id);
-    const doc = await this.modelFor(type).findById(id).select('gallery').lean();
-    return (doc as any)?.gallery ?? [];
+    const doc = await this.doctorModel
+      .findOne({ _id: new Types.ObjectId(id) })
+      .select('gallery')
+      .lean();
+    return doc?.gallery ?? [];
+  }
+
+  async getHospitalGallery(id: string): Promise<string[]> {
+    this.assertValidId(id);
+    const doc = await this.hospitalModel
+      .findOne({ _id: new Types.ObjectId(id) })
+      .select('gallery')
+      .lean();
+    return doc?.gallery ?? [];
+  }
+
+  async getCenterGallery(id: string): Promise<string[]> {
+    this.assertValidId(id);
+    const doc = await this.centerModel
+      .findOne({ _id: new Types.ObjectId(id) })
+      .select('gallery')
+      .lean();
+    return doc?.gallery ?? [];
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // GALLERY — ADD (owner upload or user URL submission → directly into gallery)
+  // GALLERY METHODS - ADD
   // ══════════════════════════════════════════════════════════════════════════
 
   async addHospitalGallery(id: string, images: string[]): Promise<string[]> {
     this.assertValidId(id);
-    const doc = await this.modelFor(type)
-      .findByIdAndUpdate(
-        id,
+    const doc = await this.hospitalModel
+      .findOneAndUpdate(
+        { _id: new Types.ObjectId(id) },
         { $addToSet: { gallery: { $each: images } } },
         { new: true },
       )
       .select('gallery')
       .lean();
+    return doc?.gallery ?? [];
+  }
 
-    if (!doc) throw new NotFoundException('entity.NOT_FOUND');
-    return (doc as any).gallery ?? [];
+  async addCenterGallery(id: string, images: string[]): Promise<string[]> {
+    this.assertValidId(id);
+    const doc = await this.centerModel
+      .findOneAndUpdate(
+        { _id: new Types.ObjectId(id) },
+        { $addToSet: { gallery: { $each: images } } },
+        { new: true },
+      )
+      .select('gallery')
+      .lean();
+    return doc?.gallery ?? [];
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // GALLERY — REMOVE specific images
+  // GALLERY METHODS - REMOVE
   // ══════════════════════════════════════════════════════════════════════════
 
   async removeDoctorGallery(
@@ -217,42 +205,288 @@ export class EntityProfileRepository {
 
   async removeHospitalGallery(id: string, images: string[]): Promise<string[]> {
     this.assertValidId(id);
-    const doc = await this.modelFor(type)
-      .findByIdAndUpdate(id, { $pullAll: { gallery: images } }, { new: true })
+    const doc = await this.hospitalModel
+      .findOneAndUpdate(
+        { _id: new Types.ObjectId(id) },
+        { $pullAll: { gallery: images } },
+        { new: true },
+      )
       .select('gallery')
       .lean();
+    return doc?.gallery ?? [];
+  }
 
-    if (!doc) throw new NotFoundException('entity.NOT_FOUND');
-    return (doc as any).gallery ?? [];
+  async removeCenterGallery(id: string, images: string[]): Promise<string[]> {
+    this.assertValidId(id);
+    const doc = await this.centerModel
+      .findOneAndUpdate(
+        { _id: new Types.ObjectId(id) },
+        { $pullAll: { gallery: images } },
+        { new: true },
+      )
+      .select('gallery')
+      .lean();
+    return doc?.gallery ?? [];
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // GALLERY — CLEAR all
+  // GALLERY METHODS - CLEAR ALL
   // ══════════════════════════════════════════════════════════════════════════
 
-  async clearGallery(id: string, type: EntityType): Promise<void> {
+  async clearDoctorGallery(id: string): Promise<void> {
     this.assertValidId(id);
-    await this.modelFor(type).updateOne(
+    await this.doctorModel.updateOne(
+      { _id: new Types.ObjectId(id) },
+      { $set: { gallery: [] } },
+    );
+  }
+
+  async clearHospitalGallery(id: string): Promise<void> {
+    this.assertValidId(id);
+    await this.hospitalModel.updateOne(
+      { _id: new Types.ObjectId(id) },
+      { $set: { gallery: [] } },
+    );
+  }
+
+  async clearCenterGallery(id: string): Promise<void> {
+    this.assertValidId(id);
+    await this.centerModel.updateOne(
       { _id: new Types.ObjectId(id) },
       { $set: { gallery: [] } },
     );
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // DEPARTMENTS
+  // DEPARTMENT STATS METHODS (NEW)
   // ══════════════════════════════════════════════════════════════════════════
 
-  async findHospitalDepartments(hospitalId: string) {
+  /**
+   * Get aggregated statistics for a hospital
+   * Deduplicates doctors, machines, and operations across all departments
+   */
+  async getHospitalStats(hospitalId: string) {
+    this.assertValidId(hospitalId);
+    const departments = await this.departmentModel
+      .find({ hospitalId: new Types.ObjectId(hospitalId) })
+      .lean();
+
+    return this.aggregateStats(departments);
+  }
+
+  /**
+   * Get aggregated statistics for a center
+   * Deduplicates doctors, machines, and operations across all departments
+   */
+  async getCenterStats(centerId: string) {
+    this.assertValidId(centerId);
+    const departments = await this.departmentModel
+      .find({ centerId: new Types.ObjectId(centerId) })
+      .lean();
+
+    return this.aggregateStats(departments);
+  }
+
+  /**
+   * Helper method to aggregate statistics from departments
+   */
+  private aggregateStats(departments: any[]) {
+    const doctorsMap = new Map();
+    const machinesMap = new Map();
+    const operationsMap = new Map();
+    let totalNurses = 0;
+    let totalBeds = 0;
+    let departmentCount = 0;
+
+    departments.forEach((dept) => {
+      departmentCount++;
+
+      // Aggregate doctors (deduplicate)
+      dept.doctors?.forEach((doctor) => {
+        if (!doctorsMap.has(doctor.id)) {
+          doctorsMap.set(doctor.id, doctor);
+        }
+      });
+
+      // Aggregate machines (deduplicate)
+      dept.machines?.forEach((machine) => {
+        if (!machinesMap.has(machine.id)) {
+          machinesMap.set(machine.id, machine);
+        }
+      });
+
+      // Aggregate operations (deduplicate)
+      dept.operations?.forEach((operation) => {
+        if (!operationsMap.has(operation.id)) {
+          operationsMap.set(operation.id, operation);
+        }
+      });
+
+      // Count nurses and beds
+      totalNurses += dept.nurses?.length || 0;
+      totalBeds += dept.numberOfBeds || 0;
+    });
+
+    return {
+      totalDoctors: doctorsMap.size,
+      totalNurses,
+      totalBeds,
+      totalMachines: machinesMap.size,
+      totalOperations: operationsMap.size,
+      departmentCount,
+      doctorsList: Array.from(doctorsMap.values()),
+      machinesList: Array.from(machinesMap.values()),
+      operationsList: Array.from(operationsMap.values()),
+    };
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // SEARCH & FILTER METHODS (NEW)
+  // ══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Find doctors in a hospital by specialization
+   */
+  async findHospitalDoctorsBySpecialization(
+    hospitalId: string,
+    specialization: string,
+  ) {
     this.assertValidId(hospitalId);
     return this.departmentModel
-      .find({ hospitalId: new Types.ObjectId(hospitalId) })
+      .find({
+        hospitalId: new Types.ObjectId(hospitalId),
+        'doctors.specialization': new Types.ObjectId(specialization),
+      })
       .lean();
   }
 
-  async findCenterDepartments(centerId: string) {
+  /**
+   * Find machines in a hospital by type
+   */
+  async findHospitalMachinesByType(hospitalId: string, machineType: string) {
+    this.assertValidId(hospitalId);
+    return this.departmentModel
+      .find({
+        hospitalId: new Types.ObjectId(hospitalId),
+        'machines.name': machineType,
+      })
+      .lean();
+  }
+
+  /**
+   * Find all operations in a hospital
+   */
+  async findHospitalOperations(hospitalId: string) {
+    this.assertValidId(hospitalId);
+    const departments = await this.departmentModel
+      .find({ hospitalId: new Types.ObjectId(hospitalId) })
+      .select('operations')
+      .lean();
+
+    const operationsMap = new Map();
+    departments.forEach((dept) => {
+      dept.operations?.forEach((op) => {
+        if (!operationsMap.has(op.id)) {
+          operationsMap.set(op.id, op);
+        }
+      });
+    });
+
+    return Array.from(operationsMap.values());
+  }
+
+  /**
+   * Find all doctors in a hospital
+   */
+  async findHospitalAllDoctors(hospitalId: string) {
+    this.assertValidId(hospitalId);
+    const departments = await this.departmentModel
+      .find({ hospitalId: new Types.ObjectId(hospitalId) })
+      .select('doctors')
+      .lean();
+
+    const doctorsMap = new Map();
+    departments.forEach((dept) => {
+      dept.doctors?.forEach((doc) => {
+        if (!doctorsMap.has(doc.id)) {
+          doctorsMap.set(doc.id, doc);
+        }
+      });
+    });
+
+    return Array.from(doctorsMap.values());
+  }
+
+  /**
+   * Find doctors in a center by specialization
+   */
+  async findCenterDoctorsBySpecialization(
+    centerId: string,
+    specialization: string,
+  ) {
     this.assertValidId(centerId);
     return this.departmentModel
-      .find({ centerId: new Types.ObjectId(centerId) })
+      .find({
+        centerId: new Types.ObjectId(centerId),
+        'doctors.specialization': new Types.ObjectId(specialization),
+      })
       .lean();
+  }
+
+  /**
+   * Find machines in a center by type
+   */
+  async findCenterMachinesByType(centerId: string, machineType: string) {
+    this.assertValidId(centerId);
+    return this.departmentModel
+      .find({
+        centerId: new Types.ObjectId(centerId),
+        'machines.name': machineType,
+      })
+      .lean();
+  }
+
+  /**
+   * Find all operations in a center
+   */
+  async findCenterOperations(centerId: string) {
+    this.assertValidId(centerId);
+    const departments = await this.departmentModel
+      .find({ centerId: new Types.ObjectId(centerId) })
+      .select('operations')
+      .lean();
+
+    const operationsMap = new Map();
+    departments.forEach((dept) => {
+      dept.operations?.forEach((op) => {
+        if (!operationsMap.has(op.id)) {
+          operationsMap.set(op.id, op);
+        }
+      });
+    });
+
+    return Array.from(operationsMap.values());
+  }
+
+  /**
+   * Find all doctors in a center
+   */
+  async findCenterAllDoctors(centerId: string) {
+    this.assertValidId(centerId);
+    const departments = await this.departmentModel
+      .find({ centerId: new Types.ObjectId(centerId) })
+      .select('doctors')
+      .lean();
+
+    const doctorsMap = new Map();
+    departments.forEach((dept) => {
+      dept.doctors?.forEach((doc) => {
+        if (!doctorsMap.has(doc.id)) {
+          doctorsMap.set(doc.id, doc);
+        }
+      });
+    });
+
+    return Array.from(doctorsMap.values());
   }
 }

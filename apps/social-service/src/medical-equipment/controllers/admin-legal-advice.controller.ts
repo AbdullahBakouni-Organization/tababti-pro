@@ -18,7 +18,7 @@ import { RolesGuard } from '@app/common/guards/role.guard';
 import { Roles } from '@app/common/decorator/role.decorator';
 import { CurrentUser } from '@app/common/decorator/current-user.decorator';
 import { UserRole, EntityRequestStatus, LegalAdviceCategory } from '@app/common/database/schemas/common.enums';
-import { ApiResponse } from '@app/common/response/api-response';
+import { ApiResponse } from '../../common/response/api-response';
 
 @Controller('admin/legal-advice-requests')
 @UseGuards(JwtAuthGuard, RolesGuard)

@@ -28,11 +28,11 @@ export class GqlRolesGuard implements CanActivate {
     const user = ctx.getContext().req.user;
 
     if (!user || !user.role) {
-      throw new ForbiddenException('auth.USER_ROLE_NOT_FOUND');
+      throw new ForbiddenException('User role not found in request');
     }
 
     if (!requiredRoles.includes(user.role)) {
-      throw new ForbiddenException('auth.INSUFFICIENT_ROLE_PERMISSIONS');
+      throw new ForbiddenException('Insufficient role permissions');
     }
 
     return true;

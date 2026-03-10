@@ -19,7 +19,7 @@ export class JwtUserGuard extends AuthGuard('jwt-user') {
   handleRequest(err: any, user: any) {
     // You can throw an exception based on either "info" or "err" arguments
     if (err || !user) {
-      throw err || new UnauthorizedException('auth.TOKEN_INVALID');
+      throw err || new UnauthorizedException('Invalid or expired access token');
     }
     return user;
   }
