@@ -79,18 +79,24 @@ export class DashboardController {
   @Get('recent-patients')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Get recent patients' })
+  @ApiQuery({
+    name: 'date',
+    required: false,
+    type: String,
+    description: 'YYYY-MM-DD',
+  })
   async getRecentPatients(
     @CurrentUser('accountId') accountId: string,
+    @Query('date') date?: string,
     @Headers('accept-language') lang: 'en' | 'ar' = 'en',
   ) {
-    const data = await this.dashboardService.getRecentPatients(accountId);
+    const data = await this.dashboardService.getRecentPatients(accountId, date);
     return ApiResponse.success({
       lang,
       messageKey: 'dashboard.PATIENTS',
       data,
     });
   }
-
   // ── Calendar heatmap ──────────────────────────────────────────────────────
   @Get('calendar')
   @HttpCode(HttpStatus.OK)

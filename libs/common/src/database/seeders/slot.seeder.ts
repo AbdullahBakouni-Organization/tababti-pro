@@ -31,15 +31,27 @@ function getNextDateForDay(dayName: Days): Date {
     [Days.SATURDAY]: 6,
   };
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const now = new Date();
+  const todayUTC = new Date(
+    Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate(),
+      0,
+      0,
+      0,
+      0,
+    ),
+  );
+
   const targetDay = dayIndexMap[dayName];
-  const currentDay = today.getDay();
+  const currentDay = todayUTC.getUTCDay();
   let daysUntilTarget = targetDay - currentDay;
   if (daysUntilTarget <= 0) daysUntilTarget += 7;
 
-  const result = new Date(today);
-  result.setDate(today.getDate() + daysUntilTarget);
+  const result = new Date(todayUTC);
+  result.setUTCDate(todayUTC.getUTCDate() + daysUntilTarget);
+  // يرجع: 2026-03-16T00:00:00.000Z ← صحيح
   return result;
 }
 

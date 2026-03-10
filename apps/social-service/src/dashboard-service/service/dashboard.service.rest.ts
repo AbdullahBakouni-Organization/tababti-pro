@@ -443,26 +443,51 @@ export class DashboardService {
     };
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // RECENT PATIENTS   (public method routes through cache)
-  // ═══════════════════════════════════════════════════════════════════════════
+  // ── Timezone helper ───────────────────────────────────────────────────────
+  private readonly TZ = process.env.TIMEZONE || 'Asia/Damascus';
 
-  async getRecentPatients(accountId: string): Promise<RecentPatientDto[]> {
+  // ═══════════════════════════════════════════════════════════════════════════
+  // RECENT PATIENTS
+  // ═══════════════════════════════════════════════════════════════════════════
+  async getRecentPatients(
+    accountId: string,
+    date?: string,
+  ): Promise<RecentPatientDto[]> {
     const doctor = await this.resolveDoctor(accountId);
     const doctorId = doctor._id as Types.ObjectId;
-    return this._getRecentPatientsCached(doctorId); // ← was _getRecentPatientsRaw
+    return this._getRecentPatientsRaw(doctorId, date);
   }
 
   private async _getRecentPatientsRaw(
     doctorId: Types.ObjectId,
+    date?: string,
   ): Promise<RecentPatientDto[]> {
-    const bookings = await this.bookingModel.aggregate([
-      {
-        $match: {
-          doctorId,
-          status: { $in: [BookingStatus.PENDING, BookingStatus.CONFIRMED] },
+    const match: Record<string, any> = {
+      doctorId,
+      status: { $in: [BookingStatus.PENDING, BookingStatus.CONFIRMED] },
+    };
+
+    const pipeline: any[] = [{ $match: match }];
+
+    // ── filter by date using timezone-aware $dateToString ────────────────────
+    if (date) {
+      pipeline.push(
+        {
+          $addFields: {
+            localDate: {
+              $dateToString: {
+                format: '%Y-%m-%d',
+                date: '$bookingDate',
+                timezone: this.TZ,
+              },
+            },
+          },
         },
-      },
+        { $match: { localDate: date } },
+      );
+    }
+
+    pipeline.push(
       { $sort: { bookingDate: -1 } },
       { $limit: 10 },
       {
@@ -484,21 +509,22 @@ export class DashboardService {
           patientImage: '$patient.image',
         },
       },
-    ]);
+    );
+
+    const bookings = await this.bookingModel.aggregate(pipeline);
 
     return bookings.map((b) => ({
       patientId: b.patientId?.toString() ?? '',
       name: b.patientName ?? 'Unknown',
-      image: b.patientImage ?? undefined,
+      image: b.patientImage
+        ? `${process.env.BASE_URL || 'http://localhost:3001'}/${b.patientImage}`
+        : undefined,
       locationName: b.locationName ?? '',
       status: b.status,
       bookingDate: b.bookingDate,
     }));
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // CALENDAR
-  // ═══════════════════════════════════════════════════════════════════════════
 
   async getCalendar(
     accountId: string,
@@ -529,26 +555,37 @@ export class DashboardService {
           },
         },
       },
+      // ── group by LOCAL date (timezone-aware) ─────────────────────────────
       {
         $group: {
-          _id: { $dateToString: { format: '%Y-%m-%d', date: '$bookingDate' } },
+          _id: {
+            $dateToString: {
+              format: '%Y-%m-%d',
+              date: '$bookingDate',
+              timezone: this.TZ,
+            },
+          },
           count: { $sum: 1 },
         },
       },
     ]);
 
+    // ── build countMap ────────────────────────────────────────────────────────
     const countMap = new Map<string, number>(
       rows.map((r) => [r._id as string, r.count as number]),
     );
 
+    // ── build days array ──────────────────────────────────────────────────────
+    const daysInMonth = new Date(query.year, query.month, 0).getDate();
     const days: CalendarDayDto[] = [];
-    for (let d = 1; d <= end.getDate(); d++) {
+
+    for (let d = 1; d <= daysInMonth; d++) {
       const dateStr = `${query.year}-${String(query.month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
       const count = countMap.get(dateStr) ?? 0;
       days.push({
         date: dateStr,
-        appointmentCount: count,
-        hasAppointments: count > 0,
+        appointmentCount: count, 
+        hasAppointments: count > 0, 
       });
     }
 

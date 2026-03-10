@@ -318,6 +318,7 @@ import {
   Length,
   Matches,
   MaxLength,
+  MinLength,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
 

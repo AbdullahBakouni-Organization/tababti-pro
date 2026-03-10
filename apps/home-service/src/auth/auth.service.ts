@@ -20,8 +20,7 @@ import {
 import type { Response } from 'express';
 import { AuthValidateService } from '@app/common/auth-validate';
 import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
-import { ApiResponse } from '@app/common/response/api-response'
-
+import { ApiResponse } from '@app/common/response/api-response';
 
 type Lang = 'en' | 'ar';
 
@@ -245,6 +244,7 @@ export class AuthService {
   //---------------------------------------------------------
   async completeRegistration(
     dto: RequestOtpDto,
+    file?: Express.Multer.File,
     lang: Lang = 'en',
     imagePath?: string,
   ): Promise<any> {
@@ -280,7 +280,7 @@ export class AuthService {
             gender: gender || Gender.MALE,
             city,
             DataofBirth,
-            image: imagePath || '',
+            image: '',
             status: ApprovalStatus.ACTIVE,
           },
         ],

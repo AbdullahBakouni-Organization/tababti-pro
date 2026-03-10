@@ -192,7 +192,7 @@ export class RecentPatientDto {
   name: string;
 
   @ApiProperty({ example: 'https://...' })
-  image?: string;
+  image?: string | null; ;
 
   @ApiProperty({ example: 'Al-Noor Hospital' })
   locationName: string;
