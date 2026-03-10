@@ -1,316 +1,3 @@
-// import {
-//   Injectable,
-//   Logger,
-//   NotFoundException,
-//   BadRequestException,
-//   ConflictException,
-//   ForbiddenException,
-// } from '@nestjs/common';
-// import { InjectModel } from '@nestjs/mongoose';
-// import { Model, Types, ClientSession } from 'mongoose';
-// import {
-//   Booking,
-//   BookingDocument,
-// } from '@app/common/database/schemas/booking.schema';
-// import {
-//   AppointmentSlot,
-//   AppointmentSlotDocument,
-// } from '@app/common/database/schemas/slot.schema';
-// import { User, UserDocument } from '@app/common/database/schemas/user.schema';
-// import {
-//   Doctor,
-//   DoctorDocument,
-// } from '@app/common/database/schemas/doctor.schema';
-// import {
-//   BookingStatus,
-//   SlotStatus,
-// } from '@app/common/database/schemas/common.enums';
-// import { CreateBookingDto, BookingResponseDto } from './dto/create-booking.dto';
-// import { CacheService } from '@app/common/cache/cache.service';
-// import { UsersService } from 'apps/home-service/src/users/users.service';
-
-// @Injectable()
-// export class BookingService {
-//   private readonly logger = new Logger(BookingService.name);
-
-//   constructor(
-//     @InjectModel(Booking.name) private bookingModel: Model<BookingDocument>,
-//     @InjectModel(AppointmentSlot.name)
-//     private slotModel: Model<AppointmentSlotDocument>,
-//     @InjectModel(User.name) private userModel: Model<UserDocument>,
-//     @InjectModel(Doctor.name) private doctorModel: Model<DoctorDocument>,
-//     private readonly cacheService: CacheService,
-//     private readonly patientBookingService: UsersService,
-//   ) {}
-
-//   /**
-//    * Create a new booking with atomic slot reservation
-//    * Uses MongoDB transactions to ensure consistency
-//    */
-//   async createBooking(
-//     createBookingDto: CreateBookingDto,
-//     patientId: string,
-//   ): Promise<BookingResponseDto> {
-//     this.logger.log(
-//       `Creating booking for patient ${patientId}, slot ${createBookingDto.slotId}`,
-//     );
-
-//     // Validate IDs
-//     this.validateObjectIds(createBookingDto);
-
-//     // Get slot to determine booking date
-//     const slot = await this.slotModel.findById(createBookingDto.slotId).exec();
-//     if (!slot) {
-//       throw new NotFoundException('Slot not found');
-//     }
-
-//     // ✅ VALIDATE BOOKING RULES
-//     const validation = await this.patientBookingService.validateBooking(
-//       patientId,
-//       createBookingDto.doctorId,
-//       slot.date,
-//     );
-
-//     if (!validation.canBook) {
-//       throw new ForbiddenException(validation.reason);
-//     }
-//     // Start a MongoDB session for transaction
-//     const session = await this.bookingModel.db.startSession();
-//     session.startTransaction();
-
-//     try {
-//       // Step 1: Validate patient exists
-//       const patient = await this.userModel
-//         .findById(patientId)
-//         .session(session)
-//         .exec();
-
-//       if (!patient) {
-//         throw new NotFoundException(`Patient with ID ${patientId} not found`);
-//       }
-
-//       // Step 2: Validate doctor exists
-//       const doctor = await this.doctorModel
-//         .findById(createBookingDto.doctorId)
-//         .session(session)
-//         .exec();
-
-//       if (!doctor) {
-//         throw new NotFoundException(
-//           `Doctor with ID ${createBookingDto.doctorId} not found`,
-//         );
-//       }
-
-//       // Step 3: Reserve the slot (atomic update)
-//       const slot = await this.reserveSlot(
-//         createBookingDto.slotId,
-//         createBookingDto.doctorId,
-//         session,
-//       );
-
-//       // Step 4: Validate booking doesn't already exist (double booking prevention)
-//       await this.validateNoDuplicateBooking(
-//         patientId,
-//         createBookingDto.doctorId,
-//         slot.date,
-//         slot.startTime,
-//         session,
-//       );
-
-//       // Step 5: Create the booking
-//       const booking = await this.bookingModel.create(
-//         [
-//           {
-//             patientId: new Types.ObjectId(patientId),
-//             doctorId: new Types.ObjectId(createBookingDto.doctorId),
-//             slotId: new Types.ObjectId(createBookingDto.slotId),
-//             status: BookingStatus.PENDING,
-//             bookingDate: slot.date,
-//             bookingTime: slot.startTime,
-//             bookingEndTime: slot.endTime,
-//             location: slot.location,
-//             price: slot.price || doctor.inspectionPrice || 0,
-//             createdBy: createBookingDto.createdBy,
-//             note: createBookingDto.note,
-//           },
-//         ],
-//         { session },
-//       );
-
-//       // Commit the transaction
-//       await session.commitTransaction();
-
-//       this.logger.log(
-//         `Booking created successfully: ${booking[0]._id.toString()}`,
-//       );
-
-//       // Step 6: Publish Kafka event (after commit)
-//       // await this.publishBookingCreatedEvent(booking[0], patient, doctor, slot);
-
-//       // Step 7: Invalidate cache
-//       await this.invalidateBookingCaches(createBookingDto.doctorId, patientId);
-
-//       // Step 8: Return response
-//       return this.mapToResponseDto(booking[0]);
-//     } catch (error) {
-//       // Rollback transaction on error
-//       await session.abortTransaction();
-
-//       const err = error as Error;
-//       this.logger.error(`Failed to create booking: ${err.message}`, err.stack);
-//       throw error;
-//     } finally {
-//       await session.endSession();
-//     }
-//   }
-
-//   /**
-//    * Reserve a slot atomically
-//    * Uses findOneAndUpdate with status check to prevent race conditions
-//    */
-//   private async reserveSlot(
-//     slotId: string,
-//     doctorId: string,
-//     session: ClientSession,
-//   ): Promise<AppointmentSlotDocument> {
-//     // Atomic update: Only update if status is AVAILABLE
-//     const slot = await this.slotModel
-//       .findOneAndUpdate(
-//         {
-//           _id: new Types.ObjectId(slotId.toString()),
-//           doctorId: new Types.ObjectId(doctorId),
-//           status: SlotStatus.AVAILABLE, // Critical: only update if available
-//         },
-//         {
-//           $set: { status: SlotStatus.BOOKED },
-//         },
-//         {
-//           new: true,
-//           session,
-//         },
-//       )
-//       .exec();
-
-//     if (!slot) {
-//       // Slot not found or already booked
-//       const existingSlot = await this.slotModel
-//         .findById(slotId)
-//         .session(session)
-//         .exec();
-
-//       if (!existingSlot) {
-//         throw new NotFoundException(`Slot with ID ${slotId} not found`);
-//       }
-
-//       if (existingSlot.status !== SlotStatus.AVAILABLE) {
-//         throw new ConflictException(
-//           `Slot is not available. Current status: ${existingSlot.status}`,
-//         );
-//       }
-
-//       if (existingSlot.doctorId.toString() !== doctorId) {
-//         throw new BadRequestException(
-//           `Slot does not belong to doctor ${doctorId}`,
-//         );
-//       }
-//       this.logger.error({
-//         slotId,
-//         doctorId,
-//         existingStatus: existingSlot?.status,
-//         existingDoctorId: existingSlot?.doctorId?.toString(),
-//         expectedDoctorId: doctorId,
-//       });
-
-//       throw new ConflictException('Unable to reserve slot. Please try again.');
-//     }
-
-//     this.logger.debug(`Slot ${slotId} reserved successfully`);
-//     return slot;
-//   }
-
-//   /**
-//    * Validate no duplicate booking exists
-//    */
-//   private async validateNoDuplicateBooking(
-//     patientId: string,
-//     doctorId: string,
-//     bookingDate: Date,
-//     bookingTime: string,
-//     session: ClientSession,
-//   ): Promise<void> {
-//     const existingBooking = await this.bookingModel
-//       .findOne({
-//         patientId: new Types.ObjectId(patientId),
-//         doctorId: new Types.ObjectId(doctorId),
-//         bookingDate,
-//         bookingTime,
-//         status: { $in: [BookingStatus.PENDING, BookingStatus.CONFIRMED] },
-//       })
-//       .session(session)
-//       .exec();
-
-//     if (existingBooking) {
-//       throw new ConflictException(
-//         'You already have a booking with this doctor at this time',
-//       );
-//     }
-//   }
-
-//   /**
-//    * Validate ObjectIds
-//    */
-//   private validateObjectIds(dto: CreateBookingDto): void {
-//     if (!Types.ObjectId.isValid(dto.doctorId)) {
-//       throw new BadRequestException('Invalid doctor ID');
-//     }
-//     if (!Types.ObjectId.isValid(dto.slotId)) {
-//       throw new BadRequestException('Invalid slot ID');
-//     }
-//   }
-
-//   /**
-//    * Invalidate booking-related caches
-//    */
-//   private async invalidateBookingCaches(
-//     doctorId: string,
-//     patientId: string,
-//   ): Promise<void> {
-//     try {
-//       const cacheKeys = [
-//         `bookings:doctor:${doctorId}`,
-//         `bookings:patient:${patientId}`,
-//         `slots:available:${doctorId}`,
-//       ];
-
-//       await Promise.all(cacheKeys.map((key) => this.cacheService.del(key)));
-//     } catch (error) {
-//       const err = error as Error;
-//       this.logger.warn(`Failed to invalidate booking caches: ${err.message}`);
-//     }
-//   }
-
-//   /**
-//    * Map booking to response DTO
-//    */
-//   private mapToResponseDto(booking: BookingDocument): BookingResponseDto {
-//     return {
-//       bookingId: booking._id?.toString(),
-//       patientId: booking.patientId.toString(),
-//       doctorId: booking.doctorId.toString(),
-//       slotId: booking.slotId.toString(),
-//       status: booking.status,
-//       bookingDate: booking.bookingDate,
-//       bookingTime: booking.bookingTime,
-//       bookingEndTime: booking.bookingEndTime,
-//       location: booking.location,
-//       price: booking.price,
-//       createdBy: booking.createdBy,
-//       note: booking.note,
-//       createdAt: booking.createdAt,
-//     };
-//   }
-// }
-
 import {
   Injectable,
   Logger,
@@ -374,7 +61,7 @@ export class BookingService {
     // Get slot to determine booking date
     const slot = await this.slotModel.findById(createBookingDto.slotId).exec();
     if (!slot) {
-      throw new NotFoundException('booking.SLOT_NOT_FOUND');
+      throw new NotFoundException('Slot not found');
     }
 
     // ✅ VALIDATE BOOKING RULES
@@ -399,7 +86,7 @@ export class BookingService {
         .exec();
 
       if (!patient) {
-        throw new NotFoundException('user.NOT_FOUND');
+        throw new NotFoundException(`Patient with ID ${patientId} not found`);
       }
 
       // Step 2: Validate doctor exists
@@ -409,7 +96,9 @@ export class BookingService {
         .exec();
 
       if (!doctor) {
-        throw new NotFoundException('doctor.NOT_FOUND');
+        throw new NotFoundException(
+          `Doctor with ID ${createBookingDto.doctorId} not found`,
+        );
       }
 
       // Step 3: Reserve the slot (atomic update)
@@ -510,17 +199,20 @@ export class BookingService {
         .exec();
 
       if (!existingSlot) {
-        throw new NotFoundException('booking.SLOT_NOT_FOUND');
+        throw new NotFoundException(`Slot with ID ${slotId} not found`);
       }
 
       if (existingSlot.status !== SlotStatus.AVAILABLE) {
-        throw new ConflictException('booking.SLOT_ALREADY_BOOKED');
+        throw new ConflictException(
+          `Slot is not available. Current status: ${existingSlot.status}`,
+        );
       }
 
       if (existingSlot.doctorId.toString() !== doctorId) {
-        throw new BadRequestException('booking.SLOT_DOCTOR_MISMATCH');
+        throw new BadRequestException(
+          `Slot does not belong to doctor ${doctorId}`,
+        );
       }
-
       this.logger.error({
         slotId,
         doctorId,
@@ -529,7 +221,7 @@ export class BookingService {
         expectedDoctorId: doctorId,
       });
 
-      throw new ConflictException('booking.SLOT_RESERVE_FAILED');
+      throw new ConflictException('Unable to reserve slot. Please try again.');
     }
 
     this.logger.debug(`Slot ${slotId} reserved successfully`);
@@ -558,7 +250,9 @@ export class BookingService {
       .exec();
 
     if (existingBooking) {
-      throw new ConflictException('booking.DUPLICATE_BOOKING');
+      throw new ConflictException(
+        'You already have a booking with this doctor at this time',
+      );
     }
   }
 
@@ -567,10 +261,10 @@ export class BookingService {
    */
   private validateObjectIds(dto: CreateBookingDto): void {
     if (!Types.ObjectId.isValid(dto.doctorId)) {
-      throw new BadRequestException('doctor.INVALID_ID');
+      throw new BadRequestException('Invalid doctor ID');
     }
     if (!Types.ObjectId.isValid(dto.slotId)) {
-      throw new BadRequestException('booking.INVALID_SLOT_ID');
+      throw new BadRequestException('Invalid slot ID');
     }
   }
 

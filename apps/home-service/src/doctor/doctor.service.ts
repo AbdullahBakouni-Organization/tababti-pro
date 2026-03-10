@@ -1,2054 +1,5 @@
-// // ============================================
-// // Doctor Registration Service
-// // ============================================
-
-// import {
-//   Injectable,
-//   ConflictException,
-//   BadRequestException,
-//   Logger,
-//   UnauthorizedException,
-//   NotFoundException,
-// } from '@nestjs/common';
-// import { InjectConnection, InjectModel } from '@nestjs/mongoose';
-// import { Model, PipelineStage, Types } from 'mongoose';
-// import {
-//   Doctor,
-//   DoctorDocument,
-// } from '../../../../libs/common/src/database/schemas/doctor.schema';
-// import {
-//   DoctorRegistrationDtoValidated,
-//   CityMapping,
-//   SpecialtyMapping,
-// } from './dto/sign-up.dto';
-// import { KafkaService } from '@app/common/kafka/kafka.service';
-// import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
-// import {
-//   ApprovalStatus,
-//   BookingStatus,
-//   SlotStatus,
-//   UserRole,
-// } from '@app/common/database/schemas/common.enums';
-// import { Connection } from 'mongoose';
-// // import { FreeTrialService } from './free-trial.service';
-// // import { SubscriptionOwnerType } from '../schemas/subscription.schema';
-// import { ClientSession } from 'mongoose';
-// import { DoctorLoginDto } from './dto/login.dto';
-// import {
-//   RequestDoctorPasswordResetDto,
-//   ResetDoctorPasswordDto,
-//   VerifyOtpForPasswordResetDto,
-// } from './dto/doctor-forgot-password.dto';
-// import { Otp, OtpDocument } from '@app/common/database/schemas/otp.schema';
-// import { SmsService } from '../sms/sms.service';
-// import { AuthAccount } from '@app/common/database/schemas/auth.schema';
-// import {
-//   Booking,
-//   BookingDocument,
-// } from '@app/common/database/schemas/booking.schema';
-// import { GetDoctorBookingsByLocationDto } from './dto/booking-responce.dto';
-// import { CacheService } from '@app/common/cache/cache.service';
-// import {
-//   DoctorCancelBookingDto,
-//   PauseSlotConflictDto,
-//   PauseSlotsDto,
-//   PauseSlotsJobData,
-// } from './dto/slot-management.dto';
-// import {
-//   AppointmentSlot,
-//   AppointmentSlotDocument,
-// } from '@app/common/database/schemas/slot.schema';
-// import { InjectQueue } from '@nestjs/bull';
-// import type { Queue } from 'bull';
-// import { User, UserDocument } from '@app/common/database/schemas/user.schema';
-// import { formatDate, getSyriaDate } from '@app/common/utils/get-syria-date';
-// import {
-//   AllSlotsResponseDto,
-//   CheckHolidayConflictDto,
-//   CheckVIPBookingConflictDto,
-//   CreateHolidayDto,
-//   CreateVIPBookingDto,
-//   GetAllSlotsDto,
-//   HolidayBlockJobData,
-//   HolidayConflictResponseDto,
-//   VIPBookingConflictResponseDto,
-//   VIPBookingJobData,
-// } from './dto/vibbooking.dto';
-// import {
-//   BookingCompletionResponseDto,
-//   DoctorCompleteBookingDto,
-// } from './dto/complete-booking.dto';
-
-// import {
-//   DoctorPatientStatsDto,
-//   GenderBreakdownDto,
-// } from './dto/doctor-patient-stats.dto';
-// // ============================================
-// // Kafka Events
-// // ============================================
-
-// export interface DoctorRegisteredEvent {
-//   eventType: 'DOCTOR_REGISTERED';
-//   timestamp: Date;
-//   data: {
-//     doctorId: string;
-//     fullName: string;
-//     phone: string;
-//     city: string;
-//     subcity: string;
-//     publicSpecialization: string;
-//     privateSpecialization: string;
-//     certificateImage: string;
-//     licenseImage: string;
-//     uploadedFiles?: {
-//       certificateImage?: string;
-//       licenseImage?: string;
-//       certificateDocument?: string;
-//       licenseDocument?: string;
-//     };
-//     gender: string;
-//     status: ApprovalStatus;
-//     registeredAt: Date;
-//   };
-//   metadata: {
-//     source: 'registration-service';
-//     version: '1.0';
-//   };
-// }
-
-// // ============================================
-// // Registration Service
-// // ============================================
-
-// @Injectable()
-// export class DoctorService {
-//   private readonly logger = new Logger(DoctorService.name);
-//   private readonly STATS_CACHE_TTL = 86400;
-//   constructor(
-//     @InjectModel(Doctor.name) private doctorModel: Model<DoctorDocument>,
-//     @InjectModel(Otp.name) private otpModel: Model<OtpDocument>,
-//     @InjectModel(AppointmentSlot.name)
-//     private slotModel: Model<AppointmentSlotDocument>,
-//     @InjectModel(AuthAccount.name) private authModel: Model<AuthAccount>,
-//     @InjectModel(User.name) private userModel: Model<UserDocument>,
-//     @InjectConnection() private readonly connection: Connection,
-//     @InjectModel(Booking.name) private bookingModel: Model<BookingDocument>,
-//     private kafkaProducer: KafkaService,
-//     private readonly smsService: SmsService,
-//     private readonly cacheManager: CacheService,
-//     @InjectQueue('pause-slots') private pauseSlotsQueue: Queue,
-//     @InjectQueue('vip-booking') private vipBookingQueue: Queue,
-//     @InjectQueue('holiday-block') private holidayQueue: Queue,
-//   ) {}
-
-//   // ============================================
-//   // Validation Methods
-//   // ============================================
-
-//   /**
-//    * Validate nested enum: Subcity must belong to City
-//    */
-//   private validateSubcity(city: string, subcity: string): void {
-//     const validSubcities = CityMapping[city] as string[] | undefined;
-
-//     if (!validSubcities || !validSubcities.includes(subcity)) {
-//       throw new BadRequestException(
-//         `Subcity "${subcity}" is not valid for city "${city}". ` +
-//           `Valid options: ${validSubcities?.join(', ') || 'None'}`,
-//       );
-//     }
-//   }
-
-//   /**
-//    * Validate nested enum: PrivateSpecialization must belong to PublicSpecialization
-//    */
-//   private validateSpecialization(
-//     publicSpec: string,
-//     privateSpec: string,
-//   ): void {
-//     const validPrivateSpecs = SpecialtyMapping[publicSpec] as
-//       | string[]
-//       | undefined;
-
-//     if (!validPrivateSpecs || !validPrivateSpecs.includes(privateSpec)) {
-//       throw new BadRequestException(
-//         `Private specialization "${privateSpec}" does not belong to ` +
-//           `public specialization "${publicSpec}". ` +
-//           `Valid options: ${validPrivateSpecs?.join(', ') || 'None'}`,
-//       );
-//     }
-//   }
-
-//   private async checkDuplicatePending(
-//     dto: DoctorRegistrationDtoValidated,
-//     session?: ClientSession,
-//   ): Promise<void> {
-//     // Check if there's a PENDING registration with same phone
-//     const existingPending = await this.doctorModel.findOne(
-//       {
-//         'phones.normal': dto.phone,
-//         status: ApprovalStatus.PENDING,
-//       },
-//       null,
-//       { session },
-//     );
-
-//     if (existingPending) {
-//       throw new ConflictException(
-//         'A registration request with this phone number is already pending approval. ' +
-//           'You cannot submit a new registration until your current request is processed. ' +
-//           `Status: ${existingPending.status}, ` +
-//           `Submitted: ${existingPending?.registeredAt?.toLocaleDateString()}`,
-//       );
-//     }
-
-//     // Alternative check: Same name + pending
-//     const existingByName = await this.doctorModel.findOne(
-//       {
-//         firstName: dto.firstName,
-//         middleName: dto.middleName,
-//         lastName: dto.lastName,
-//         status: ApprovalStatus.PENDING,
-//       },
-//       null,
-//       { session },
-//     );
-
-//     if (existingByName) {
-//       throw new ConflictException(
-//         'A registration request with this name is already pending approval. ' +
-//           `If this is you, please contact support. ` +
-//           `Phone: ${existingByName.phones
-//             .map((p) => p.normal || p.clinic || p.whatsup)
-//             .flat()
-//             .join(', ')}`,
-//       );
-//     }
-//   }
-
-//   private async checkPhoneExists(
-//     phone: string,
-//     session?: ClientSession,
-//   ): Promise<void> {
-//     const existing = await this.doctorModel.findOne(
-//       {
-//         'phones.normal': phone,
-//         status: { $in: [ApprovalStatus.APPROVED, ApprovalStatus.SUSPENDED] },
-//       },
-//       null,
-//       { session },
-//     );
-
-//     if (existing) {
-//       throw new ConflictException(
-//         `This phone number is already registered. ` +
-//           `Status: ${existing.status}. ` +
-//           `Please use a different phone number or contact support.`,
-//       );
-//     }
-//   }
-//   // ============================================
-//   // Registration Method
-//   // ============================================
-
-//   async registerDoctor(
-//     dto: DoctorRegistrationDtoValidated,
-//     files?: {
-//       certificateImage?: Express.Multer.File;
-//       licenseImage?: Express.Multer.File;
-//       certificateDocument?: Express.Multer.File;
-//       licenseDocument?: Express.Multer.File;
-//     },
-//   ): Promise<DoctorDocument> {
-//     this.logger.log(`Registration attempt: ${dto.phone}`);
-
-//     const session = await this.connection.startSession();
-
-//     try {
-//       let doctor: DoctorDocument;
-
-//       await session.withTransaction(async () => {
-//         // 1. Validate nested enums
-//         this.validateSubcity(dto.city, dto.subcity);
-//         this.validateSpecialization(
-//           dto.publicSpecialization,
-//           dto.privateSpecialization,
-//         );
-
-//         // 2. Check for duplicates (transaction-safe)
-//         await this.checkPhoneExists(dto.phone, session);
-//         await this.checkDuplicatePending(dto, session);
-
-//         // 3. Process uploaded files
-//         const processedFiles = this.processUploadedFiles(files);
-
-//         // 4. Create doctor entity
-//         doctor = new this.doctorModel({
-//           firstName: dto.firstName,
-//           middleName: dto.middleName,
-//           lastName: dto.lastName,
-//           password: dto.password,
-//           phones: [
-//             {
-//               normal: [dto.phone],
-//               clinic: [],
-//               whatsup: [],
-//             },
-//           ],
-//           city: dto.city,
-//           subcity: dto.subcity,
-//           publicSpecialization: dto.publicSpecialization,
-//           privateSpecialization: dto.privateSpecialization,
-//           certificateImage: processedFiles.certificateImage || undefined,
-//           licenseImage: processedFiles.licenseImage || undefined,
-//           certificateDocument: processedFiles.certificateDocument || undefined,
-//           licenseDocument: processedFiles.licenseDocument || undefined,
-//           gender: dto.gender,
-//           status: ApprovalStatus.PENDING,
-//           sessions: [],
-//           maxSessions: 5,
-//           failedLoginAttempts: 0,
-//         });
-//         if (doctor.authAccountId) {
-//           throw new BadRequestException('Doctor already has auth account');
-//         }
-
-//         // 2️⃣ Extract normalized phones
-//         const normalizedPhones = [
-//           ...new Set(
-//             (doctor.phones ?? [])
-//               .flatMap((p) => p.normal ?? [])
-//               .map((p) => p.trim())
-//               .filter(Boolean),
-//           ),
-//         ];
-
-//         if (normalizedPhones.length === 0) {
-//           throw new BadRequestException(
-//             'Doctor has no normalized phone numbers',
-//           );
-//         }
-//         const existing = await this.authModel
-//           .findOne({ phones: { $in: normalizedPhones } })
-//           .session(session);
-
-//         if (existing) {
-//           throw new BadRequestException(
-//             'One or more phone numbers already belong to another account',
-//           );
-//         }
-
-//         // 3️⃣ Create AuthAccount (phones copied from doctor)
-//         const [authAccount] = await this.authModel.create(
-//           [
-//             {
-//               role: UserRole.DOCTOR,
-//               phones: normalizedPhones,
-//               isActive: false,
-//               tokenVersion: 0,
-//             },
-//           ],
-//           { session },
-//         );
-//         doctor.authAccountId = authAccount._id;
-//         // 5. Save doctor (inside transaction)
-//         await doctor.save({ session });
-
-//         // 6. OPTIONAL: transactional side-effects (kept commented as requested)
-//         // await this.freeTrialService.createTrialOnRegistration(
-//         //   doctor._id.toString(),
-//         //   SubscriptionOwnerType.DOCTOR,
-//         //   session,
-//         // );
-//       });
-
-//       // 7. OUTSIDE transaction (never put Kafka/WebSocket inside TX)
-//       try {
-//         await Promise.allSettled([
-//           // this.notifyAdminDashboardDirect(doctor!),
-//           this.publishDoctorRegisteredEvent(doctor!),
-//         ]);
-//       } catch (error) {
-//         this.logger.error('Failed to publish Kafka event', error);
-//       }
-
-//       return doctor!;
-//     } catch (error) {
-//       this.logger.error(
-//         'Doctor registration failed, transaction aborted',
-//         error,
-//       );
-//       throw error;
-//     } finally {
-//       await session.endSession();
-//     }
-//   }
-
-//   // Login
-
-//   async loginDoctor(dto: DoctorLoginDto): Promise<DoctorDocument> {
-//     if (!dto.phone || !dto.password) {
-//       throw new BadRequestException('رقم الهاتف وكلمة المرور مطلوبان');
-//     }
-
-//     const session = await this.doctorModel.db.startSession();
-//     let doctor: DoctorDocument | null = null;
-
-//     try {
-//       session.startTransaction();
-
-//       doctor = await this.doctorModel
-//         .findOne({
-//           phones: {
-//             $elemMatch: {
-//               normal: dto.phone,
-//             },
-//           },
-//         })
-//         .select('+password')
-//         .session(session)
-//         .exec();
-
-//       if (!doctor) {
-//         throw new UnauthorizedException('رقم الهاتف أو كلمة مرور غير صحيحة');
-//       }
-
-//       // Check approval status
-//       if (doctor.status !== ApprovalStatus.APPROVED) {
-//         throw new UnauthorizedException(
-//           'لم يتم تفعيل حسابك بعد. يرجى انتظار موافقة الإدارة',
-//         );
-//       }
-
-//       if (doctor.lockedUntil && doctor.lockedUntil.getTime() > Date.now()) {
-//         const unlockDate = doctor.lockedUntil.toLocaleString('ar-SY', {
-//           year: 'numeric',
-//           month: 'long',
-//           day: 'numeric',
-//           hour: '2-digit',
-//           minute: '2-digit',
-//         });
-
-//         throw new UnauthorizedException(
-//           `تم قفل الحساب بسبب محاولات تسجيل دخول فاشلة. سيتم فتح الحساب في: ${unlockDate}`,
-//         );
-//       }
-
-//       // Compare password
-//       const passwordValid = await doctor.comparePassword?.(dto.password);
-
-//       if (!passwordValid) {
-//         // Increment and save failed attempts
-//         doctor.incrementFailedAttempts?.();
-//         await doctor.save({ session });
-//         await session.commitTransaction();
-
-//         // Throw error AFTER committing
-//         throw new UnauthorizedException('رقم الهاتف أو كلمة مرور غير صحيحة');
-//       }
-//       const activeSessionsCount = doctor.getActiveSessionsCount?.();
-//       const maxSessions = doctor.maxSessions || 5;
-
-//       if (activeSessionsCount && activeSessionsCount >= maxSessions) {
-//         await doctor.save({ session });
-//         await session.commitTransaction();
-//         throw new UnauthorizedException(
-//           `لقد تجاوزت الحد الأقصى للجلسات النشطة (${maxSessions} ${maxSessions === 1 ? 'جلسة' : 'جلسات'}). يرجى تسجيل الخروج من جهاز آخر أولاً`,
-//         );
-//       }
-//       // Success: Reset failed attempts
-//       doctor.resetFailedAttempts?.();
-//       doctor.lastLoginAt = new Date();
-
-//       await doctor.save({ session });
-//       await session.commitTransaction();
-
-//       return doctor;
-//     } catch (error) {
-//       // Only abort if we haven't committed yet
-//       if (session.inTransaction()) {
-//         await session.abortTransaction();
-//       }
-//       throw error;
-//     } finally {
-//       await session.endSession();
-//     }
-//   }
-
-//   async requestPasswordResetOtp(dto: RequestDoctorPasswordResetDto) {
-//     const session = await this.connection.startSession();
-
-//     try {
-//       session.startTransaction();
-
-//       const { phone } = dto;
-
-//       // Check if doctor exists with this phone number
-//       const doctor = await this.doctorModel
-//         .findOne({
-//           phones: {
-//             $elemMatch: {
-//               normal: phone,
-//             },
-//           },
-//         })
-//         .session(session)
-//         .exec();
-
-//       if (!doctor) {
-//         throw new NotFoundException('لا يوجد حساب طبيب مسجل بهذا الرقم');
-//       }
-
-//       // Check if doctor is approved
-//       if (doctor.status !== ApprovalStatus.APPROVED) {
-//         throw new BadRequestException(
-//           'حسابك غير مفعل. لا يمكن إعادة تعيين كلمة المرور',
-//         );
-//       }
-
-//       // Clear any existing OTP for this doctor
-//       await this.otpModel
-//         .deleteMany({ authAccountId: doctor.authAccountId })
-//         .session(session);
-
-//       // Generate new OTP
-//       const otp = this.smsService.generateOTP();
-
-//       await this.otpModel.create(
-//         [
-//           {
-//             authAccountId: doctor.authAccountId,
-//             phone,
-//             code: otp,
-//             expiresAt: new Date(Date.now() + 10 * 60 * 1000),
-//             isUsed: false,
-//             attempts: 0,
-//           },
-//         ],
-//         { session },
-//       );
-
-//       await session.commitTransaction();
-
-//       // Send OTP via SMS (outside transaction)
-//       await this.smsService.sendOTP(phone, otp);
-
-//       return {
-//         success: true,
-//         message: 'تم إرسال رمز التحقق إلى رقم هاتفك',
-//       };
-//     } catch (error) {
-//       if (session.inTransaction()) {
-//         await session.abortTransaction();
-//       }
-//       throw error;
-//     } finally {
-//       await session.endSession();
-//     }
-//   }
-
-//   async verifyPasswordResetOtp(dto: VerifyOtpForPasswordResetDto) {
-//     const session = await this.connection.startSession();
-
-//     try {
-//       session.startTransaction();
-
-//       const { phone, otp } = dto;
-
-//       // Find doctor
-//       const doctor = await this.doctorModel
-//         .findOne({
-//           phones: {
-//             $elemMatch: {
-//               normal: phone,
-//             },
-//           },
-//         })
-//         .session(session)
-//         .exec();
-
-//       if (!doctor) {
-//         throw new NotFoundException('لا يوجد حساب طبيب مسجل بهذا الرقم');
-//       }
-
-//       // Find OTP record
-//       const authAccount = await this.authModel.findOne({ phones: phone });
-
-//       if (!authAccount) throw new NotFoundException('Auth account not found');
-
-//       const otpRecord = await this.otpModel.findOne({
-//         authAccountId: authAccount._id,
-//         phone,
-//       });
-
-//       if (!otpRecord) {
-//         throw new UnauthorizedException('لم يتم العثور على رمز تحقق صالح');
-//       }
-
-//       // Check if expired
-//       if (otpRecord.isExpired()) {
-//         throw new UnauthorizedException('رمز التحقق منتهي الصلاحية');
-//       }
-
-//       // Check max attempts before incrementing
-//       if (otpRecord.isMaxAttemptsReached()) {
-//         throw new UnauthorizedException(
-//           'تجاوزت الحد الأقصى من المحاولات. يرجى طلب رمز جديد',
-//         );
-//       }
-
-//       // Check if OTP matches
-//       if (otpRecord.code !== otp) {
-//         // Increment attempts on wrong OTP
-//         otpRecord.incrementAttempts();
-//         await otpRecord.save({ session });
-//         await session.commitTransaction();
-
-//         const remainingAttempts =
-//           (otpRecord.maxAttempts || 5) - otpRecord.attempts;
-//         throw new UnauthorizedException(
-//           `رمز التحقق غير صحيح. المحاولات المتبقية: ${remainingAttempts}`,
-//         );
-//       }
-
-//       await session.commitTransaction();
-
-//       return {
-//         success: true,
-//         message: 'تم التحقق من الرمز بنجاح',
-//       };
-//     } catch (error) {
-//       if (session.inTransaction()) {
-//         await session.abortTransaction();
-//       }
-//       throw error;
-//     } finally {
-//       await session.endSession();
-//     }
-//   }
-
-//   async resetPassword(dto: ResetDoctorPasswordDto) {
-//     const session = await this.connection.startSession();
-
-//     try {
-//       session.startTransaction();
-
-//       const { phone, otp, newPassword } = dto;
-
-//       // Find doctor
-//       const doctor = await this.doctorModel
-//         .findOne({
-//           phones: {
-//             $elemMatch: {
-//               normal: phone,
-//             },
-//           },
-//         })
-//         .select('+password')
-//         .session(session)
-//         .exec();
-
-//       if (!doctor) {
-//         throw new NotFoundException('لا يوجد حساب طبيب مسجل بهذا الرقم');
-//       }
-
-//       // Find and verify OTP
-//       const authAccount = await this.authModel.findOne({ phones: phone });
-
-//       if (!authAccount) throw new NotFoundException('Auth account not found');
-
-//       const otpRecord = await this.otpModel.findOne({
-//         authAccountId: authAccount._id,
-//         phone,
-//       });
-
-//       if (!otpRecord) {
-//         throw new UnauthorizedException('لم يتم العثور على رمز تحقق صالح');
-//       }
-
-//       // Check expiration
-//       if (otpRecord.isExpired()) {
-//         throw new UnauthorizedException('رمز التحقق منتهي الصلاحية');
-//       }
-
-//       // Check max attempts (optional)
-//       if (otpRecord.isMaxAttemptsReached()) {
-//         throw new UnauthorizedException(
-//           'تجاوزت الحد الأقصى من المحاولات. يرجى طلب رمز جديد',
-//         );
-//       }
-//       if (otpRecord.code !== otp) {
-//         otpRecord.incrementAttempts();
-//         await otpRecord.save({ session });
-//         await session.commitTransaction();
-//         throw new UnauthorizedException('رمز التحقق غير صحيح');
-//       }
-
-//       // Update password (pre-save hook will hash it)
-//       doctor.password = newPassword;
-
-//       // Reset security fields
-//       doctor.resetFailedAttempts?.();
-//       doctor.lastLoginAt = new Date();
-
-//       // Optionally: clear all sessions to force re-login on all devices
-//       await doctor.removeAllSessions?.();
-
-//       await doctor.save({ session });
-
-//       // Mark OTP as used
-//       otpRecord.isUsed = true;
-//       await otpRecord.save({ session });
-
-//       // Delete all other OTPs for this doctor
-//       await this.otpModel
-//         .deleteMany({
-//           authAccountId: authAccount._id,
-//           _id: { $ne: otpRecord._id },
-//         })
-//         .session(session);
-
-//       await session.commitTransaction();
-
-//       return {
-//         success: true,
-//         message: 'تم إعادة تعيين كلمة المرور بنجاح',
-//       };
-//     } catch (error) {
-//       if (session.inTransaction()) {
-//         await session.abortTransaction();
-//       }
-//       throw error;
-//     } finally {
-//       await session.endSession();
-//     }
-//   }
-//   // ============================================
-//   // File Processing Methods
-//   // ============================================
-
-//   /**
-//    * Check if a doctor exists by NORMAL phone number
-//    * and is APPROVED
-//    */
-//   async isApprovedDoctorByPhone(
-//     phone: string,
-//   ): Promise<{ exists: boolean; approved: boolean }> {
-//     const doctor = await this.doctorModel
-//       .findOne({
-//         'phones.normal': phone,
-//       })
-//       .select({ approvalStatus: 1 })
-//       .lean()
-//       .exec();
-
-//     if (!doctor) {
-//       return {
-//         exists: false,
-//         approved: false,
-//       };
-//     }
-
-//     return {
-//       exists: true,
-//       approved: true,
-//     };
-//   }
-
-//   /**
-//    * Process uploaded files and return file paths
-//    */
-//   private processUploadedFiles(files?: {
-//     certificateImage?: Express.Multer.File;
-//     licenseImage?: Express.Multer.File;
-//     certificateDocument?: Express.Multer.File;
-//     licenseDocument?: Express.Multer.File;
-//   }): {
-//     certificateImage?: string;
-//     licenseImage?: string;
-//     certificateDocument?: string;
-//     licenseDocument?: string;
-//   } {
-//     if (!files) return {};
-
-//     const processedFiles: {
-//       certificateImage?: string;
-//       licenseImage?: string;
-//       certificateDocument?: string;
-//       licenseDocument?: string;
-//     } = {};
-
-//     // Process certificate files (prefer image over document if both provided)
-//     if (files.certificateImage) {
-//       processedFiles.certificateImage = this.normalizeFilePath(
-//         files.certificateImage.path,
-//       );
-//     } else if (files.certificateDocument) {
-//       processedFiles.certificateImage = this.normalizeFilePath(
-//         files.certificateDocument.path,
-//       );
-//     }
-
-//     // Process license files (prefer image over document if both provided)
-//     if (files.licenseImage) {
-//       processedFiles.licenseImage = this.normalizeFilePath(
-//         files.licenseImage.path,
-//       );
-//     } else if (files.licenseDocument) {
-//       processedFiles.licenseImage = this.normalizeFilePath(
-//         files.licenseDocument.path,
-//       );
-//     }
-
-//     return processedFiles;
-//   }
-
-//   /**
-//    * Normalize file path for cross-platform compatibility
-//    */
-//   private normalizeFilePath(filePath: string): string {
-//     return filePath.replace(/\\/g, '/');
-//   }
-
-//   // ============================================
-//   // Kafka Event Publishing
-//   // ============================================
-
-//   /**
-//    * Publish DOCTOR_REGISTERED event to Kafka
-//    * This triggers:
-//    * 1. Notification Service → Send welcome email/SMS
-//    * 2. fcm Service → Notify admin dashboard
-//    * 3. Analytics Service → Track registration
-//    */
-//   private publishDoctorRegisteredEvent(doctor: DoctorDocument): void {
-//     const event = {
-//       eventType: 'DOCTOR_REGISTERED',
-//       timestamp: new Date(),
-//       data: {
-//         doctorId: doctor._id.toString(),
-//         fullName: `${doctor.firstName} ${doctor.middleName} ${doctor.lastName}`,
-//         phone: doctor.phones
-//           .map((p) => p.normal || p.clinic || p.whatsup)
-//           .flat()
-//           .join(', '),
-//         // ... rest of data
-//       },
-//       metadata: {
-//         source: 'registration-service',
-//         version: '1.0',
-//       },
-//     };
-
-//     try {
-//       // Use emit for fire-and-forget events
-//       this.kafkaProducer.emit(KAFKA_TOPICS.DOCTOR_REGISTERED, event);
-//     } catch (error) {
-//       const err = error as Error;
-//       this.logger.error(`Failed to publish event: ${err.message}`);
-//     }
-//   }
-
-//   async getDoctorBookingsByLocation(query: GetDoctorBookingsByLocationDto) {
-//     const { doctorId, locationType, bookingDate, page = 1, limit = 10 } = query;
-
-//     const cacheKey = `doctor:${doctorId}:bookings:${locationType}:${bookingDate}:p${page}:l${limit}`;
-
-//     const cached = await this.cacheManager.get(cacheKey);
-//     if (cached) return cached;
-
-//     const skip = (page - 1) * limit;
-
-//     const selectedDate = new Date(bookingDate);
-//     selectedDate.setHours(0, 0, 0, 0);
-
-//     const nextDay = new Date(selectedDate);
-//     nextDay.setDate(selectedDate.getDate() + 1);
-
-//     const aggregation: PipelineStage[] = [
-//       {
-//         $match: {
-//           doctorId: new Types.ObjectId(doctorId),
-//           bookingDate: { $gte: selectedDate, $lt: nextDay },
-//         },
-//       },
-//       {
-//         $lookup: {
-//           from: 'appointment_slots',
-//           localField: 'slotId',
-//           foreignField: '_id',
-//           as: 'slot',
-//         },
-//       },
-//       { $unwind: '$slot' },
-//       {
-//         $match: {
-//           'slot.location.type': locationType,
-//         },
-//       },
-//       {
-//         $lookup: {
-//           from: 'users',
-//           localField: 'patientId',
-//           foreignField: '_id',
-//           as: 'patient',
-//         },
-//       },
-//       { $unwind: '$patient' },
-//       {
-//         $sort: {
-//           'slot.startTime': 1,
-//         },
-//       },
-//       {
-//         $facet: {
-//           data: [
-//             { $skip: skip },
-//             { $limit: limit },
-//             {
-//               $project: {
-//                 bookingId: '$_id',
-//                 bookingDate: 1,
-//                 bookingStatus: '$status',
-//                 slotStartTime: '$slot.startTime',
-//                 slotEndTime: '$slot.endTime',
-//                 dayOfWeek: '$slot.dayOfWeek',
-//                 patientId: '$patient._id',
-//                 patientName: '$patient.username',
-//                 patientPhone: '$patient.phone',
-//                 patientImage: '$patient.image',
-//               },
-//             },
-//           ],
-//           totalCount: [{ $count: 'count' }],
-//         },
-//       },
-//     ];
-
-//     const result = await this.bookingModel.aggregate(aggregation);
-
-//     const data = result[0].data;
-//     const total = result[0].totalCount[0]?.count || 0;
-
-//     const response = {
-//       data,
-//       meta: {
-//         total,
-//         page,
-//         limit,
-//         totalPages: Math.ceil(total / limit),
-//       },
-//     };
-
-//     await this.cacheManager.set(cacheKey, response, 3600);
-
-//     return response;
-//   }
-
-//   /**
-//    * Doctor cancels a booking
-//    * Frees up the slot and publishes Kafka event to refresh available slots
-//    */
-//   async doctorCancelBooking(
-//     dto: DoctorCancelBookingDto,
-//     doctorId: string,
-//   ): Promise<{
-//     message: string;
-//     bookingId: string;
-//     slotId: string;
-//     patientNotified?: boolean;
-//   }> {
-//     const doctor = await this.doctorModel.findById(doctorId).exec();
-//     if (!doctor) {
-//       throw new NotFoundException(`Doctor with ID ${doctorId} not found`);
-//     }
-//     this.logger.log(`Doctor ${doctorId} canceling booking ${dto.bookingId}`);
-
-//     // Validate IDs
-//     if (!Types.ObjectId.isValid(dto.bookingId)) {
-//       throw new BadRequestException('Invalid booking ID');
-//     }
-//     if (!Types.ObjectId.isValid(doctorId)) {
-//       throw new BadRequestException('Invalid doctor ID');
-//     }
-
-//     const session = await this.bookingModel.db.startSession();
-//     session.startTransaction();
-
-//     try {
-//       // Step 1: Find and cancel the booking
-//       const booking = await this.bookingModel
-//         .findOne({
-//           _id: new Types.ObjectId(dto.bookingId),
-//           doctorId: new Types.ObjectId(doctorId),
-//           status: { $in: [BookingStatus.PENDING] },
-//         })
-//         .populate('patientId', 'username phone fcmToken')
-//         .session(session)
-//         .exec();
-
-//       if (!booking) {
-//         throw new NotFoundException('Booking not found or already cancelled');
-//       }
-
-//       // Update booking status
-//       booking.status = BookingStatus.CANCELLED_BY_DOCTOR;
-//       booking.cancellation = {
-//         cancelledBy: UserRole.DOCTOR,
-//         reason: dto.reason,
-//         cancelledAt: new Date(),
-//       };
-//       await booking.save({ session });
-
-//       // Step 2: Free up the slot
-//       const slot = await this.slotModel
-//         .findByIdAndUpdate(
-//           booking.slotId,
-//           { $set: { status: SlotStatus.AVAILABLE } },
-//           { new: true, session },
-//         )
-//         .exec();
-
-//       if (!slot) {
-//         throw new NotFoundException('Associated slot not found');
-//       }
-
-//       // Commit transaction
-//       await session.commitTransaction();
-
-//       this.logger.log(
-//         `Booking ${dto.bookingId} cancelled by doctor. Slot ${slot._id.toString()} freed.`,
-//       );
-
-//       // Step 3: Invalidate cache
-//       await this.invalidateSlotsCache(doctorId);
-
-//       // Step 4: Publish Kafka event to refresh available slots
-//       this.publishSlotsRefreshedEvent(doctorId, slot);
-
-//       // Step 5: Send FCM notification to patient
-
-//       const doctorName = doctor.firstName + ' ' + doctor.lastName;
-//       const patient = await this.userModel.findById(booking.patientId).exec();
-
-//       if (!patient) {
-//         this.logger.warn(`Patient not found. Notification not sent.`);
-//         return {
-//           message: 'Booking cancelled successfully',
-//           bookingId: booking._id.toString(),
-//           slotId: slot._id.toString(),
-//         };
-//       }
-
-//       const patientToken = patient.fcmToken;
-
-//       if (!patientToken) {
-//         this.logger.warn(`Patient has no FCM token. Notification not sent.`);
-//         return {
-//           message: 'Booking cancelled successfully',
-//           bookingId: booking._id.toString(),
-//           slotId: slot._id.toString(),
-//         };
-//       }
-
-//       this.sendCancellationNotification(
-//         doctorId,
-//         doctorName,
-//         patient,
-//         booking,
-//         dto.reason,
-//         'DOCTOR_CANCELLED',
-//       );
-
-//       return {
-//         message: 'Booking cancelled successfully',
-//         bookingId: booking._id.toString(),
-//         slotId: slot._id.toString(),
-//         // patientNotified,
-//       };
-//     } catch (error) {
-//       const err = error as Error;
-//       await session.abortTransaction();
-//       this.logger.error(`Failed to cancel booking: ${err.message}`, err.stack);
-//       throw error;
-//     } finally {
-//       await session.endSession();
-//     }
-//   }
-
-//   /**
-//    * Publish Kafka event to notify about refreshed available slots
-//    */
-//   private publishSlotsRefreshedEvent(
-//     doctorId: string,
-//     freedSlot: AppointmentSlotDocument,
-//   ): void {
-//     const event = {
-//       eventType: 'SLOTS_REFRESHED',
-//       timestamp: new Date(),
-//       data: {
-//         doctorId,
-//         slotId: freedSlot._id.toString(),
-//         date: freedSlot.date,
-//         startTime: freedSlot.startTime,
-//         endTime: freedSlot.endTime,
-//         location: freedSlot.location,
-//         price: freedSlot.price,
-//       },
-//       metadata: {
-//         source: 'slot-management-service',
-//         version: '1.0',
-//       },
-//     };
-
-//     try {
-//       this.kafkaProducer.emit(KAFKA_TOPICS.SLOTS_REFRESHED, event);
-//       this.logger.log(`Slots refreshed event published for doctor ${doctorId}`);
-//     } catch (error) {
-//       const err = error as Error;
-//       this.logger.error(
-//         `Failed to publish slots refreshed event: ${err.message}`,
-//         err.stack,
-//       );
-//     }
-//   }
-
-//   /**
-//    * Check conflicts before pausing slots (dry run)
-//    */
-//   async checkPauseConflicts(
-//     dto: PauseSlotsDto,
-//     doctorId: string,
-//   ): Promise<PauseSlotConflictDto> {
-//     this.logger.log(`Checking pause conflicts for ${dto.slotIds.length} slots`);
-
-//     // Validate doctor ID
-//     if (!Types.ObjectId.isValid(doctorId)) {
-//       throw new BadRequestException('Invalid doctor ID');
-//     }
-//     const doctor = await this.doctorModel.findById(doctorId).exec();
-//     if (!doctor) {
-//       throw new NotFoundException(`Doctor with ID ${doctorId} not found`);
-//     }
-//     // Validate slot IDs
-//     for (const slotId of dto.slotIds) {
-//       if (!Types.ObjectId.isValid(slotId)) {
-//         throw new BadRequestException(`Invalid slot ID: ${slotId}`);
-//       }
-//     }
-
-//     // Get slots
-//     const slots = await this.slotModel
-//       .find({
-//         _id: { $in: dto.slotIds.map((id) => new Types.ObjectId(id)) },
-//         doctorId: new Types.ObjectId(doctorId),
-//         // Add this condition to exclude blocked and invalidated slots
-//         status: { $nin: [SlotStatus.BLOCKED, SlotStatus.INVALIDATED] },
-//       })
-//       .exec();
-
-//     if (slots.length === 0) {
-//       throw new NotFoundException('No valid slots found');
-//     }
-
-//     if (slots.length !== dto.slotIds.length) {
-//       throw new BadRequestException(
-//         `Some slots not found or don't belong to doctor ${doctorId}`,
-//       );
-//     }
-
-//     // Find bookings for these slots
-//     const bookings = await this.bookingModel
-//       .find({
-//         slotId: { $in: dto.slotIds.map((id) => new Types.ObjectId(id)) },
-//         status: BookingStatus.PENDING,
-//       })
-//       .populate<{ patientId: User }>('patientId', 'username phone')
-//       .lean()
-//       .exec();
-
-//     const affectedBookings = bookings.map((booking) => ({
-//       bookingId: booking._id.toString(),
-//       patientId: booking.patientId._id.toString(),
-//       patientName: `${booking.patientId.username}`,
-//       patientPhone: booking.patientId.phone,
-//       slotTime: `${booking.bookingTime} - ${booking.bookingEndTime}`,
-//     }));
-
-//     const hasConflicts = affectedBookings.length > 0;
-
-//     const response: PauseSlotConflictDto = {
-//       hasConflicts,
-//       affectedBookings,
-//       summary: {
-//         totalAffected: affectedBookings.length,
-//         slotsCount: slots.length,
-//       },
-//       warningMessage: hasConflicts
-//         ? `Pausing these slots will cancel ${affectedBookings.length} booking(s). Affected patients will be notified via push notification.`
-//         : undefined,
-//     };
-
-//     this.logger.log(
-//       `Pause conflict check: ${affectedBookings.length} bookings affected`,
-//     );
-
-//     return response;
-//   }
-
-//   /**
-//    * Pause slots and handle conflicts
-//    */
-//   async pauseSlots(
-//     dto: PauseSlotsDto,
-//     doctorId: string,
-//   ): Promise<{
-//     message: string;
-//     slotsCount: number;
-//     affectedBookings: number;
-//     jobId: string;
-//   }> {
-//     this.logger.log(`Pausing ${dto.slotIds.length} slots`);
-
-//     // Validate
-//     if (!Types.ObjectId.isValid(doctorId)) {
-//       throw new BadRequestException('Invalid doctor ID');
-//     }
-
-//     // Get doctor info
-//     const doctor = await this.doctorModel.findById(doctorId).exec();
-//     if (!doctor) {
-//       throw new NotFoundException(`Doctor with ID ${doctorId} not found`);
-//     }
-
-//     // Check conflicts
-//     const conflicts = await this.checkPauseConflicts(dto, doctorId);
-
-//     if (conflicts.hasConflicts && !dto.confirmPause) {
-//       throw new ConflictException(
-//         'Conflicts detected. Set confirmPause: true to proceed.',
-//       );
-//     }
-
-//     // Determine pause date
-//     const pauseDate = dto.pauseDate ? new Date(dto.pauseDate) : getSyriaDate();
-
-//     // Queue job to pause slots
-//     const job = await this.pauseSlotsQueue.add(
-//       'pause-slots-and-cancel-bookings',
-//       {
-//         doctorId: doctorId,
-//         slotIds: dto.slotIds,
-//         reason: dto.reason,
-//         pauseDate,
-//         affectedBookingIds: conflicts.affectedBookings.map((b) => b.bookingId),
-//         doctorInfo: {
-//           fullName: `${doctor.firstName} ${doctor.middleName} ${doctor.lastName}`,
-//         },
-//       } as PauseSlotsJobData,
-//       {
-//         priority: 1, // High priority
-//         attempts: 3,
-//         backoff: {
-//           type: 'exponential',
-//           delay: 2000,
-//         },
-//       },
-//     );
-
-//     this.logger.log(
-//       `Pause slots job queued: ${job.id} for ${dto.slotIds.length} slots`,
-//     );
-
-//     return {
-//       message: conflicts.hasConflicts
-//         ? 'Slots are being paused. Affected patients will be notified.'
-//         : 'Slots are being paused. No bookings affected.',
-//       slotsCount: dto.slotIds.length,
-//       affectedBookings: conflicts.affectedBookings.length,
-//       jobId: job.id.toString(),
-//     };
-//   }
-//   private sendCancellationNotification(
-//     doctorId: string,
-//     doctorName: string,
-//     patient: UserDocument,
-//     booking: BookingDocument,
-//     reason: string,
-//     type: 'DOCTOR_CANCELLED' | 'SLOT_PAUSED',
-//   ): boolean {
-//     if (!patient.fcmToken) {
-//       this.logger.warn(`Patient has no FCM token. Notification not sent.`);
-//       return false;
-//     }
-
-//     if (!booking._id) {
-//       this.logger.error(
-//         `Booking document is missing _id. Cancellation notification not sent.`,
-//       );
-//       return false;
-//     }
-
-//     // This will be handled by FCM service (created separately)
-//     // For now, publish to Kafka for notification service to handle
-//     const event = {
-//       eventType: 'BOOKING_CANCELLED_NOTIFICATION',
-//       timestamp: new Date(),
-//       data: {
-//         patientId: patient._id.toString(),
-//         patientName: patient.username,
-//         doctorId,
-//         doctorName,
-//         fcmToken: patient.fcmToken,
-//         bookingId: booking._id.toString(),
-//         appointmentDate: booking.bookingDate,
-//         appointmentTime: booking.bookingTime,
-//         reason,
-//         type,
-//       },
-//       metadata: {
-//         source: 'doctor-service',
-//         version: '1.0',
-//       },
-//     };
-
-//     try {
-//       this.kafkaProducer.emit(
-//         KAFKA_TOPICS.BOOKING_CANCELLED_NOTIFICATION,
-//         event,
-//       );
-//       this.logger.log(`Cancellation notification event published for patient `);
-//       return true;
-//     } catch (error) {
-//       const err = error as Error;
-//       this.logger.error(
-//         `Failed to publish cancellation notification: ${err.message}`,
-//       );
-//       return false;
-//     }
-//   }
-//   private async invalidateSlotsCache(doctorId: string): Promise<void> {
-//     try {
-//       // Delete all cache keys related to this doctor's slots
-//       const pattern = `slots:available:${doctorId}:*`;
-//       await this.cacheManager.del(pattern);
-
-//       this.logger.debug(`Slots cache invalidated for doctor ${doctorId}`);
-//     } catch (error) {
-//       const err = error as Error;
-//       this.logger.warn(`Failed to invalidate slots cache: ${err.message}`);
-//     }
-//   }
-
-//   async getAllSlots(dto: GetAllSlotsDto): Promise<AllSlotsResponseDto[]> {
-//     this.logger.log(
-//       `Getting all slots for doctor ${dto.doctorId} on ${dto.date}`,
-//     );
-
-//     if (!Types.ObjectId.isValid(dto.doctorId)) {
-//       throw new BadRequestException('Invalid doctor ID');
-//     }
-//     const doctor = await this.doctorModel.findById(dto.doctorId).exec();
-//     if (!doctor) {
-//       throw new NotFoundException('Doctor not found');
-//     }
-//     const date = new Date(dto.date);
-//     const startOfDay = new Date(date);
-//     startOfDay.setHours(0, 0, 0, 0);
-//     const endOfDay = new Date(date);
-//     endOfDay.setHours(23, 59, 59, 999);
-
-//     // Get ALL slots (not just AVAILABLE)
-//     const slots = await this.slotModel
-//       .find({
-//         doctorId: new Types.ObjectId(dto.doctorId),
-//         status: { $ne: SlotStatus.INVALIDATED },
-//         date: { $gte: startOfDay, $lte: endOfDay },
-//       })
-//       .sort({ startTime: 1 })
-//       .lean()
-//       .exec();
-
-//     const slotsWithBookings: AllSlotsResponseDto[] = [];
-
-//     for (const slot of slots) {
-//       const slotData: AllSlotsResponseDto = {
-//         slotId: slot._id.toString(),
-//         date: slot.date,
-//         startTime: slot.startTime,
-//         endTime: slot.endTime,
-//         status: slot.status as any,
-//         location: slot.location,
-//       };
-
-//       // If slot is booked, get booking details
-//       if (slot.status === SlotStatus.BOOKED) {
-//         const booking = await this.bookingModel
-//           .findOne({ slotId: slot._id })
-//           .populate<{
-//             patientId: User;
-//           }>('patientId', 'username phone')
-//           .lean()
-//           .exec();
-
-//         if (booking && typeof booking.patientId !== 'string') {
-//           const patient = booking.patientId as unknown as User;
-//           slotData.existingBooking = {
-//             bookingId: booking._id.toString(),
-//             patientId: patient._id.toString(),
-//             patientName: `${patient.username}`,
-//             patientPhone: patient.phone,
-//             bookingStatus: booking.status,
-//           };
-//         }
-//       }
-
-//       slotsWithBookings.push(slotData);
-//     }
-
-//     this.logger.log(
-//       `Found ${slotsWithBookings.length} slots (${slots.filter((s) => s.status === SlotStatus.BOOKED).length} booked)`,
-//     );
-
-//     return slotsWithBookings;
-//   }
-
-//   /**
-//    * Check VIP booking conflict (dry run)
-//    */
-//   async checkVIPBookingConflict(
-//     dto: CheckVIPBookingConflictDto,
-//     doctorId: string,
-//   ): Promise<VIPBookingConflictResponseDto> {
-//     this.logger.log(`Checking VIP booking conflict for slot ${dto.slotId}`);
-
-//     // Validate IDs
-//     if (!Types.ObjectId.isValid(doctorId)) {
-//       throw new BadRequestException('Invalid doctor ID');
-//     }
-//     if (!Types.ObjectId.isValid(dto.slotId)) {
-//       throw new BadRequestException('Invalid slot ID');
-//     }
-//     const doctor = await this.doctorModel.findById(doctorId).exec();
-//     if (!doctor) {
-//       throw new NotFoundException('Doctor not found');
-//     }
-
-//     // Get slot
-//     const slot = await this.slotModel
-//       .findOne({
-//         _id: new Types.ObjectId(dto.slotId),
-//         status: { $nin: [SlotStatus.INVALIDATED] },
-//         doctorId: new Types.ObjectId(doctorId),
-//       })
-//       .exec();
-
-//     if (!slot) {
-//       throw new NotFoundException('Slot not found');
-//     }
-
-//     const response: VIPBookingConflictResponseDto = {
-//       hasConflict: false,
-//       slotStatus: slot.status as any,
-//       canProceed: true,
-//     };
-
-//     // Check slot status
-//     if (slot.status === SlotStatus.AVAILABLE) {
-//       // No conflict - slot is available
-//       response.hasConflict = false;
-//       response.canProceed = true;
-//       return response;
-//     }
-
-//     if (slot.status === SlotStatus.BLOCKED) {
-//       // Cannot book on paused/blocked slots
-//       response.hasConflict = true;
-//       response.canProceed = false;
-//       response.warningMessage = `Slot is ${slot.status}. Cannot create VIP booking.`;
-//       return response;
-//     }
-
-//     if (slot.status === SlotStatus.BOOKED) {
-//       // Conflict - slot already has a booking
-//       const existingBooking = await this.bookingModel
-//         .findOne({ slotId: slot._id })
-//         .populate<{
-//           patientId: User;
-//         }>('patientId', 'username phone')
-//         .exec();
-
-//       if (existingBooking && typeof existingBooking.patientId !== 'string') {
-//         const patient = existingBooking.patientId as unknown as User;
-
-//         response.hasConflict = true;
-//         response.conflictDetails = {
-//           existingBookingId: existingBooking._id.toString(),
-//           patientId: patient._id.toString(),
-//           patientName: patient.username,
-//           patientPhone: patient.phone,
-//           appointmentTime: `${existingBooking.bookingTime} - ${existingBooking.bookingEndTime}`,
-//         };
-//         response.warningMessage = `Slot is already booked by ${response.conflictDetails.patientName}. Creating VIP booking will CANCEL their appointment and notify them.`;
-//         response.canProceed = true; // Can proceed with override
-//       }
-//     }
-
-//     return response;
-//   }
-
-//   /**
-//    * Create VIP booking (execute)
-//    * Queues Bull job to handle conflict and notifications
-//    */
-//   async createVIPBooking(
-//     dto: CreateVIPBookingDto,
-//     doctorId: string,
-//   ): Promise<{
-//     message: string;
-//     bookingId?: string;
-//     jobId?: string;
-//     willDisplaceBooking: boolean;
-//   }> {
-//     this.logger.log(`Creating VIP booking for slot ${dto.slotId}`);
-
-//     // Check conflict first
-//     const conflict = await this.checkVIPBookingConflict(
-//       {
-//         slotId: dto.slotId,
-//       },
-//       doctorId,
-//     );
-
-//     // If conflict and not confirmed, throw error
-//     if (conflict.hasConflict && !dto.confirmOverride) {
-//       throw new ConflictException(
-//         'Slot is already booked. Set confirmOverride: true to proceed.',
-//       );
-//     }
-
-//     // If slot is paused/blocked, cannot proceed
-//     if (!conflict.canProceed) {
-//       throw new BadRequestException(conflict.warningMessage);
-//     }
-
-//     // Get doctor info
-//     const doctor = await this.doctorModel.findById(doctorId).exec();
-//     if (!doctor) {
-//       throw new NotFoundException('Doctor not found');
-//     }
-
-//     const doctorName = `${doctor.firstName} ${doctor.middleName} ${doctor.lastName}`;
-
-//     // Queue job
-//     const jobData: VIPBookingJobData = {
-//       doctorId: doctorId,
-//       doctorName,
-//       slotId: dto.slotId,
-//       vipPatientId: dto.vipPatientId,
-//       existingBookingId: conflict.conflictDetails?.existingBookingId || null,
-//       reason: dto.reason,
-//       note: dto.note,
-//     };
-
-//     const job = await this.vipBookingQueue.add('create-vip-booking', jobData, {
-//       priority: 1, // High priority
-//       attempts: 3,
-//       backoff: {
-//         type: 'exponential',
-//         delay: 2000,
-//       },
-//     });
-
-//     this.logger.log(`VIP booking job queued: ${job.id}`);
-
-//     return {
-//       message: conflict.hasConflict
-//         ? 'VIP booking is being created. Existing booking will be cancelled and patient notified.'
-//         : 'VIP booking is being created.',
-//       jobId: job.id.toString(),
-//       willDisplaceBooking: conflict.hasConflict,
-//     };
-//   }
-
-//   async checkHolidayConflict(
-//     dto: CheckHolidayConflictDto,
-//     doctorId: string,
-//   ): Promise<HolidayConflictResponseDto> {
-//     this.logger.log(
-//       `Checking holiday conflicts for doctor ${doctorId} from ${dto.startDate} to ${dto.endDate}`,
-//     );
-
-//     if (!Types.ObjectId.isValid(doctorId)) {
-//       throw new BadRequestException('Invalid doctor ID');
-//     }
-//     const doctor = await this.doctorModel.findById(doctorId).exec();
-
-//     if (!doctor) {
-//       throw new NotFoundException('Doctor not found');
-//     }
-//     const startDate = new Date(dto.startDate);
-//     const endDate = new Date(dto.endDate);
-
-//     if (startDate >= endDate) {
-//       throw new BadRequestException('Start date must be before end date');
-//     }
-
-//     // Get all slots in date range
-//     const slots = await this.slotModel
-//       .find({
-//         doctorId: new Types.ObjectId(doctorId),
-//         date: { $gte: startDate, $lte: endDate },
-//         status: { $nin: [SlotStatus.BLOCKED, SlotStatus.INVALIDATED] }, // Exclude blocked + invalidated
-//       })
-//       .lean()
-//       .exec();
-
-//     // Get all bookings in date range (PENDING status only)
-//     const bookings = await this.bookingModel
-//       .find({
-//         doctorId: new Types.ObjectId(doctorId),
-//         bookingDate: { $gte: startDate, $lte: endDate },
-//         status: BookingStatus.PENDING, // Only PENDING bookings
-//       })
-//       .populate<{ patientId: User }>('patientId', 'username phone')
-//       .lean()
-//       .exec();
-
-//     // Build affected bookings list
-//     const affectedBookings = bookings.map((booking) => {
-//       const patient =
-//         typeof booking.patientId !== 'string'
-//           ? (booking.patientId as unknown as User)
-//           : null;
-
-//       return {
-//         bookingId: booking._id.toString(),
-//         patientId: patient?._id.toString() || '',
-//         patientName: patient ? `${patient.username}` : 'Unknown',
-//         patientPhone: patient?.phone || '',
-//         appointmentDate: booking.bookingDate,
-//         appointmentTime: booking.bookingTime,
-//         location: booking.location,
-//       };
-//     });
-
-//     // Get unique dates in range
-//     const dates = this.getDatesBetween(startDate, endDate);
-//     const daysCount = dates.length;
-
-//     const response: HolidayConflictResponseDto = {
-//       hasConflicts: affectedBookings.length > 0,
-//       affectedBookings,
-//       affectedSlots: {
-//         totalSlots: slots.length,
-//         dates: dates.map((d) => d.toISOString().split('T')[0]),
-//       },
-//       summary: {
-//         totalBookings: affectedBookings.length,
-//         totalSlots: slots.length,
-//         dateRange: `${dto.startDate} to ${dto.endDate}`,
-//         daysCount,
-//       },
-//       warningMessage:
-//         affectedBookings.length > 0
-//           ? `Creating holiday will cancel ${affectedBookings.length} pending booking(s) and block ${slots.length} slots for ${daysCount} days. All affected patients will receive push notifications.`
-//           : undefined,
-//     };
-
-//     this.logger.log(
-//       `Holiday conflict check: ${affectedBookings.length} bookings, ${slots.length} slots affected`,
-//     );
-
-//     return response;
-//   }
-
-//   /**
-//    * Create holiday (execute)
-//    * Queues Bull job to handle cancellations and notifications
-//    */
-//   async createHoliday(
-//     dto: CreateHolidayDto,
-//     doctorId: string,
-//   ): Promise<{
-//     message: string;
-//     jobId: string;
-//     affectedBookings: number;
-//     affectedSlots: number;
-//     dateRange: string;
-//   }> {
-//     this.logger.log(`Creating holiday for doctor ${doctorId}`);
-
-//     // Check conflicts first
-//     const conflict = await this.checkHolidayConflict(
-//       {
-//         startDate: dto.startDate,
-//         endDate: dto.endDate,
-//         reason: dto.reason,
-//       },
-//       doctorId,
-//     );
-
-//     // If conflicts and not confirmed, throw error
-//     if (conflict.hasConflicts && !dto.confirmHoliday) {
-//       throw new ConflictException(
-//         'Holiday period has existing bookings. Set confirmHoliday: true to proceed.',
-//       );
-//     }
-
-//     // Get doctor info
-//     const doctor = await this.doctorModel.findById(doctorId).exec();
-//     if (!doctor) {
-//       throw new NotFoundException('Doctor not found');
-//     }
-
-//     const doctorName = `${doctor.firstName} ${doctor.middleName} ${doctor.lastName}`;
-
-//     const startDate = new Date(dto.startDate);
-//     const endDate = new Date(dto.endDate);
-
-//     // Get all slot IDs in range
-//     const slots = await this.slotModel
-//       .find({
-//         doctorId: new Types.ObjectId(doctorId),
-//         date: { $gte: startDate, $lte: endDate },
-//       })
-//       .select('_id')
-//       .lean()
-//       .exec();
-//     // Queue job
-//     const jobData: HolidayBlockJobData = {
-//       doctorId: doctorId,
-//       doctorName,
-//       reason: dto.reason,
-//       affectedBookingIds: conflict.affectedBookings.map((b) => b.bookingId),
-//       affectedSlotIds: slots.map((s) => s._id.toString()),
-//     };
-//     const job = await this.holidayQueue.add('block-holiday-dates', jobData, {
-//       priority: 1, // High priority
-//       attempts: 3,
-//       backoff: {
-//         type: 'exponential',
-//         delay: 2000,
-//       },
-//     });
-
-//     this.logger.log(`Holiday block job queued: ${job.id}`);
-
-//     return {
-//       message:
-//         'Holiday is being created. Bookings will be cancelled and patients notified.',
-//       jobId: job.id.toString(),
-//       affectedBookings: conflict.affectedBookings.length,
-//       affectedSlots: slots.length,
-//       dateRange: `${dto.startDate} to ${dto.endDate}`,
-//     };
-//   }
-
-//   async updateDoctorFCMToken(
-//     doctorId: string,
-//     fcmToken: string,
-//   ): Promise<{
-//     message: string;
-//     doctorId: string;
-//     tokenUpdated: boolean;
-//   }> {
-//     if (!Types.ObjectId.isValid(doctorId)) {
-//       throw new BadRequestException('Invalid doctor ID');
-//     }
-
-//     if (!fcmToken || fcmToken.trim().length === 0) {
-//       throw new BadRequestException('FCM token is required');
-//     }
-
-//     const doctor = await this.doctorModel.findById(doctorId).exec();
-
-//     if (!doctor) {
-//       throw new NotFoundException(`Doctor with ID ${doctorId} not found`);
-//     }
-
-//     // Update FCM token
-//     doctor.fcmToken = fcmToken;
-//     await doctor.save();
-
-//     this.logger.log(`FCM token updated for doctor ${doctorId}`);
-
-//     return {
-//       message: 'FCM token updated successfully',
-//       doctorId: doctor._id.toString(),
-//       tokenUpdated: true,
-//     };
-//   }
-
-//   private getDatesBetween(startDate: Date, endDate: Date): Date[] {
-//     const dates: Date[] = [];
-//     const currentDate = new Date(startDate);
-
-//     while (currentDate <= endDate) {
-//       dates.push(new Date(currentDate));
-//       currentDate.setDate(currentDate.getDate() + 1);
-//     }
-
-//     return dates;
-//   }
-//   async completeBooking(
-//     dto: DoctorCompleteBookingDto,
-//     doctorId: string,
-//   ): Promise<BookingCompletionResponseDto> {
-//     this.logger.log(`Doctor ${doctorId} completing booking ${dto.bookingId}`);
-
-//     // Validate IDs
-//     if (!Types.ObjectId.isValid(dto.bookingId)) {
-//       throw new BadRequestException('Invalid booking ID');
-//     }
-//     if (!Types.ObjectId.isValid(doctorId)) {
-//       throw new BadRequestException('Invalid doctor ID');
-//     }
-
-//     // Find booking with patient and doctor info
-//     const booking = await this.bookingModel
-//       .findOne({
-//         _id: new Types.ObjectId(dto.bookingId),
-//         doctorId: new Types.ObjectId(doctorId),
-//         status: { $in: [BookingStatus.PENDING] },
-//       })
-//       .populate<{ patientId: User }>('patientId', 'username phone fcmToken')
-//       .populate<{ doctorId: Doctor }>('doctorId', 'firstName lastName')
-//       .exec();
-
-//     if (!booking) {
-//       throw new NotFoundException('الحجز غير موجود أو تم إنجازه مسبقاً');
-//     }
-
-//     // Update booking status
-//     booking.status = BookingStatus.COMPLETED;
-//     booking.completedAt = new Date();
-//     if (dto.notes) {
-//       booking.note = dto.notes;
-//     }
-//     await booking.save();
-
-//     this.logger.log(
-//       `✅ Booking ${dto.bookingId} completed by doctor ${doctorId}`,
-//     );
-
-//     // Get patient and doctor info
-//     const patient =
-//       typeof booking.patientId !== 'string'
-//         ? (booking.patientId as unknown as User)
-//         : null;
-//     const doctor =
-//       typeof booking.doctorId !== 'string'
-//         ? (booking.doctorId as unknown as Doctor)
-//         : null;
-
-//     // Send Kafka event to notification service
-//     let patientNotified = false;
-//     if (patient && doctor) {
-//       patientNotified = this.sendPatientNotificationViaKafka(
-//         booking,
-//         patient,
-//         doctor,
-//         dto.notes,
-//       );
-//     }
-
-//     return {
-//       message: 'تم إنجاز الحجز بنجاح',
-//       bookingId: booking._id.toString(),
-//       completedAt: booking.completedAt,
-//       patientNotified,
-//     };
-//   }
-
-//   /**
-//    * Send Kafka event to notification service (patient notification)
-//    * This will be consumed by notification service's handleBookingCompletedNotification
-//    */
-//   private sendPatientNotificationViaKafka(
-//     booking: any,
-//     patient: User,
-//     doctor: Doctor,
-//     notes?: string,
-//   ): boolean {
-//     if (!patient.fcmToken) {
-//       this.logger.warn(
-//         `Patient ${patient._id.toString()} has no FCM token. Notification will still be saved to DB.`,
-//       );
-//     }
-
-//     const event = {
-//       eventType: 'BOOKING_COMPLETED' as const,
-//       timestamp: new Date(),
-//       data: {
-//         patientId: patient._id.toString(),
-//         patientName: patient.username,
-//         doctorId: doctor._id.toString(),
-//         doctorName: `${doctor.firstName} ${doctor.lastName}`,
-//         fcmToken: patient.fcmToken || '', // Empty string if no token
-//         bookingId: booking._id?.toString(),
-//         appointmentDate: formatDate(booking.bookingDate),
-//         appointmentTime: booking.bookingTime,
-//         notes: notes || '',
-//         type: 'BOOKING_COMPLETED' as const,
-//       },
-//       metadata: {
-//         source: 'doctor-booking-service',
-//         version: '1.0',
-//       },
-//     };
-
-//     try {
-//       this.kafkaProducer.emit(KAFKA_TOPICS.BOOKING_COMPLETED, event);
-//       this.logger.log(
-//         `📨 Kafka event sent: BOOKING_COMPLETED_NOTIFICATION for patient ${patient._id.toString()}`,
-//       );
-//       return true;
-//     } catch (error) {
-//       const err = error as Error;
-//       this.logger.error(
-//         `❌ Failed to send Kafka event: ${err.message}`,
-//         err.stack,
-//       );
-//       return false;
-//     }
-//   }
-
-//   async getDoctorPatientGenderStats(
-//     doctorId: string,
-//   ): Promise<DoctorPatientStatsDto> {
-//     if (!Types.ObjectId.isValid(doctorId)) {
-//       throw new BadRequestException('Invalid doctor ID');
-//     }
-
-//     const cacheKey = `doctor:${doctorId}:patient-gender-stats`;
-//     const cached = await this.cacheManager.get<DoctorPatientStatsDto>(cacheKey);
-//     if (cached) {
-//       this.logger.debug(`Cache hit for gender stats: doctor ${doctorId}`);
-//       return cached;
-//     }
-
-//     return this.computeAndCacheStats(doctorId);
-//   }
-
-//   async computeAndCacheStats(doctorId: string): Promise<DoctorPatientStatsDto> {
-//     const doctor = await this.doctorModel.findById(doctorId).exec();
-//     if (!doctor) {
-//       throw new NotFoundException(`Doctor ${doctorId} not found`);
-//     }
-
-//     const doctorName = `${doctor.firstName} ${doctor.middleName} ${doctor.lastName}`;
-
-//     // Step 1: get all unique patient IDs that booked this doctor
-//     const patientIds = await this.bookingModel
-//       .distinct('patientId', {
-//         doctorId: new Types.ObjectId(doctorId),
-//         status: {
-//           $in: [BookingStatus.COMPLETED, BookingStatus.PENDING],
-//         },
-//       })
-//       .exec();
-
-//     const totalPatients = patientIds.length;
-
-//     if (totalPatients === 0) {
-//       const empty = this.buildStatsDto(doctorId, doctorName, 0, 0, 0, 0, 0);
-//       await this.cacheManager.set(
-//         `doctor:${doctorId}:patient-gender-stats`,
-//         empty,
-//         this.STATS_CACHE_TTL,
-//       );
-//       return empty;
-//     }
-
-//     // Step 2: aggregate gender from User collection
-//     const genderAggregation = await this.userModel
-//       .aggregate([
-//         {
-//           $match: {
-//             _id: { $in: patientIds },
-//           },
-//         },
-//         {
-//           $group: {
-//             _id: '$gender',
-//             count: { $sum: 1 },
-//           },
-//         },
-//       ])
-//       .exec();
-
-//     // Step 3: parse results
-//     let maleCount = 0;
-//     let femaleCount = 0;
-//     let unknownCount = 0;
-
-//     for (const group of genderAggregation) {
-//       const gender = (group._id as string)?.toLowerCase();
-//       if (gender === 'male') maleCount = group.count;
-//       else if (gender === 'female') femaleCount = group.count;
-//     }
-
-//     // Account for patients with no gender field at all
-//     const accountedFor = maleCount + femaleCount + unknownCount;
-//     unknownCount += totalPatients - accountedFor;
-
-//     const stats = this.buildStatsDto(
-//       doctorId,
-//       doctorName,
-//       totalPatients,
-//       maleCount,
-//       femaleCount,
-//       unknownCount,
-//       patientIds.length,
-//     );
-
-//     await this.cacheManager.set(
-//       `doctor:${doctorId}:patient-gender-stats`,
-//       stats,
-//       this.STATS_CACHE_TTL,
-//     );
-
-//     return stats;
-//   }
-
-//   private buildStatsDto(
-//     doctorId: string,
-//     doctorName: string,
-//     total: number,
-//     male: number,
-//     female: number,
-//     unknown: number,
-//     uniquePatients: number,
-//   ): DoctorPatientStatsDto {
-//     const now = new Date();
-//     const nextUpdate = new Date(now);
-//     nextUpdate.setHours(24, 0, 0, 0); // midnight tonight
-
-//     const toBreakdown = (count: number): GenderBreakdownDto => ({
-//       count,
-//       percentage:
-//         total > 0 ? parseFloat(((count / total) * 100).toFixed(2)) : 0,
-//     });
-
-//     return {
-//       doctorId,
-//       doctorName,
-//       totalPatients: total,
-//       uniquePatients,
-//       gender: {
-//         male: toBreakdown(male),
-//         female: toBreakdown(female),
-//         unknown: toBreakdown(unknown),
-//       },
-//       lastUpdated: now,
-//       nextUpdateAt: nextUpdate,
-//     };
-//   }
-// }
-
 // ============================================
-// Doctor Registration Service — with i18n
+// Doctor Registration Service
 // ============================================
 
 import {
@@ -2060,13 +11,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
-import {
-  Model,
-  PipelineStage,
-  Types,
-  ClientSession,
-  Connection,
-} from 'mongoose';
+import { Model, PipelineStage, Types } from 'mongoose';
 import {
   Doctor,
   DoctorDocument,
@@ -2084,6 +29,10 @@ import {
   SlotStatus,
   UserRole,
 } from '@app/common/database/schemas/common.enums';
+import { Connection } from 'mongoose';
+// import { FreeTrialService } from './free-trial.service';
+// import { SubscriptionOwnerType } from '../schemas/subscription.schema';
+import { ClientSession } from 'mongoose';
 import { DoctorLoginDto } from './dto/login.dto';
 import {
   RequestDoctorPasswordResetDto,
@@ -2125,69 +74,18 @@ import {
   VIPBookingConflictResponseDto,
   VIPBookingJobData,
 } from './dto/vibbooking.dto';
-import { DoctorCompleteBookingDto } from './dto/complete-booking.dto';
+import {
+  BookingCompletionResponseDto,
+  DoctorCompleteBookingDto,
+} from './dto/complete-booking.dto';
+
 import {
   DoctorPatientStatsDto,
   GenderBreakdownDto,
 } from './dto/doctor-patient-stats.dto';
-
-// ── i18n note ────────────────────────────────────────────────────────────────
-// Services NEVER import getLang(). They throw dot-notation keys and return
-// { messageKey } so the controller (which owns the HTTP context) resolves lang.
-//
-// The ONE exception: loginDoctor needs a localised date inside the lock error.
-// We accept `lang` as a parameter — the controller passes getLang() to us.
-// ─────────────────────────────────────────────────────────────────────────────
-
+import { UploadResult } from '../minio/minio.service';
 // ============================================
-// Service result interfaces
-// ============================================
-
-export interface ServiceResult {
-  messageKey: string;
-}
-
-export interface RegisterResult {
-  doctor: DoctorDocument;
-  messageKey: string;
-}
-
-export interface CancelBookingResult extends ServiceResult {
-  bookingId: string;
-  slotId: string;
-}
-
-export interface CompleteBookingResult extends ServiceResult {
-  bookingId: string;
-  completedAt: Date;
-  patientNotified: boolean;
-}
-
-export interface FcmTokenResult extends ServiceResult {
-  doctorId: string;
-  tokenUpdated: boolean;
-}
-
-export interface PauseSlotsResult extends ServiceResult {
-  slotsCount: number;
-  affectedBookings: number;
-  jobId: string;
-}
-
-export interface VIPBookingResult extends ServiceResult {
-  jobId: string;
-  willDisplaceBooking: boolean;
-}
-
-export interface HolidayResult extends ServiceResult {
-  jobId: string;
-  affectedBookings: number;
-  affectedSlots: number;
-  dateRange: string;
-}
-
-// ============================================
-// Kafka Event Interface
+// Kafka Events
 // ============================================
 
 export interface DoctorRegisteredEvent {
@@ -2220,14 +118,13 @@ export interface DoctorRegisteredEvent {
 }
 
 // ============================================
-// Service
+// Registration Service
 // ============================================
 
 @Injectable()
 export class DoctorService {
   private readonly logger = new Logger(DoctorService.name);
-  private readonly STATS_CACHE_TTL = 86400; // 24 hours
-
+  private readonly STATS_CACHE_TTL = 86400;
   constructor(
     @InjectModel(Doctor.name) private doctorModel: Model<DoctorDocument>,
     @InjectModel(Otp.name) private otpModel: Model<OtpDocument>,
@@ -2246,11 +143,15 @@ export class DoctorService {
   ) {}
 
   // ============================================
-  // Private Validation Helpers
+  // Validation Methods
   // ============================================
 
+  /**
+   * Validate nested enum: Subcity must belong to City
+   */
   private validateSubcity(city: string, subcity: string): void {
     const validSubcities = CityMapping[city] as string[] | undefined;
+
     if (!validSubcities || !validSubcities.includes(subcity)) {
       throw new BadRequestException(
         `Subcity "${subcity}" is not valid for city "${city}". ` +
@@ -2259,6 +160,9 @@ export class DoctorService {
     }
   }
 
+  /**
+   * Validate nested enum: PrivateSpecialization must belong to PublicSpecialization
+   */
   private validateSpecialization(
     publicSpec: string,
     privateSpec: string,
@@ -2266,6 +170,7 @@ export class DoctorService {
     const validPrivateSpecs = SpecialtyMapping[publicSpec] as
       | string[]
       | undefined;
+
     if (!validPrivateSpecs || !validPrivateSpecs.includes(privateSpec)) {
       throw new BadRequestException(
         `Private specialization "${privateSpec}" does not belong to ` +
@@ -2279,14 +184,26 @@ export class DoctorService {
     dto: DoctorRegistrationDtoValidated,
     session?: ClientSession,
   ): Promise<void> {
+    // Check if there's a PENDING registration with same phone
     const existingPending = await this.doctorModel.findOne(
-      { 'phones.normal': dto.phone, status: ApprovalStatus.PENDING },
+      {
+        'phones.normal': dto.phone,
+        status: ApprovalStatus.PENDING,
+      },
       null,
       { session },
     );
-    if (existingPending)
-      throw new ConflictException('auth.DUPLICATE_REGISTRATION');
 
+    if (existingPending) {
+      throw new ConflictException(
+        'A registration request with this phone number is already pending approval. ' +
+          'You cannot submit a new registration until your current request is processed. ' +
+          `Status: ${existingPending.status}, ` +
+          `Submitted: ${existingPending?.registeredAt?.toLocaleDateString()}`,
+      );
+    }
+
+    // Alternative check: Same name + pending
     const existingByName = await this.doctorModel.findOne(
       {
         firstName: dto.firstName,
@@ -2297,8 +214,17 @@ export class DoctorService {
       null,
       { session },
     );
-    if (existingByName)
-      throw new ConflictException('auth.DUPLICATE_REGISTRATION');
+
+    if (existingByName) {
+      throw new ConflictException(
+        'A registration request with this name is already pending approval. ' +
+          `If this is you, please contact support. ` +
+          `Phone: ${existingByName.phones
+            .map((p) => p.normal || p.clinic || p.whatsup)
+            .flat()
+            .join(', ')}`,
+      );
+    }
   }
 
   private async checkPhoneExists(
@@ -2313,22 +239,22 @@ export class DoctorService {
       null,
       { session },
     );
-    if (existing) throw new ConflictException('auth.PHONE_ALREADY_EXISTS');
-  }
 
+    if (existing) {
+      throw new ConflictException(
+        `This phone number is already registered. ` +
+          `Status: ${existing.status}. ` +
+          `Please use a different phone number or contact support.`,
+      );
+    }
+  }
   // ============================================
-  // Register
+  // Registration Method
   // ============================================
 
   async registerDoctor(
     dto: DoctorRegistrationDtoValidated,
-    files?: {
-      certificateImage?: Express.Multer.File;
-      licenseImage?: Express.Multer.File;
-      certificateDocument?: Express.Multer.File;
-      licenseDocument?: Express.Multer.File;
-    },
-  ): Promise<RegisterResult> {
+  ): Promise<DoctorDocument> {
     this.logger.log(`Registration attempt: ${dto.phone}`);
 
     const session = await this.connection.startSession();
@@ -2337,23 +263,32 @@ export class DoctorService {
       let doctor: DoctorDocument;
 
       await session.withTransaction(async () => {
+        // 1. Validate nested enums
         this.validateSubcity(dto.city, dto.subcity);
         this.validateSpecialization(
           dto.publicSpecialization,
           dto.privateSpecialization,
         );
 
+        // 2. Check for duplicates (transaction-safe)
         await this.checkPhoneExists(dto.phone, session);
         await this.checkDuplicatePending(dto, session);
 
-        const processedFiles = this.processUploadedFiles(files);
+        // 3. Process uploaded files
 
+        // 4. Create doctor entity
         doctor = new this.doctorModel({
           firstName: dto.firstName,
           middleName: dto.middleName,
           lastName: dto.lastName,
           password: dto.password,
-          phones: [{ normal: [dto.phone], clinic: [], whatsup: [] }],
+          phones: [
+            {
+              normal: [dto.phone],
+              clinic: [],
+              whatsup: [],
+            },
+          ],
           city: dto.city,
           subcity: dto.subcity,
           publicSpecialization: dto.publicSpecialization,
@@ -2368,11 +303,11 @@ export class DoctorService {
           maxSessions: 5,
           failedLoginAttempts: 0,
         });
-
         if (doctor.authAccountId) {
           throw new BadRequestException('Doctor already has auth account');
         }
 
+        // 2️⃣ Extract normalized phones
         const normalizedPhones = [
           ...new Set(
             (doctor.phones ?? [])
@@ -2387,7 +322,6 @@ export class DoctorService {
             'Doctor has no normalized phone numbers',
           );
         }
-
         const existing = await this.authModel
           .findOne({ phones: { $in: normalizedPhones } })
           .session(session);
@@ -2398,6 +332,7 @@ export class DoctorService {
           );
         }
 
+        // 3️⃣ Create AuthAccount (phones copied from doctor)
         const [authAccount] = await this.authModel.create(
           [
             {
@@ -2409,19 +344,26 @@ export class DoctorService {
           ],
           { session },
         );
-
         doctor.authAccountId = authAccount._id;
+        // 5. Save doctor (inside transaction)
         await doctor.save({ session });
+
+        // 6. OPTIONAL: transactional side-effects (kept commented as requested)
+        // await this.freeTrialService.createTrialOnRegistration(
+        //   doctor._id.toString(),
+        //   SubscriptionOwnerType.DOCTOR,
+        //   session,
+        // );
       });
 
-      // Outside transaction — Kafka fire-and-forget
+      // 7. OUTSIDE transaction (never put Kafka/WebSocket inside TX)
       try {
-        await Promise.allSettled([this.publishDoctorRegisteredEvent(doctor!)]);
+        this.publishDoctorRegisteredEvent(doctor!);
       } catch (error) {
         this.logger.error('Failed to publish Kafka event', error);
       }
 
-      return { doctor: doctor!, messageKey: 'auth.REGISTRATION_COMPLETED' };
+      return doctor!;
     } catch (error) {
       this.logger.error(
         'Doctor registration failed, transaction aborted',
@@ -2433,18 +375,11 @@ export class DoctorService {
     }
   }
 
-  // ============================================
   // Login
-  // Returns raw DoctorDocument — controller builds token/session response.
-  // Accepts `lang` param because the lock-date error message is dynamic.
-  // ============================================
 
-  async loginDoctor(
-    dto: DoctorLoginDto,
-    lang: 'en' | 'ar' = 'en',
-  ): Promise<DoctorDocument> {
+  async loginDoctor(dto: DoctorLoginDto): Promise<DoctorDocument> {
     if (!dto.phone || !dto.password) {
-      throw new BadRequestException('common.VALIDATION_ERROR');
+      throw new BadRequestException('رقم الهاتف وكلمة المرور مطلوبان');
     }
 
     const session = await this.doctorModel.db.startSession();
@@ -2454,73 +389,84 @@ export class DoctorService {
       session.startTransaction();
 
       doctor = await this.doctorModel
-        .findOne({ phones: { $elemMatch: { normal: dto.phone } } })
+        .findOne({
+          phones: {
+            $elemMatch: {
+              normal: dto.phone,
+            },
+          },
+        })
         .select('+password')
         .session(session)
         .exec();
 
-      if (!doctor) throw new UnauthorizedException('auth.ACCOUNT_NOT_FOUND');
+      if (!doctor) {
+        throw new UnauthorizedException('رقم الهاتف أو كلمة مرور غير صحيحة');
+      }
 
+      // Check approval status
       if (doctor.status !== ApprovalStatus.APPROVED) {
-        throw new UnauthorizedException('auth.ACCOUNT_DEACTIVATED');
+        throw new UnauthorizedException(
+          'لم يتم تفعيل حسابك بعد. يرجى انتظار موافقة الإدارة',
+        );
       }
 
       if (doctor.lockedUntil && doctor.lockedUntil.getTime() > Date.now()) {
-        // Dynamic date in the message — we need lang here (passed from controller)
-        const locale = lang === 'ar' ? 'ar-SY' : 'en-US';
-        const unlockDate = doctor.lockedUntil.toLocaleString(locale, {
+        const unlockDate = doctor.lockedUntil.toLocaleString('ar-SY', {
           year: 'numeric',
           month: 'long',
           day: 'numeric',
           hour: '2-digit',
           minute: '2-digit',
         });
+
         throw new UnauthorizedException(
-          lang === 'ar'
-            ? `تم قفل الحساب بسبب محاولات تسجيل دخول فاشلة. سيتم فتح الحساب في: ${unlockDate}`
-            : `Account locked due to failed login attempts. Unlocks at: ${unlockDate}`,
+          `تم قفل الحساب بسبب محاولات تسجيل دخول فاشلة. سيتم فتح الحساب في: ${unlockDate}`,
         );
       }
 
+      // Compare password
       const passwordValid = await doctor.comparePassword?.(dto.password);
 
       if (!passwordValid) {
+        // Increment and save failed attempts
         doctor.incrementFailedAttempts?.();
         await doctor.save({ session });
         await session.commitTransaction();
-        throw new UnauthorizedException('auth.TOKEN_INVALID');
-      }
 
+        // Throw error AFTER committing
+        throw new UnauthorizedException('رقم الهاتف أو كلمة مرور غير صحيحة');
+      }
       const activeSessionsCount = doctor.getActiveSessionsCount?.();
       const maxSessions = doctor.maxSessions || 5;
 
       if (activeSessionsCount && activeSessionsCount >= maxSessions) {
         await doctor.save({ session });
         await session.commitTransaction();
-        throw new UnauthorizedException('auth.SESSION_EXPIRED');
+        throw new UnauthorizedException(
+          `لقد تجاوزت الحد الأقصى للجلسات النشطة (${maxSessions} ${maxSessions === 1 ? 'جلسة' : 'جلسات'}). يرجى تسجيل الخروج من جهاز آخر أولاً`,
+        );
       }
-
+      // Success: Reset failed attempts
       doctor.resetFailedAttempts?.();
       doctor.lastLoginAt = new Date();
+
       await doctor.save({ session });
       await session.commitTransaction();
 
       return doctor;
     } catch (error) {
-      if (session.inTransaction()) await session.abortTransaction();
+      // Only abort if we haven't committed yet
+      if (session.inTransaction()) {
+        await session.abortTransaction();
+      }
       throw error;
     } finally {
       await session.endSession();
     }
   }
 
-  // ============================================
-  // Request password reset OTP
-  // ============================================
-
-  async requestPasswordResetOtp(
-    dto: RequestDoctorPasswordResetDto,
-  ): Promise<ServiceResult> {
+  async requestPasswordResetOtp(dto: RequestDoctorPasswordResetDto) {
     const session = await this.connection.startSession();
 
     try {
@@ -2528,21 +474,35 @@ export class DoctorService {
 
       const { phone } = dto;
 
+      // Check if doctor exists with this phone number
       const doctor = await this.doctorModel
-        .findOne({ phones: { $elemMatch: { normal: phone } } })
+        .findOne({
+          phones: {
+            $elemMatch: {
+              normal: phone,
+            },
+          },
+        })
         .session(session)
         .exec();
 
-      if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
-
-      if (doctor.status !== ApprovalStatus.APPROVED) {
-        throw new BadRequestException('auth.ACCOUNT_DEACTIVATED');
+      if (!doctor) {
+        throw new NotFoundException('لا يوجد حساب طبيب مسجل بهذا الرقم');
       }
 
+      // Check if doctor is approved
+      if (doctor.status !== ApprovalStatus.APPROVED) {
+        throw new BadRequestException(
+          'حسابك غير مفعل. لا يمكن إعادة تعيين كلمة المرور',
+        );
+      }
+
+      // Clear any existing OTP for this doctor
       await this.otpModel
         .deleteMany({ authAccountId: doctor.authAccountId })
         .session(session);
 
+      // Generate new OTP
       const otp = this.smsService.generateOTP();
 
       await this.otpModel.create(
@@ -2561,25 +521,24 @@ export class DoctorService {
 
       await session.commitTransaction();
 
-      // Outside transaction
+      // Send OTP via SMS (outside transaction)
       await this.smsService.sendOTP(phone, otp);
 
-      return { messageKey: 'auth.OTP_SENT' };
+      return {
+        success: true,
+        message: 'تم إرسال رمز التحقق إلى رقم هاتفك',
+      };
     } catch (error) {
-      if (session.inTransaction()) await session.abortTransaction();
+      if (session.inTransaction()) {
+        await session.abortTransaction();
+      }
       throw error;
     } finally {
       await session.endSession();
     }
   }
 
-  // ============================================
-  // Verify OTP (password reset)
-  // ============================================
-
-  async verifyPasswordResetOtp(
-    dto: VerifyOtpForPasswordResetDto,
-  ): Promise<ServiceResult> {
+  async verifyPasswordResetOtp(dto: VerifyOtpForPasswordResetDto) {
     const session = await this.connection.startSession();
 
     try {
@@ -2587,50 +546,79 @@ export class DoctorService {
 
       const { phone, otp } = dto;
 
+      // Find doctor
       const doctor = await this.doctorModel
-        .findOne({ phones: { $elemMatch: { normal: phone } } })
+        .findOne({
+          phones: {
+            $elemMatch: {
+              normal: phone,
+            },
+          },
+        })
         .session(session)
         .exec();
 
-      if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
+      if (!doctor) {
+        throw new NotFoundException('لا يوجد حساب طبيب مسجل بهذا الرقم');
+      }
 
+      // Find OTP record
       const authAccount = await this.authModel.findOne({ phones: phone });
-      if (!authAccount) throw new NotFoundException('auth.AUTH_NOT_FOUND');
+
+      if (!authAccount) throw new NotFoundException('Auth account not found');
 
       const otpRecord = await this.otpModel.findOne({
         authAccountId: authAccount._id,
         phone,
       });
 
-      if (!otpRecord) throw new UnauthorizedException('auth.OTP_NOT_FOUND');
-      if (otpRecord.isExpired())
-        throw new UnauthorizedException('auth.OTP_EXPIRED');
-      if (otpRecord.isMaxAttemptsReached())
-        throw new UnauthorizedException('auth.OTP_MAX_ATTEMPTS');
+      if (!otpRecord) {
+        throw new UnauthorizedException('لم يتم العثور على رمز تحقق صالح');
+      }
 
+      // Check if expired
+      if (otpRecord.isExpired()) {
+        throw new UnauthorizedException('رمز التحقق منتهي الصلاحية');
+      }
+
+      // Check max attempts before incrementing
+      if (otpRecord.isMaxAttemptsReached()) {
+        throw new UnauthorizedException(
+          'تجاوزت الحد الأقصى من المحاولات. يرجى طلب رمز جديد',
+        );
+      }
+
+      // Check if OTP matches
       if (otpRecord.code !== otp) {
+        // Increment attempts on wrong OTP
         otpRecord.incrementAttempts();
         await otpRecord.save({ session });
         await session.commitTransaction();
-        throw new UnauthorizedException('auth.OTP_INVALID');
+
+        const remainingAttempts =
+          (otpRecord.maxAttempts || 5) - otpRecord.attempts;
+        throw new UnauthorizedException(
+          `رمز التحقق غير صحيح. المحاولات المتبقية: ${remainingAttempts}`,
+        );
       }
 
       await session.commitTransaction();
 
-      return { messageKey: 'auth.OTP_VERIFIED' };
+      return {
+        success: true,
+        message: 'تم التحقق من الرمز بنجاح',
+      };
     } catch (error) {
-      if (session.inTransaction()) await session.abortTransaction();
+      if (session.inTransaction()) {
+        await session.abortTransaction();
+      }
       throw error;
     } finally {
       await session.endSession();
     }
   }
 
-  // ============================================
-  // Reset password
-  // ============================================
-
-  async resetPassword(dto: ResetDoctorPasswordDto): Promise<ServiceResult> {
+  async resetPassword(dto: ResetDoctorPasswordDto) {
     const session = await this.connection.startSession();
 
     try {
@@ -2638,44 +626,72 @@ export class DoctorService {
 
       const { phone, otp, newPassword } = dto;
 
+      // Find doctor
       const doctor = await this.doctorModel
-        .findOne({ phones: { $elemMatch: { normal: phone } } })
+        .findOne({
+          phones: {
+            $elemMatch: {
+              normal: phone,
+            },
+          },
+        })
         .select('+password')
         .session(session)
         .exec();
 
-      if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
+      if (!doctor) {
+        throw new NotFoundException('لا يوجد حساب طبيب مسجل بهذا الرقم');
+      }
 
+      // Find and verify OTP
       const authAccount = await this.authModel.findOne({ phones: phone });
-      if (!authAccount) throw new NotFoundException('auth.AUTH_NOT_FOUND');
+
+      if (!authAccount) throw new NotFoundException('Auth account not found');
 
       const otpRecord = await this.otpModel.findOne({
         authAccountId: authAccount._id,
         phone,
       });
 
-      if (!otpRecord) throw new UnauthorizedException('auth.OTP_NOT_FOUND');
-      if (otpRecord.isExpired())
-        throw new UnauthorizedException('auth.OTP_EXPIRED');
-      if (otpRecord.isMaxAttemptsReached())
-        throw new UnauthorizedException('auth.OTP_MAX_ATTEMPTS');
+      if (!otpRecord) {
+        throw new UnauthorizedException('لم يتم العثور على رمز تحقق صالح');
+      }
 
+      // Check expiration
+      if (otpRecord.isExpired()) {
+        throw new UnauthorizedException('رمز التحقق منتهي الصلاحية');
+      }
+
+      // Check max attempts (optional)
+      if (otpRecord.isMaxAttemptsReached()) {
+        throw new UnauthorizedException(
+          'تجاوزت الحد الأقصى من المحاولات. يرجى طلب رمز جديد',
+        );
+      }
       if (otpRecord.code !== otp) {
         otpRecord.incrementAttempts();
         await otpRecord.save({ session });
         await session.commitTransaction();
-        throw new UnauthorizedException('auth.OTP_INVALID');
+        throw new UnauthorizedException('رمز التحقق غير صحيح');
       }
 
+      // Update password (pre-save hook will hash it)
       doctor.password = newPassword;
+
+      // Reset security fields
       doctor.resetFailedAttempts?.();
       doctor.lastLoginAt = new Date();
+
+      // Optionally: clear all sessions to force re-login on all devices
       await doctor.removeAllSessions?.();
+
       await doctor.save({ session });
 
+      // Mark OTP as used
       otpRecord.isUsed = true;
       await otpRecord.save({ session });
 
+      // Delete all other OTPs for this doctor
       await this.otpModel
         .deleteMany({
           authAccountId: authAccount._id,
@@ -2685,83 +701,62 @@ export class DoctorService {
 
       await session.commitTransaction();
 
-      return { messageKey: 'common.SUCCESS' };
+      return {
+        success: true,
+        message: 'تم إعادة تعيين كلمة المرور بنجاح',
+      };
     } catch (error) {
-      if (session.inTransaction()) await session.abortTransaction();
+      if (session.inTransaction()) {
+        await session.abortTransaction();
+      }
       throw error;
     } finally {
       await session.endSession();
     }
   }
-
   // ============================================
-  // Check approved doctor by phone
+  // File Processing Methods
   // ============================================
 
+  /**
+   * Check if a doctor exists by NORMAL phone number
+   * and is APPROVED
+   */
   async isApprovedDoctorByPhone(
     phone: string,
   ): Promise<{ exists: boolean; approved: boolean }> {
     const doctor = await this.doctorModel
-      .findOne({ 'phones.normal': phone })
+      .findOne({
+        'phones.normal': phone,
+      })
       .select({ approvalStatus: 1 })
       .lean()
       .exec();
 
-    if (!doctor) return { exists: false, approved: false };
-    return { exists: true, approved: true };
-  }
-
-  // ============================================
-  // File Processing Helpers
-  // ============================================
-
-  private processUploadedFiles(files?: {
-    certificateImage?: Express.Multer.File;
-    licenseImage?: Express.Multer.File;
-    certificateDocument?: Express.Multer.File;
-    licenseDocument?: Express.Multer.File;
-  }): {
-    certificateImage?: string;
-    licenseImage?: string;
-    certificateDocument?: string;
-    licenseDocument?: string;
-  } {
-    if (!files) return {};
-
-    const result: {
-      certificateImage?: string;
-      licenseImage?: string;
-      certificateDocument?: string;
-      licenseDocument?: string;
-    } = {};
-
-    if (files.certificateImage) {
-      result.certificateImage = this.normalizeFilePath(
-        files.certificateImage.path,
-      );
-    } else if (files.certificateDocument) {
-      result.certificateImage = this.normalizeFilePath(
-        files.certificateDocument.path,
-      );
+    if (!doctor) {
+      return {
+        exists: false,
+        approved: false,
+      };
     }
 
-    if (files.licenseImage) {
-      result.licenseImage = this.normalizeFilePath(files.licenseImage.path);
-    } else if (files.licenseDocument) {
-      result.licenseImage = this.normalizeFilePath(files.licenseDocument.path);
-    }
-
-    return result;
-  }
-
-  private normalizeFilePath(filePath: string): string {
-    return filePath.replace(/\\/g, '/');
+    return {
+      exists: true,
+      approved: true,
+    };
   }
 
   // ============================================
   // Kafka Event Publishing
   // ============================================
 
+  /**
+   * Publish DOCTOR_REGISTERED event to Kafka
+   * This triggers:
+   * 1. Notification Service → Send welcome email/SMS
+   * 2. fcm Service → Notify admin dashboard
+   * 3. Analytics Service → Track registration
+   */
   private publishDoctorRegisteredEvent(doctor: DoctorDocument): void {
     const event = {
       eventType: 'DOCTOR_REGISTERED',
@@ -2773,11 +768,16 @@ export class DoctorService {
           .map((p) => p.normal || p.clinic || p.whatsup)
           .flat()
           .join(', '),
+        // ... rest of data
       },
-      metadata: { source: 'registration-service', version: '1.0' },
+      metadata: {
+        source: 'registration-service',
+        version: '1.0',
+      },
     };
 
     try {
+      // Use emit for fire-and-forget events
       this.kafkaProducer.emit(KAFKA_TOPICS.DOCTOR_REGISTERED, event);
     } catch (error) {
       const err = error as Error;
@@ -2785,20 +785,19 @@ export class DoctorService {
     }
   }
 
-  // ============================================
-  // Get bookings by location (legacy)
-  // ============================================
-
   async getDoctorBookingsByLocation(query: GetDoctorBookingsByLocationDto) {
     const { doctorId, locationType, bookingDate, page = 1, limit = 10 } = query;
 
     const cacheKey = `doctor:${doctorId}:bookings:${locationType}:${bookingDate}:p${page}:l${limit}`;
+
     const cached = await this.cacheManager.get(cacheKey);
     if (cached) return cached;
 
     const skip = (page - 1) * limit;
+
     const selectedDate = new Date(bookingDate);
     selectedDate.setHours(0, 0, 0, 0);
+
     const nextDay = new Date(selectedDate);
     nextDay.setDate(selectedDate.getDate() + 1);
 
@@ -2818,7 +817,11 @@ export class DoctorService {
         },
       },
       { $unwind: '$slot' },
-      { $match: { 'slot.location.type': locationType } },
+      {
+        $match: {
+          'slot.location.type': locationType,
+        },
+      },
       {
         $lookup: {
           from: 'users',
@@ -2828,7 +831,11 @@ export class DoctorService {
         },
       },
       { $unwind: '$patient' },
-      { $sort: { 'slot.startTime': 1 } },
+      {
+        $sort: {
+          'slot.startTime': 1,
+        },
+      },
       {
         $facet: {
           data: [
@@ -2855,37 +862,57 @@ export class DoctorService {
     ];
 
     const result = await this.bookingModel.aggregate(aggregation);
+
     const data = result[0].data;
     const total = result[0].totalCount[0]?.count || 0;
 
     const response = {
       data,
-      meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
     };
 
     await this.cacheManager.set(cacheKey, response, 3600);
+
     return response;
   }
 
-  // ============================================
-  // Doctor cancel booking
-  // ============================================
-
+  /**
+   * Doctor cancels a booking
+   * Frees up the slot and publishes Kafka event to refresh available slots
+   */
   async doctorCancelBooking(
     dto: DoctorCancelBookingDto,
     doctorId: string,
-  ): Promise<CancelBookingResult> {
+  ): Promise<{
+    message: string;
+    bookingId: string;
+    slotId: string;
+    patientNotified?: boolean;
+  }> {
     const doctor = await this.doctorModel.findById(doctorId).exec();
-    if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
+    if (!doctor) {
+      throw new NotFoundException(`Doctor with ID ${doctorId} not found`);
+    }
+    this.logger.log(`Doctor ${doctorId} canceling booking ${dto.bookingId}`);
 
+    // Validate IDs
     if (!Types.ObjectId.isValid(dto.bookingId)) {
-      throw new BadRequestException('common.VALIDATION_ERROR');
+      throw new BadRequestException('Invalid booking ID');
+    }
+    if (!Types.ObjectId.isValid(doctorId)) {
+      throw new BadRequestException('Invalid doctor ID');
     }
 
     const session = await this.bookingModel.db.startSession();
     session.startTransaction();
 
     try {
+      // Step 1: Find and cancel the booking
       const booking = await this.bookingModel
         .findOne({
           _id: new Types.ObjectId(dto.bookingId),
@@ -2896,8 +923,11 @@ export class DoctorService {
         .session(session)
         .exec();
 
-      if (!booking) throw new NotFoundException('booking.NOT_FOUND');
+      if (!booking) {
+        throw new NotFoundException('Booking not found or already cancelled');
+      }
 
+      // Update booking status
       booking.status = BookingStatus.CANCELLED_BY_DOCTOR;
       booking.cancellation = {
         cancelledBy: UserRole.DOCTOR,
@@ -2906,6 +936,7 @@ export class DoctorService {
       };
       await booking.save({ session });
 
+      // Step 2: Free up the slot
       const slot = await this.slotModel
         .findByIdAndUpdate(
           booking.slotId,
@@ -2914,38 +945,76 @@ export class DoctorService {
         )
         .exec();
 
-      if (!slot) throw new NotFoundException('slot.NOT_FOUND');
-
-      await session.commitTransaction();
-
-      await this.invalidateSlotsCache(doctorId);
-      this.publishSlotsRefreshedEvent(doctorId, slot);
-
-      const patient = await this.userModel.findById(booking.patientId).exec();
-      if (patient?.fcmToken) {
-        this.sendCancellationNotification(
-          doctorId,
-          `${doctor.firstName} ${doctor.lastName}`,
-          patient,
-          booking,
-          dto.reason,
-          'DOCTOR_CANCELLED',
-        );
+      if (!slot) {
+        throw new NotFoundException('Associated slot not found');
       }
 
+      // Commit transaction
+      await session.commitTransaction();
+
+      this.logger.log(
+        `Booking ${dto.bookingId} cancelled by doctor. Slot ${slot._id.toString()} freed.`,
+      );
+
+      // Step 3: Invalidate cache
+      await this.invalidateSlotsCache(doctorId);
+
+      // Step 4: Publish Kafka event to refresh available slots
+      this.publishSlotsRefreshedEvent(doctorId, slot);
+
+      // Step 5: Send FCM notification to patient
+
+      const doctorName = doctor.firstName + ' ' + doctor.lastName;
+      const patient = await this.userModel.findById(booking.patientId).exec();
+
+      if (!patient) {
+        this.logger.warn(`Patient not found. Notification not sent.`);
+        return {
+          message: 'Booking cancelled successfully',
+          bookingId: booking._id.toString(),
+          slotId: slot._id.toString(),
+        };
+      }
+
+      const patientToken = patient.fcmToken;
+
+      if (!patientToken) {
+        this.logger.warn(`Patient has no FCM token. Notification not sent.`);
+        return {
+          message: 'Booking cancelled successfully',
+          bookingId: booking._id.toString(),
+          slotId: slot._id.toString(),
+        };
+      }
+
+      this.sendCancellationNotification(
+        doctorId,
+        doctorName,
+        patient,
+        booking,
+        dto.reason,
+        'DOCTOR_CANCELLED',
+      );
+
       return {
-        messageKey: 'booking.CANCELLED',
+        message: 'Booking cancelled successfully',
         bookingId: booking._id.toString(),
         slotId: slot._id.toString(),
+        // patientNotified,
       };
     } catch (error) {
+      const err = error as Error;
       await session.abortTransaction();
+      this.logger.error(`Failed to cancel booking: ${err.message}`, err.stack);
       throw error;
     } finally {
       await session.endSession();
     }
   }
 
+  /**
+   * Publish Kafka event to notify about refreshed available slots
+   */
   private publishSlotsRefreshedEvent(
     doctorId: string,
     freedSlot: AppointmentSlotDocument,
@@ -2962,7 +1031,10 @@ export class DoctorService {
         location: freedSlot.location,
         price: freedSlot.price,
       },
-      metadata: { source: 'slot-management-service', version: '1.0' },
+      metadata: {
+        source: 'slot-management-service',
+        version: '1.0',
+      },
     };
 
     try {
@@ -2977,43 +1049,51 @@ export class DoctorService {
     }
   }
 
-  // ============================================
-  // Check pause conflicts (dry run)
-  // Returns raw PauseSlotConflictDto — no messageKey needed
-  // ============================================
-
+  /**
+   * Check conflicts before pausing slots (dry run)
+   */
   async checkPauseConflicts(
     dto: PauseSlotsDto,
     doctorId: string,
   ): Promise<PauseSlotConflictDto> {
+    this.logger.log(`Checking pause conflicts for ${dto.slotIds.length} slots`);
+
+    // Validate doctor ID
     if (!Types.ObjectId.isValid(doctorId)) {
-      throw new BadRequestException('common.VALIDATION_ERROR');
+      throw new BadRequestException('Invalid doctor ID');
     }
-
     const doctor = await this.doctorModel.findById(doctorId).exec();
-    if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
-
+    if (!doctor) {
+      throw new NotFoundException(`Doctor with ID ${doctorId} not found`);
+    }
+    // Validate slot IDs
     for (const slotId of dto.slotIds) {
       if (!Types.ObjectId.isValid(slotId)) {
-        throw new BadRequestException('common.VALIDATION_ERROR');
+        throw new BadRequestException(`Invalid slot ID: ${slotId}`);
       }
     }
 
+    // Get slots
     const slots = await this.slotModel
       .find({
         _id: { $in: dto.slotIds.map((id) => new Types.ObjectId(id)) },
         doctorId: new Types.ObjectId(doctorId),
+        // Add this condition to exclude blocked and invalidated slots
         status: { $nin: [SlotStatus.BLOCKED, SlotStatus.INVALIDATED] },
       })
       .exec();
 
-    if (slots.length === 0) throw new NotFoundException('slot.NOT_FOUND');
+    if (slots.length === 0) {
+      throw new NotFoundException('No valid slots found');
+    }
+
     if (slots.length !== dto.slotIds.length) {
       throw new BadRequestException(
         `Some slots not found or don't belong to doctor ${doctorId}`,
       );
     }
 
+    // Find bookings for these slots
     const bookings = await this.bookingModel
       .find({
         slotId: { $in: dto.slotIds.map((id) => new Types.ObjectId(id)) },
@@ -3033,7 +1113,7 @@ export class DoctorService {
 
     const hasConflicts = affectedBookings.length > 0;
 
-    return {
+    const response: PauseSlotConflictDto = {
       hasConflicts,
       affectedBookings,
       summary: {
@@ -3044,35 +1124,56 @@ export class DoctorService {
         ? `Pausing these slots will cancel ${affectedBookings.length} booking(s). Affected patients will be notified via push notification.`
         : undefined,
     };
+
+    this.logger.log(
+      `Pause conflict check: ${affectedBookings.length} bookings affected`,
+    );
+
+    return response;
   }
 
-  // ============================================
-  // Pause slots (execute)
-  // ============================================
-
+  /**
+   * Pause slots and handle conflicts
+   */
   async pauseSlots(
     dto: PauseSlotsDto,
     doctorId: string,
-  ): Promise<PauseSlotsResult> {
+  ): Promise<{
+    message: string;
+    slotsCount: number;
+    affectedBookings: number;
+    jobId: string;
+  }> {
+    this.logger.log(`Pausing ${dto.slotIds.length} slots`);
+
+    // Validate
     if (!Types.ObjectId.isValid(doctorId)) {
-      throw new BadRequestException('common.VALIDATION_ERROR');
+      throw new BadRequestException('Invalid doctor ID');
     }
 
+    // Get doctor info
     const doctor = await this.doctorModel.findById(doctorId).exec();
-    if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
+    if (!doctor) {
+      throw new NotFoundException(`Doctor with ID ${doctorId} not found`);
+    }
 
+    // Check conflicts
     const conflicts = await this.checkPauseConflicts(dto, doctorId);
 
     if (conflicts.hasConflicts && !dto.confirmPause) {
-      throw new ConflictException('booking.SLOT_ALREADY_BOOKED');
+      throw new ConflictException(
+        'Conflicts detected. Set confirmPause: true to proceed.',
+      );
     }
 
+    // Determine pause date
     const pauseDate = dto.pauseDate ? new Date(dto.pauseDate) : getSyriaDate();
 
+    // Queue job to pause slots
     const job = await this.pauseSlotsQueue.add(
       'pause-slots-and-cancel-bookings',
       {
-        doctorId,
+        doctorId: doctorId,
         slotIds: dto.slotIds,
         reason: dto.reason,
         pauseDate,
@@ -3082,9 +1183,12 @@ export class DoctorService {
         },
       } as PauseSlotsJobData,
       {
-        priority: 1,
+        priority: 1, // High priority
         attempts: 3,
-        backoff: { type: 'exponential', delay: 2000 },
+        backoff: {
+          type: 'exponential',
+          delay: 2000,
+        },
       },
     );
 
@@ -3093,13 +1197,14 @@ export class DoctorService {
     );
 
     return {
-      messageKey: 'slot.PAUSED',
+      message: conflicts.hasConflicts
+        ? 'Slots are being paused. Affected patients will be notified.'
+        : 'Slots are being paused. No bookings affected.',
       slotsCount: dto.slotIds.length,
       affectedBookings: conflicts.affectedBookings.length,
       jobId: job.id.toString(),
     };
   }
-
   private sendCancellationNotification(
     doctorId: string,
     doctorName: string,
@@ -3115,11 +1220,13 @@ export class DoctorService {
 
     if (!booking._id) {
       this.logger.error(
-        `Booking document is missing _id. Notification not sent.`,
+        `Booking document is missing _id. Cancellation notification not sent.`,
       );
       return false;
     }
 
+    // This will be handled by FCM service (created separately)
+    // For now, publish to Kafka for notification service to handle
     const event = {
       eventType: 'BOOKING_CANCELLED_NOTIFICATION',
       timestamp: new Date(),
@@ -3135,7 +1242,10 @@ export class DoctorService {
         reason,
         type,
       },
-      metadata: { source: 'doctor-service', version: '1.0' },
+      metadata: {
+        source: 'doctor-service',
+        version: '1.0',
+      },
     };
 
     try {
@@ -3143,7 +1253,7 @@ export class DoctorService {
         KAFKA_TOPICS.BOOKING_CANCELLED_NOTIFICATION,
         event,
       );
-      this.logger.log(`Cancellation notification event published`);
+      this.logger.log(`Cancellation notification event published for patient `);
       return true;
     } catch (error) {
       const err = error as Error;
@@ -3153,11 +1263,12 @@ export class DoctorService {
       return false;
     }
   }
-
   private async invalidateSlotsCache(doctorId: string): Promise<void> {
     try {
+      // Delete all cache keys related to this doctor's slots
       const pattern = `slots:available:${doctorId}:*`;
       await this.cacheManager.del(pattern);
+
       this.logger.debug(`Slots cache invalidated for doctor ${doctorId}`);
     } catch (error) {
       const err = error as Error;
@@ -3165,24 +1276,25 @@ export class DoctorService {
     }
   }
 
-  // ============================================
-  // Get all slots (for VIP booking view)
-  // ============================================
-
   async getAllSlots(dto: GetAllSlotsDto): Promise<AllSlotsResponseDto[]> {
+    this.logger.log(
+      `Getting all slots for doctor ${dto.doctorId} on ${dto.date}`,
+    );
+
     if (!Types.ObjectId.isValid(dto.doctorId)) {
-      throw new BadRequestException('common.VALIDATION_ERROR');
+      throw new BadRequestException('Invalid doctor ID');
     }
-
     const doctor = await this.doctorModel.findById(dto.doctorId).exec();
-    if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
-
+    if (!doctor) {
+      throw new NotFoundException('Doctor not found');
+    }
     const date = new Date(dto.date);
     const startOfDay = new Date(date);
     startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date(date);
     endOfDay.setHours(23, 59, 59, 999);
 
+    // Get ALL slots (not just AVAILABLE)
     const slots = await this.slotModel
       .find({
         doctorId: new Types.ObjectId(dto.doctorId),
@@ -3205,10 +1317,13 @@ export class DoctorService {
         location: slot.location,
       };
 
+      // If slot is booked, get booking details
       if (slot.status === SlotStatus.BOOKED) {
         const booking = await this.bookingModel
           .findOne({ slotId: slot._id })
-          .populate<{ patientId: User }>('patientId', 'username phone')
+          .populate<{
+            patientId: User;
+          }>('patientId', 'username phone')
           .lean()
           .exec();
 
@@ -3227,28 +1342,35 @@ export class DoctorService {
       slotsWithBookings.push(slotData);
     }
 
+    this.logger.log(
+      `Found ${slotsWithBookings.length} slots (${slots.filter((s) => s.status === SlotStatus.BOOKED).length} booked)`,
+    );
+
     return slotsWithBookings;
   }
 
-  // ============================================
-  // VIP booking conflict check (dry run)
-  // Returns raw VIPBookingConflictResponseDto — no messageKey needed
-  // ============================================
-
+  /**
+   * Check VIP booking conflict (dry run)
+   */
   async checkVIPBookingConflict(
     dto: CheckVIPBookingConflictDto,
     doctorId: string,
   ): Promise<VIPBookingConflictResponseDto> {
+    this.logger.log(`Checking VIP booking conflict for slot ${dto.slotId}`);
+
+    // Validate IDs
     if (!Types.ObjectId.isValid(doctorId)) {
-      throw new BadRequestException('common.VALIDATION_ERROR');
+      throw new BadRequestException('Invalid doctor ID');
     }
     if (!Types.ObjectId.isValid(dto.slotId)) {
-      throw new BadRequestException('common.VALIDATION_ERROR');
+      throw new BadRequestException('Invalid slot ID');
+    }
+    const doctor = await this.doctorModel.findById(doctorId).exec();
+    if (!doctor) {
+      throw new NotFoundException('Doctor not found');
     }
 
-    const doctor = await this.doctorModel.findById(doctorId).exec();
-    if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
-
+    // Get slot
     const slot = await this.slotModel
       .findOne({
         _id: new Types.ObjectId(dto.slotId),
@@ -3257,7 +1379,9 @@ export class DoctorService {
       })
       .exec();
 
-    if (!slot) throw new NotFoundException('slot.NOT_FOUND');
+    if (!slot) {
+      throw new NotFoundException('Slot not found');
+    }
 
     const response: VIPBookingConflictResponseDto = {
       hasConflict: false,
@@ -3265,11 +1389,16 @@ export class DoctorService {
       canProceed: true,
     };
 
+    // Check slot status
     if (slot.status === SlotStatus.AVAILABLE) {
+      // No conflict - slot is available
+      response.hasConflict = false;
+      response.canProceed = true;
       return response;
     }
 
     if (slot.status === SlotStatus.BLOCKED) {
+      // Cannot book on paused/blocked slots
       response.hasConflict = true;
       response.canProceed = false;
       response.warningMessage = `Slot is ${slot.status}. Cannot create VIP booking.`;
@@ -3277,13 +1406,17 @@ export class DoctorService {
     }
 
     if (slot.status === SlotStatus.BOOKED) {
+      // Conflict - slot already has a booking
       const existingBooking = await this.bookingModel
         .findOne({ slotId: slot._id })
-        .populate<{ patientId: User }>('patientId', 'username phone')
+        .populate<{
+          patientId: User;
+        }>('patientId', 'username phone')
         .exec();
 
       if (existingBooking && typeof existingBooking.patientId !== 'string') {
         const patient = existingBooking.patientId as unknown as User;
+
         response.hasConflict = true;
         response.conflictDetails = {
           existingBookingId: existingBooking._id.toString(),
@@ -3293,41 +1426,59 @@ export class DoctorService {
           appointmentTime: `${existingBooking.bookingTime} - ${existingBooking.bookingEndTime}`,
         };
         response.warningMessage = `Slot is already booked by ${response.conflictDetails.patientName}. Creating VIP booking will CANCEL their appointment and notify them.`;
-        response.canProceed = true;
+        response.canProceed = true; // Can proceed with override
       }
     }
 
     return response;
   }
 
-  // ============================================
-  // Create VIP booking (execute)
-  // ============================================
-
+  /**
+   * Create VIP booking (execute)
+   * Queues Bull job to handle conflict and notifications
+   */
   async createVIPBooking(
     dto: CreateVIPBookingDto,
     doctorId: string,
-  ): Promise<VIPBookingResult> {
+  ): Promise<{
+    message: string;
+    bookingId?: string;
+    jobId?: string;
+    willDisplaceBooking: boolean;
+  }> {
+    this.logger.log(`Creating VIP booking for slot ${dto.slotId}`);
+
+    // Check conflict first
     const conflict = await this.checkVIPBookingConflict(
-      { slotId: dto.slotId },
+      {
+        slotId: dto.slotId,
+      },
       doctorId,
     );
 
+    // If conflict and not confirmed, throw error
     if (conflict.hasConflict && !dto.confirmOverride) {
-      throw new ConflictException('booking.SLOT_ALREADY_BOOKED');
+      throw new ConflictException(
+        'Slot is already booked. Set confirmOverride: true to proceed.',
+      );
     }
 
+    // If slot is paused/blocked, cannot proceed
     if (!conflict.canProceed) {
-      throw new BadRequestException('booking.SLOT_RESERVE_FAILED');
+      throw new BadRequestException(conflict.warningMessage);
     }
 
+    // Get doctor info
     const doctor = await this.doctorModel.findById(doctorId).exec();
-    if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
+    if (!doctor) {
+      throw new NotFoundException('Doctor not found');
+    }
 
     const doctorName = `${doctor.firstName} ${doctor.middleName} ${doctor.lastName}`;
 
+    // Queue job
     const jobData: VIPBookingJobData = {
-      doctorId,
+      doctorId: doctorId,
       doctorName,
       slotId: dto.slotId,
       vipPatientId: dto.vipPatientId,
@@ -3337,67 +1488,76 @@ export class DoctorService {
     };
 
     const job = await this.vipBookingQueue.add('create-vip-booking', jobData, {
-      priority: 1,
+      priority: 1, // High priority
       attempts: 3,
-      backoff: { type: 'exponential', delay: 2000 },
+      backoff: {
+        type: 'exponential',
+        delay: 2000,
+      },
     });
 
     this.logger.log(`VIP booking job queued: ${job.id}`);
 
     return {
-      messageKey: 'booking.CREATED',
+      message: conflict.hasConflict
+        ? 'VIP booking is being created. Existing booking will be cancelled and patient notified.'
+        : 'VIP booking is being created.',
       jobId: job.id.toString(),
       willDisplaceBooking: conflict.hasConflict,
     };
   }
 
-  // ============================================
-  // Holiday conflict check (dry run)
-  // Returns raw HolidayConflictResponseDto — no messageKey needed
-  // ============================================
-
   async checkHolidayConflict(
     dto: CheckHolidayConflictDto,
     doctorId: string,
   ): Promise<HolidayConflictResponseDto> {
+    this.logger.log(
+      `Checking holiday conflicts for doctor ${doctorId} from ${dto.startDate} to ${dto.endDate}`,
+    );
+
     if (!Types.ObjectId.isValid(doctorId)) {
-      throw new BadRequestException('common.VALIDATION_ERROR');
+      throw new BadRequestException('Invalid doctor ID');
     }
-
     const doctor = await this.doctorModel.findById(doctorId).exec();
-    if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
 
+    if (!doctor) {
+      throw new NotFoundException('Doctor not found');
+    }
     const startDate = new Date(dto.startDate);
     const endDate = new Date(dto.endDate);
 
     if (startDate >= endDate) {
-      throw new BadRequestException('common.VALIDATION_ERROR');
+      throw new BadRequestException('Start date must be before end date');
     }
 
+    // Get all slots in date range
     const slots = await this.slotModel
       .find({
         doctorId: new Types.ObjectId(doctorId),
         date: { $gte: startDate, $lte: endDate },
-        status: { $nin: [SlotStatus.BLOCKED, SlotStatus.INVALIDATED] },
+        status: { $nin: [SlotStatus.BLOCKED, SlotStatus.INVALIDATED] }, // Exclude blocked + invalidated
       })
       .lean()
       .exec();
 
+    // Get all bookings in date range (PENDING status only)
     const bookings = await this.bookingModel
       .find({
         doctorId: new Types.ObjectId(doctorId),
         bookingDate: { $gte: startDate, $lte: endDate },
-        status: BookingStatus.PENDING,
+        status: BookingStatus.PENDING, // Only PENDING bookings
       })
       .populate<{ patientId: User }>('patientId', 'username phone')
       .lean()
       .exec();
 
+    // Build affected bookings list
     const affectedBookings = bookings.map((booking) => {
       const patient =
         typeof booking.patientId !== 'string'
           ? (booking.patientId as unknown as User)
           : null;
+
       return {
         bookingId: booking._id.toString(),
         patientId: patient?._id.toString() || '',
@@ -3409,10 +1569,11 @@ export class DoctorService {
       };
     });
 
+    // Get unique dates in range
     const dates = this.getDatesBetween(startDate, endDate);
     const daysCount = dates.length;
 
-    return {
+    const response: HolidayConflictResponseDto = {
       hasConflicts: affectedBookings.length > 0,
       affectedBookings,
       affectedSlots: {
@@ -3430,32 +1591,59 @@ export class DoctorService {
           ? `Creating holiday will cancel ${affectedBookings.length} pending booking(s) and block ${slots.length} slots for ${daysCount} days. All affected patients will receive push notifications.`
           : undefined,
     };
+
+    this.logger.log(
+      `Holiday conflict check: ${affectedBookings.length} bookings, ${slots.length} slots affected`,
+    );
+
+    return response;
   }
 
-  // ============================================
-  // Create holiday (execute)
-  // ============================================
-
+  /**
+   * Create holiday (execute)
+   * Queues Bull job to handle cancellations and notifications
+   */
   async createHoliday(
     dto: CreateHolidayDto,
     doctorId: string,
-  ): Promise<HolidayResult> {
+  ): Promise<{
+    message: string;
+    jobId: string;
+    affectedBookings: number;
+    affectedSlots: number;
+    dateRange: string;
+  }> {
+    this.logger.log(`Creating holiday for doctor ${doctorId}`);
+
+    // Check conflicts first
     const conflict = await this.checkHolidayConflict(
-      { startDate: dto.startDate, endDate: dto.endDate, reason: dto.reason },
+      {
+        startDate: dto.startDate,
+        endDate: dto.endDate,
+        reason: dto.reason,
+      },
       doctorId,
     );
 
+    // If conflicts and not confirmed, throw error
     if (conflict.hasConflicts && !dto.confirmHoliday) {
-      throw new ConflictException('booking.SLOT_ALREADY_BOOKED');
+      throw new ConflictException(
+        'Holiday period has existing bookings. Set confirmHoliday: true to proceed.',
+      );
     }
 
+    // Get doctor info
     const doctor = await this.doctorModel.findById(doctorId).exec();
-    if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
+    if (!doctor) {
+      throw new NotFoundException('Doctor not found');
+    }
 
     const doctorName = `${doctor.firstName} ${doctor.middleName} ${doctor.lastName}`;
+
     const startDate = new Date(dto.startDate);
     const endDate = new Date(dto.endDate);
 
+    // Get all slot IDs in range
     const slots = await this.slotModel
       .find({
         doctorId: new Types.ObjectId(doctorId),
@@ -3464,25 +1652,28 @@ export class DoctorService {
       .select('_id')
       .lean()
       .exec();
-
+    // Queue job
     const jobData: HolidayBlockJobData = {
-      doctorId,
+      doctorId: doctorId,
       doctorName,
       reason: dto.reason,
       affectedBookingIds: conflict.affectedBookings.map((b) => b.bookingId),
       affectedSlotIds: slots.map((s) => s._id.toString()),
     };
-
     const job = await this.holidayQueue.add('block-holiday-dates', jobData, {
-      priority: 1,
+      priority: 1, // High priority
       attempts: 3,
-      backoff: { type: 'exponential', delay: 2000 },
+      backoff: {
+        type: 'exponential',
+        delay: 2000,
+      },
     });
 
     this.logger.log(`Holiday block job queued: ${job.id}`);
 
     return {
-      messageKey: 'booking.CREATED',
+      message:
+        'Holiday is being created. Bookings will be cancelled and patients notified.',
       jobId: job.id.toString(),
       affectedBookings: conflict.affectedBookings.length,
       affectedSlots: slots.length,
@@ -3490,53 +1681,67 @@ export class DoctorService {
     };
   }
 
-  // ============================================
-  // Update FCM token
-  // ============================================
-
   async updateDoctorFCMToken(
     doctorId: string,
     fcmToken: string,
-  ): Promise<FcmTokenResult> {
+  ): Promise<{
+    message: string;
+    doctorId: string;
+    tokenUpdated: boolean;
+  }> {
     if (!Types.ObjectId.isValid(doctorId)) {
-      throw new BadRequestException('common.VALIDATION_ERROR');
+      throw new BadRequestException('Invalid doctor ID');
     }
+
     if (!fcmToken || fcmToken.trim().length === 0) {
-      throw new BadRequestException('common.VALIDATION_ERROR');
+      throw new BadRequestException('FCM token is required');
     }
 
     const doctor = await this.doctorModel.findById(doctorId).exec();
-    if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
 
+    if (!doctor) {
+      throw new NotFoundException(`Doctor with ID ${doctorId} not found`);
+    }
+
+    // Update FCM token
     doctor.fcmToken = fcmToken;
     await doctor.save();
 
     this.logger.log(`FCM token updated for doctor ${doctorId}`);
 
     return {
-      messageKey: 'doctor.UPDATED',
+      message: 'FCM token updated successfully',
       doctorId: doctor._id.toString(),
       tokenUpdated: true,
     };
   }
 
-  // ============================================
-  // Complete booking
-  // ============================================
+  private getDatesBetween(startDate: Date, endDate: Date): Date[] {
+    const dates: Date[] = [];
+    const currentDate = new Date(startDate);
 
+    while (currentDate <= endDate) {
+      dates.push(new Date(currentDate));
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+
+    return dates;
+  }
   async completeBooking(
     dto: DoctorCompleteBookingDto,
     doctorId: string,
-  ): Promise<CompleteBookingResult> {
+  ): Promise<BookingCompletionResponseDto> {
     this.logger.log(`Doctor ${doctorId} completing booking ${dto.bookingId}`);
 
+    // Validate IDs
     if (!Types.ObjectId.isValid(dto.bookingId)) {
-      throw new BadRequestException('common.VALIDATION_ERROR');
+      throw new BadRequestException('Invalid booking ID');
     }
     if (!Types.ObjectId.isValid(doctorId)) {
-      throw new BadRequestException('common.VALIDATION_ERROR');
+      throw new BadRequestException('Invalid doctor ID');
     }
 
+    // Find booking with patient and doctor info
     const booking = await this.bookingModel
       .findOne({
         _id: new Types.ObjectId(dto.bookingId),
@@ -3547,15 +1752,23 @@ export class DoctorService {
       .populate<{ doctorId: Doctor }>('doctorId', 'firstName lastName')
       .exec();
 
-    if (!booking) throw new NotFoundException('booking.NOT_FOUND');
+    if (!booking) {
+      throw new NotFoundException('الحجز غير موجود أو تم إنجازه مسبقاً');
+    }
 
+    // Update booking status
     booking.status = BookingStatus.COMPLETED;
     booking.completedAt = new Date();
-    if (dto.notes) booking.note = dto.notes;
+    if (dto.notes) {
+      booking.note = dto.notes;
+    }
     await booking.save();
 
-    this.logger.log(`Booking ${dto.bookingId} completed by doctor ${doctorId}`);
+    this.logger.log(
+      `✅ Booking ${dto.bookingId} completed by doctor ${doctorId}`,
+    );
 
+    // Get patient and doctor info
     const patient =
       typeof booking.patientId !== 'string'
         ? (booking.patientId as unknown as User)
@@ -3565,6 +1778,7 @@ export class DoctorService {
         ? (booking.doctorId as unknown as Doctor)
         : null;
 
+    // Send Kafka event to notification service
     let patientNotified = false;
     if (patient && doctor) {
       patientNotified = this.sendPatientNotificationViaKafka(
@@ -3576,13 +1790,17 @@ export class DoctorService {
     }
 
     return {
-      messageKey: 'booking.COMPLETED',
+      message: 'تم إنجاز الحجز بنجاح',
       bookingId: booking._id.toString(),
       completedAt: booking.completedAt,
       patientNotified,
     };
   }
 
+  /**
+   * Send Kafka event to notification service (patient notification)
+   * This will be consumed by notification service's handleBookingCompletedNotification
+   */
   private sendPatientNotificationViaKafka(
     booking: any,
     patient: User,
@@ -3603,41 +1821,40 @@ export class DoctorService {
         patientName: patient.username,
         doctorId: doctor._id.toString(),
         doctorName: `${doctor.firstName} ${doctor.lastName}`,
-        fcmToken: patient.fcmToken || '',
+        fcmToken: patient.fcmToken || '', // Empty string if no token
         bookingId: booking._id?.toString(),
         appointmentDate: formatDate(booking.bookingDate),
         appointmentTime: booking.bookingTime,
         notes: notes || '',
         type: 'BOOKING_COMPLETED' as const,
       },
-      metadata: { source: 'doctor-booking-service', version: '1.0' },
+      metadata: {
+        source: 'doctor-booking-service',
+        version: '1.0',
+      },
     };
 
     try {
       this.kafkaProducer.emit(KAFKA_TOPICS.BOOKING_COMPLETED, event);
       this.logger.log(
-        `Kafka event sent: BOOKING_COMPLETED for patient ${patient._id.toString()}`,
+        `📨 Kafka event sent: BOOKING_COMPLETED_NOTIFICATION for patient ${patient._id.toString()}`,
       );
       return true;
     } catch (error) {
       const err = error as Error;
       this.logger.error(
-        `Failed to send Kafka event: ${err.message}`,
+        `❌ Failed to send Kafka event: ${err.message}`,
         err.stack,
       );
       return false;
     }
   }
 
-  // ============================================
-  // Patient gender stats
-  // ============================================
-
   async getDoctorPatientGenderStats(
     doctorId: string,
   ): Promise<DoctorPatientStatsDto> {
     if (!Types.ObjectId.isValid(doctorId)) {
-      throw new BadRequestException('common.VALIDATION_ERROR');
+      throw new BadRequestException('Invalid doctor ID');
     }
 
     const cacheKey = `doctor:${doctorId}:patient-gender-stats`;
@@ -3652,14 +1869,19 @@ export class DoctorService {
 
   async computeAndCacheStats(doctorId: string): Promise<DoctorPatientStatsDto> {
     const doctor = await this.doctorModel.findById(doctorId).exec();
-    if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
+    if (!doctor) {
+      throw new NotFoundException(`Doctor ${doctorId} not found`);
+    }
 
     const doctorName = `${doctor.firstName} ${doctor.middleName} ${doctor.lastName}`;
 
+    // Step 1: get all unique patient IDs that booked this doctor
     const patientIds = await this.bookingModel
       .distinct('patientId', {
         doctorId: new Types.ObjectId(doctorId),
-        status: { $in: [BookingStatus.COMPLETED, BookingStatus.PENDING] },
+        status: {
+          $in: [BookingStatus.COMPLETED, BookingStatus.PENDING],
+        },
       })
       .exec();
 
@@ -3675,13 +1897,24 @@ export class DoctorService {
       return empty;
     }
 
+    // Step 2: aggregate gender from User collection
     const genderAggregation = await this.userModel
       .aggregate([
-        { $match: { _id: { $in: patientIds } } },
-        { $group: { _id: '$gender', count: { $sum: 1 } } },
+        {
+          $match: {
+            _id: { $in: patientIds },
+          },
+        },
+        {
+          $group: {
+            _id: '$gender',
+            count: { $sum: 1 },
+          },
+        },
       ])
       .exec();
 
+    // Step 3: parse results
     let maleCount = 0;
     let femaleCount = 0;
     let unknownCount = 0;
@@ -3692,7 +1925,9 @@ export class DoctorService {
       else if (gender === 'female') femaleCount = group.count;
     }
 
-    unknownCount += totalPatients - (maleCount + femaleCount + unknownCount);
+    // Account for patients with no gender field at all
+    const accountedFor = maleCount + femaleCount + unknownCount;
+    unknownCount += totalPatients - accountedFor;
 
     const stats = this.buildStatsDto(
       doctorId,
@@ -3724,7 +1959,7 @@ export class DoctorService {
   ): DoctorPatientStatsDto {
     const now = new Date();
     const nextUpdate = new Date(now);
-    nextUpdate.setHours(24, 0, 0, 0);
+    nextUpdate.setHours(24, 0, 0, 0); // midnight tonight
 
     const toBreakdown = (count: number): GenderBreakdownDto => ({
       count,
@@ -3745,15 +1980,5 @@ export class DoctorService {
       lastUpdated: now,
       nextUpdateAt: nextUpdate,
     };
-  }
-
-  private getDatesBetween(startDate: Date, endDate: Date): Date[] {
-    const dates: Date[] = [];
-    const currentDate = new Date(startDate);
-    while (currentDate <= endDate) {
-      dates.push(new Date(currentDate));
-      currentDate.setDate(currentDate.getDate() + 1);
-    }
-    return dates;
   }
 }

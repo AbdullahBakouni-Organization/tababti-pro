@@ -3,7 +3,7 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { DatabaseModule } from '@app/common/database/database.module';
 import { SmsService } from '../sms/sms.service';
-import { WhatsappModule } from '../whatsapp/whatsapp.module';
+// import { WhatsappModule } from '../whatsapp/whatsapp.module';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { AuthValidateModule } from '@app/common/auth-validate';
@@ -17,7 +17,8 @@ import { AuthValidateModule } from '@app/common/auth-validate';
     ]),
     DatabaseModule,
     AuthValidateModule,
-    WhatsappModule,
+    // WhatsappModule,
+    MinioModule,
   ],
   providers: [
     AuthService,

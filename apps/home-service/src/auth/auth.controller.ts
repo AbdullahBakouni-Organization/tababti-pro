@@ -11,7 +11,7 @@ import {
   UseInterceptors,
   UploadedFile,
   Req,
-  Headers,
+  BadRequestException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -20,7 +20,6 @@ import {
   ApiBearerAuth,
   ApiConsumes,
   ApiBody,
-  ApiHeader,
 } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import {
@@ -46,31 +45,33 @@ import { DocumentUrlInterceptor } from '@app/common/interceptors';
 import { AuthValidateService } from '@app/common/auth-validate';
 import { JwtUserRefreshGuard } from '@app/common/guards/jwt-refresh-user.guard';
 import { ParseMongoIdPipe } from '@app/common/pipes/parse-mongo-id.pipe';
-
-type Lang = 'en' | 'ar';
-
+import multer from 'multer';
 export interface RequestWithUser extends Request {
   user: User;
 }
-
-function resolveLang(acceptLanguage?: string): Lang {
-  return acceptLanguage === 'ar' ? 'ar' : 'en';
-}
-
+// Memory storage config for MinIO
+const memoryStorageConfig = {
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  fileFilter: (req: any, file: Express.Multer.File, cb: any) => {
+    const allowed = ['image/jpeg', 'image/png', 'image/webp'];
+    allowed.includes(file.mimetype)
+      ? cb(null, true)
+      : cb(
+          new BadRequestException(
+            'Invalid file type. Allowed: JPEG, PNG, WEBP',
+          ),
+          false,
+        );
+  },
+};
 @ApiTags('Authentication')
-@ApiHeader({
-  name: 'accept-language',
-  description: 'Response language (en | ar). Defaults to en.',
-  required: false,
-  schema: { default: 'en', enum: ['en', 'ar'] },
-})
 @Controller('auth-service')
 export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private authValidateService: AuthValidateService,
   ) {}
-
   @Throttle({ default: { limit: 3, ttl: 60 } })
   @Post('request-otp')
   @HttpCode(HttpStatus.OK)
@@ -90,12 +91,8 @@ export class AuthController {
   })
   async requestOtp(
     @Body() requestOtpDto: RequestOtpDto,
-    @Headers('accept-language') acceptLanguage?: string,
   ): Promise<AuthResponseDto> {
-    return this.authService.requestOtp(
-      requestOtpDto,
-      resolveLang(acceptLanguage),
-    );
+    return await this.authService.requestOtp(requestOtpDto);
   }
 
   @Throttle({ default: { limit: 5, ttl: 300 } })
@@ -110,38 +107,36 @@ export class AuthController {
     description: 'OTP verified successfully',
     type: AuthResponseDto,
   })
-  @ApiResponse({ status: 400, description: 'Invalid or expired OTP' })
-  @ApiResponse({ status: 401, description: 'Unauthorized - Invalid OTP code' })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid or expired OTP',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid OTP code',
+  })
   async verifyOtp(
     @Body() verifyOtpDto: VerifyOtpDto,
     @Res({ passthrough: true }) res: Response,
-    @Headers('accept-language') acceptLanguage?: string,
   ): Promise<AuthResponseDto> {
-    return this.authService.verifyOtp(
-      verifyOtpDto,
-      res,
-      resolveLang(acceptLanguage),
-    );
+    return await this.authService.verifyOtp(verifyOtpDto, res);
   }
-
   @Throttle({ default: { limit: 2, ttl: 120 } })
   @Post('resend-otp')
   @ApiOperation({ summary: 'Resend OTP code' })
   @ApiResponse({
     status: 200,
     description: 'OTP resent successfully',
-    schema: { example: { message: 'New OTP sent successfully' } },
+    schema: {
+      example: {
+        message: 'New OTP sent successfully',
+      },
+    },
   })
   @ApiResponse({ status: 400, description: 'User already verified' })
   @ApiResponse({ status: 404, description: 'No pending registration found' })
-  async resendOtp(
-    @Body() resendOtpDto: ResendOtpDto,
-    @Headers('accept-language') acceptLanguage?: string,
-  ) {
-    return this.authService.resendOtp(
-      resendOtpDto,
-      resolveLang(acceptLanguage),
-    );
+  async resendOtp(@Body() resendOtpDto: ResendOtpDto) {
+    return this.authService.resendOtp(resendOtpDto);
   }
 
   @UseGuards(JwtUserGuard, RolesGuard)
@@ -192,24 +187,19 @@ export class AuthController {
   @ApiResponse({ status: 409, description: 'Username already exists' })
   async completeRegistration(
     @Body() completeRegistrationDto: RequestOtpDto,
-    @Headers('accept-language') acceptLanguage?: string,
     @UploadedFile() file?: Express.Multer.File,
   ) {
-    return this.authService.completeRegistration(
-      completeRegistrationDto,
-      file,
-      resolveLang(acceptLanguage),
-    );
+    return this.authService.completeRegistration(completeRegistrationDto, file);
   }
 
   @Post('logout')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.USER)
-  logout(@Req() req: any, @Headers('accept-language') acceptLanguage?: string) {
+  logout(@Req() req: any) {
     const patientId = new ParseMongoIdPipe().transform(
       req.user.entity._id.toString(),
     );
-    return this.authService.logout(patientId, resolveLang(acceptLanguage));
+    return this.authService.logout(patientId);
   }
 
   @Post('refresh')
