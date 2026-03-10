@@ -60,6 +60,7 @@ import { MinioModule } from 'apps/home-service/src/minio/minio.module';
 
     // ✅ ADD THIS: Import SlotModule which contains SlotGenerationService
     SlotModule,
+    MinioModule,
   ],
   controllers: [BookingController],
   providers: [

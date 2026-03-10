@@ -6,9 +6,16 @@ import { DatabaseModule } from '@app/common/database/database.module';
 import { AuthModule } from '../auth/auth.module';
 import { AuthValidateModule } from '@app/common/auth-validate';
 import { KafkaModule } from '@app/common/kafka/kafka.module';
+import { MinioModule } from '../minio/minio.module';
 
 @Module({
-  imports: [DatabaseModule, AuthModule, AuthValidateModule, KafkaModule ],
+  imports: [
+    DatabaseModule,
+    AuthModule,
+    AuthValidateModule,
+    KafkaModule,
+    MinioModule,
+  ],
   providers: [AdminService],
   controllers: [AdminController],
 })
