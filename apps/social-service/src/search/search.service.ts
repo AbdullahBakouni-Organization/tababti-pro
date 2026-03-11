@@ -28,7 +28,7 @@ export class SearchService {
   }
 
   async getSimilarDoctors(dto: SimilarDoctorsDto) {
-    const { doctorId, page = 1, limit = 10 } = dto;
+    const { doctorId, page = 1, limit = 5 } = dto;
 
     const doctor = await this.doctorModel
       .findById(doctorId)

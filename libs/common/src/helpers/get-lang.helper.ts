@@ -1,6 +1,6 @@
 // libs/common/src/helpers/get-lang.helper.ts
 
-import { REQUEST_CONTEXT } from "../context/context";
+import { REQUEST_CONTEXT } from '../context/context';
 
 export type Lang = 'en' | 'ar';
 

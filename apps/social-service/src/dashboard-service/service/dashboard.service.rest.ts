@@ -488,6 +488,7 @@ export class DashboardService {
 
     return bookings.map((b) => ({
       patientId: b.patientId?.toString() ?? '',
+      bookingId: b._id?.toString() ?? '',
       name: b.patientName ?? 'Unknown',
       image: b.patientImage ?? undefined,
       locationName: b.locationName ?? '',

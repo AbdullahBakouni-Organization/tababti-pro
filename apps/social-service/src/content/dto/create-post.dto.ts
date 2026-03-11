@@ -16,4 +16,8 @@ export class CreatePostDto {
   @IsOptional()
   @IsEnum(SubscriptionPlanType)
   subscriptionType?: SubscriptionPlanType;
+
+  @IsOptional()
+  @IsString()
+  images?: string;
 }

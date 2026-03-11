@@ -45,6 +45,7 @@ export class RequestOtpDto {
 
   @ApiPropertyOptional({ example: 'JohnDoe' })
   @IsString()
+  @IsOptional()
   @IsNotEmpty()
   @MinLength(3)
   @MaxLength(50)

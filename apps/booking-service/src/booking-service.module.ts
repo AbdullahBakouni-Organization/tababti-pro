@@ -12,6 +12,7 @@ import { UsersService } from 'apps/home-service/src/users/users.service';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { MinioModule } from 'apps/home-service/src/minio/minio.module';
+import { AuthValidateModule } from '@app/common/auth-validate';
 
 @Module({
   imports: [
@@ -61,6 +62,7 @@ import { MinioModule } from 'apps/home-service/src/minio/minio.module';
     // ✅ ADD THIS: Import SlotModule which contains SlotGenerationService
     SlotModule,
     MinioModule,
+    AuthValidateModule,
   ],
   controllers: [BookingController],
   providers: [

@@ -172,7 +172,7 @@ export class DoctorProfileService {
 
     const posts = await this.postModel
       .find({
-        authorId: doctor._id,
+        authorId: doctor.authAccountId,
         authorType: 'doctor',
         status: { $in: [PostStatus.APPROVED, PostStatus.PUBLISHED] },
       })
