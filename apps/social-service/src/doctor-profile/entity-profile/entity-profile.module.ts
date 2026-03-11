@@ -29,7 +29,7 @@ import { Post, PostSchema } from '@app/common/database/schemas/post.schema';
       { name: Post.name, schema: PostSchema },
     ]),
   ],
-  controllers: [EntityProfileController], 
+  controllers: [EntityProfileController],
   providers: [EntityProfileService, EntityProfileRepository],
   exports: [EntityProfileService],
 })

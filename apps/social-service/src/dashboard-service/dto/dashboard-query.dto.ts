@@ -103,11 +103,6 @@ export class AppointmentsQueryDto {
   @IsDateString()
   monthDate?: string;
 
-  @ApiProperty({ example: 'CONFIRMED', required: false })
-  @IsOptional()
-  @IsString()
-  status?: string;
-
   @ApiProperty({ example: 1, required: false })
   @IsOptional()
   @Type(() => Number)
@@ -202,8 +197,35 @@ export class RecentPatientDto {
 
   @ApiProperty({ example: '2026-03-02T10:00:00Z' })
   bookingDate: Date;
-}
 
+  @ApiProperty({ example: 1, required: false })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @ApiProperty({ example: 10, required: false })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(50)
+  limit?: number;
+}
+export class RecentPatientsResponseDto {
+  @ApiProperty({ type: [RecentPatientDto] })
+  patients: RecentPatientDto[];
+
+  @ApiProperty({ example: 50 })
+  total: number;
+
+  @ApiProperty({ example: 1 })
+  page: number;
+
+  @ApiProperty({ example: 5 })
+  totalPages: number;
+}
 export class CalendarDayDto {
   @ApiProperty({ example: '2026-03-01' })
   date: string;
@@ -333,8 +355,8 @@ export class DoctorDashboardDto {
   @ApiProperty({ type: DashboardStatsDto })
   stats: DashboardStatsDto;
 
-  @ApiProperty({ type: [RecentPatientDto] })
-  recentPatients: RecentPatientDto[];
+  @ApiProperty({ type: RecentPatientsResponseDto })
+  recentPatients: RecentPatientsResponseDto;
 
   @ApiProperty({ type: CalendarMonthDto })
   calendar: CalendarMonthDto;

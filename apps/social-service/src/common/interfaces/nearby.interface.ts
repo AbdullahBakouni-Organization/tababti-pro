@@ -159,11 +159,23 @@ export interface NearbyMeta {
   counts: { doctors: number; hospitals: number; centers: number };
 }
 
+// export interface PaginatedNearbyResponse {
+//   data: NearbyEntity[];
+//   meta: NearbyMeta;
+// }
 export interface PaginatedNearbyResponse {
-  data: NearbyEntity[];
-  meta: NearbyMeta;
+  doctors: { data: NearbyEntity[]; total: number };
+  hospitals: { data: NearbyEntity[]; total: number };
+  centers: { data: NearbyEntity[]; total: number };
+  meta: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+    hasNextPage: boolean;
+    hasPreviousPage: boolean;
+  };
 }
-
 // ─── ORS API shapes ────────────────────────────────────────────────────────────
 
 export interface MatrixResponse {

@@ -14,7 +14,7 @@ export class CenterSearchQuery {
     private readonly builder: CenterConditionBuilder,
     private readonly enhancer: SearchEnhancerService,
     private readonly includeEnhancer: HospitalIncludeEnhancer,
-  ) { }
+  ) {}
 
   async execute(dto: SearchFilterDto) {
     const page = dto.page ?? 1;
@@ -32,12 +32,21 @@ export class CenterSearchQuery {
       ? { [dto.sortBy]: dto.order === 'asc' ? 1 : -1 }
       : undefined;
 
-    // Populate cityId to get city name
     const mongooseQuery = this.model
       .find(query)
+      .select({
+        name: 1,
+        address: 1,
+        bio: 1,
+        centerSpecialization: 1,
+        cityId: 1,
+        city: 1,
+        subcity: 1,
+        image: 1,
+      })
+      .populate({ path: 'cityId', select: 'name' })
       .skip(skip)
       .limit(limit)
-      .populate({ path: 'cityId', select: 'name' })
       .lean();
 
     if (sort) mongooseQuery.sort(sort);

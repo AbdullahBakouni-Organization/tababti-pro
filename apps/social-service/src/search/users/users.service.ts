@@ -106,12 +106,14 @@ export class UserService implements OnModuleInit {
     filters: NearbyFilters,
     startTime: number,
   ): Promise<PaginatedNearbyResponse> {
-    const all: NearbyEntity[] = [];
     let doctorCount = 0,
       hospitalCount = 0,
       centerCount = 0;
+    const doctors: NearbyEntity[] = [];
+    const hospitals: NearbyEntity[] = [];
+    const centers: NearbyEntity[] = [];
 
-    // ── 1. Fetch raw docs from DB (each call is individually cached) ─────────
+    // ── 1. Fetch + enrich ────────────────────────────────────────────────────
     if (entityType === 'doctors' || entityType === 'all') {
       const raw = await this.repository.getDoctorsInRadius(
         lat,
@@ -128,7 +130,9 @@ export class UserService implements OnModuleInit {
           travelMode,
           'doctor',
         );
-        all.push(...enriched.map((e) => this.mapper.toResponse(e, 'doctor')));
+        doctors.push(
+          ...enriched.map((e) => this.mapper.toResponse(e, 'doctor')),
+        );
       }
     }
 
@@ -148,7 +152,9 @@ export class UserService implements OnModuleInit {
           travelMode,
           'hospital',
         );
-        all.push(...enriched.map((e) => this.mapper.toResponse(e, 'hospital')));
+        hospitals.push(
+          ...enriched.map((e) => this.mapper.toResponse(e, 'hospital')),
+        );
       }
     }
 
@@ -168,35 +174,49 @@ export class UserService implements OnModuleInit {
           travelMode,
           'center',
         );
-        all.push(...enriched.map((e) => this.mapper.toResponse(e, 'center')));
+        centers.push(
+          ...enriched.map((e) => this.mapper.toResponse(e, 'center')),
+        );
       }
     }
 
-    if (!all.length) return this.emptyResponse(page, limit);
+    const total = doctors.length + hospitals.length + centers.length;
+    if (!total) return this.emptyResponse(page, limit);
 
-    // ── 2. Sort by travel time (ascending) ───────────────────────────────────
-    all.sort((a, b) => a.durationMinutes - b.durationMinutes);
+    // ── 2. Sort each group by travel time ────────────────────────────────────
+    doctors.sort((a, b) => a.durationMinutes - b.durationMinutes);
+    hospitals.sort((a, b) => a.durationMinutes - b.durationMinutes);
+    centers.sort((a, b) => a.durationMinutes - b.durationMinutes);
 
-    // ── 3. Paginate ──────────────────────────────────────────────────────────
-    const total = all.length;
-    const totalPages = Math.ceil(total / limit);
+    // ── 3. Paginate each group ───────────────────────────────────────────────
     const skip = (page - 1) * limit;
-    const pageSlice = all.slice(skip, skip + limit);
+    let doctorPage = doctors.slice(skip, skip + limit);
+    let hospitalPage = hospitals.slice(skip, skip + limit);
+    let centerPage = centers.slice(skip, skip + limit);
 
     // ── 4. Optionally attach turn-by-turn routes ─────────────────────────────
-    let finalEntities = pageSlice;
-
     if (includeRoutes) {
-      finalEntities = await this.routing.loadRoutesInParallel(
-        pageSlice,
-        lat,
-        lng,
-        travelMode,
-      );
+      [doctorPage, hospitalPage, centerPage] = await Promise.all([
+        doctorPage.length
+          ? this.routing.loadRoutesInParallel(doctorPage, lat, lng, travelMode)
+          : Promise.resolve([]),
+        hospitalPage.length
+          ? this.routing.loadRoutesInParallel(
+              hospitalPage,
+              lat,
+              lng,
+              travelMode,
+            )
+          : Promise.resolve([]),
+        centerPage.length
+          ? this.routing.loadRoutesInParallel(centerPage, lat, lng, travelMode)
+          : Promise.resolve([]),
+      ]);
 
       // Warm-up next page in the background (fire-and-forget)
+      const allSorted = [...doctors, ...hospitals, ...centers];
       void this.routing.queueCacheWarmup(
-        all.slice(skip + limit, skip + limit + 10),
+        allSorted.slice(skip + limit, skip + limit + 10),
         lat,
         lng,
         travelMode,
@@ -205,8 +225,12 @@ export class UserService implements OnModuleInit {
 
     this.logger.log(`findNearbyEntities: ${Date.now() - startTime}ms`);
 
+    const totalPages = Math.ceil(total / limit);
+
     return {
-      data: finalEntities,
+      doctors: { data: doctorPage, total: doctors.length },
+      hospitals: { data: hospitalPage, total: hospitals.length },
+      centers: { data: centerPage, total: centers.length },
       meta: {
         total,
         page,
@@ -214,11 +238,6 @@ export class UserService implements OnModuleInit {
         totalPages,
         hasNextPage: page < totalPages,
         hasPreviousPage: page > 1,
-        counts: {
-          doctors: doctorCount,
-          hospitals: hospitalCount,
-          centers: centerCount,
-        },
       },
     };
   }
@@ -285,7 +304,9 @@ export class UserService implements OnModuleInit {
 
   private emptyResponse(page: number, limit: number): PaginatedNearbyResponse {
     return {
-      data: [],
+      doctors: { data: [], total: 0 },
+      hospitals: { data: [], total: 0 },
+      centers: { data: [], total: 0 },
       meta: {
         total: 0,
         page,
@@ -293,7 +314,6 @@ export class UserService implements OnModuleInit {
         totalPages: 0,
         hasNextPage: false,
         hasPreviousPage: false,
-        counts: { doctors: 0, hospitals: 0, centers: 0 },
       },
     };
   }

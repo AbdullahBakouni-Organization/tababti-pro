@@ -28,9 +28,7 @@ export class EntityMapper {
     };
 
     switch (entityType) {
-      // ── Doctor ─────────────────────────────────────────────────────────────
       case 'doctor': {
-        // publicSpecializationId → populated ARRAY of objects
         const pubSpecArray: any[] = Array.isArray(entity.publicSpecializationId)
           ? entity.publicSpecializationId
           : entity.publicSpecializationId
@@ -47,96 +45,45 @@ export class EntityMapper {
               : []
           : [];
 
-        const result: DoctorNearbyEntity = {
+        return {
           ...base,
           entityType: 'doctor',
-          id: entity._id as Types.ObjectId,
+          id: entity._id,
           fullName: formatDoctorName(
             entity.firstName,
             entity.middleName,
             entity.lastName,
           ),
-          firstName: entity.firstName as string,
-          middleName: entity.middleName as string,
-          lastName: entity.lastName as string,
-          gender: entity.gender as string | undefined,
           image: entity.image as string | undefined,
-          address: entity.address as string | undefined,
-          rating: entity.rating as number | undefined,
-          bio: entity.bio as string | undefined,
-          status: entity.status as string | undefined,
-          yearsOfExperience: entity.yearsOfExperience as Date | undefined,
-          inspectionPrice: entity.inspectionPrice as number | undefined,
-          inspectionDuration: entity.inspectionDuration as number | undefined,
-          cityId: entity.cityId as Types.ObjectId | undefined,
-          city: entity.city as string | undefined,
-          subcity: entity.subcity as string | undefined,
-          phones: entity.phones ?? [],
-          workingHours: entity.workingHours ?? [],
-          hospitals: entity.hospitals ?? [],
-          centers: entity.centers ?? [],
-          insuranceCompanies: entity.insuranceCompanies ?? [],
-          publicSpecializations: pubSpecArray
-            .map((s: any) => s?.name as string)
-            .filter(Boolean),
-          publicSpecialization: pubSpecArray[0]?.name as string | undefined,
-          privateSpecializations,
           publicSpecializationStr: entity.publicSpecialization as
             | string
             | undefined,
           privateSpecializationStr: entity.privateSpecialization as
             | string
             | undefined,
-        };
-        return result;
+        } as DoctorNearbyEntity;
       }
 
-      // ── Hospital ───────────────────────────────────────────────────────────
       case 'hospital': {
-        const result: HospitalNearbyEntity = {
+        return {
           ...base,
           entityType: 'hospital',
-          id: entity._id as Types.ObjectId,
+          id: entity._id,
           name: entity.name as string,
-          address: entity.address as string,
-          bio: entity.bio as string | undefined,
-          category: entity.category as string,
-          // DB field is 'hospitalstatus' (all lowercase)
-          hospitalStatus: entity.hospitalstatus as string,
-          hospitalSpecialization: entity.hospitalSpecialization as string,
-          // Hospital ApprovalStatus is stored in 'status'
-          status: entity.status as string | undefined,
-          cityId: entity.cityId as Types.ObjectId,
-          phones: entity.phones ?? [],
           image: entity.image as string | undefined,
-          rating: entity.rating as number | undefined,
-          insuranceCompanies: entity.insuranceCompanies ?? [],
-          departments: entity.departments ?? [],
-        };
-        return result;
+          hospitalSpecialization: entity.hospitalSpecialization as string,
+        } as HospitalNearbyEntity;
       }
 
-      // ── Center ─────────────────────────────────────────────────────────────
       case 'center': {
-        const result: CenterNearbyEntity = {
+        return {
           ...base,
           entityType: 'center',
-          id: entity._id as Types.ObjectId,
+          id: entity._id,
           name: entity.name as string,
-          address: entity.address as string | undefined,
-          bio: entity.bio as string | undefined,
-          centerSpecialization: entity.centerSpecialization as string,
-          // Center uses 'approvalStatus' (not 'status')
-          approvalStatus: entity.approvalStatus as string | undefined,
-          cityId: entity.cityId as Types.ObjectId,
-          phones: entity.phones ?? [],
           image: entity.image as string | undefined,
-          rating: entity.rating as number | undefined,
-          // workingHours uses { from, to } — NOT startTime/endTime
-          workingHours: entity.workingHours ?? [],
-          departments: entity.departments ?? [],
-        };
-        return result;
+          centerSpecialization: entity.centerSpecialization as string,
+        } as CenterNearbyEntity;
       }
     }
   }

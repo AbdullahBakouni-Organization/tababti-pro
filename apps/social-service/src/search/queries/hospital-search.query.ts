@@ -37,7 +37,22 @@ export class HospitalSearchQuery {
       ? { [dto.sortBy]: dto.order === 'asc' ? 1 : -1 }
       : undefined;
 
-    const mongooseQuery = this.model.find(query).skip(skip).limit(limit).lean();
+    const mongooseQuery = this.model
+      .find(query)
+      .select({
+        name: 1,
+        address: 1,
+        bio: 1,
+        centerSpecialization: 1,
+        cityId: 1,
+        city: 1,
+        subcity: 1,
+        image: 1,
+      })
+      .populate({ path: 'cityId', select: 'name' })
+      .skip(skip)
+      .limit(limit)
+      .lean();
     if (sort) mongooseQuery.sort(sort);
 
     const [data, total] = await Promise.all([
@@ -45,10 +60,10 @@ export class HospitalSearchQuery {
       this.model.countDocuments(query),
     ]);
 
-    const resultData = await this.includeEnhancer.withDepartments(data);
+    // const resultData = await this.includeEnhancer.withDepartments(data);
 
     return {
-      data: resultData,
+      data: data,
       total,
       page,
       pages: Math.ceil(total / limit),
