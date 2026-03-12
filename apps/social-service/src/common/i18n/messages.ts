@@ -145,6 +145,10 @@ export const messages = {
       STATS: 'Post statistics fetched successfully',
     },
 
+    gallery: {
+      LIST: 'gallery fetched successfully',
+    },
+
     // ================= REQUESTS (Legal Advice / Medical Equipment) =================
     request: {
       CREATED: 'Request submitted successfully',
@@ -311,6 +315,9 @@ export const messages = {
       ALREADY_REVIEWED: 'تمت مراجعة هذا المنشور مسبقاً',
       REJECTION_REASON_REQUIRED: 'يجب تقديم سبب الرفض عند رفض المنشور',
       STATS: 'تم جلب إحصائيات المنشورات بنجاح',
+    },
+    gallery: {
+      LIST: 'تم استرداد صور المعرض بنجاح.',
     },
 
     // ================= REQUESTS (Legal Advice / Medical Equipment) =================

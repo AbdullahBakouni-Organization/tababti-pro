@@ -10,6 +10,7 @@ import { DoctorRepository } from './profile.repository';
 import { EntityProfileModule } from './entity-profile/entity-profile.module';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
+import { MinioModule } from 'apps/home-service/src/minio/minio.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { APP_GUARD } from '@nestjs/core';
     ]),
     MongooseModule.forFeature([{ name: Doctor.name, schema: DoctorSchema }]),
     EntityProfileModule,
+    MinioModule,
   ],
   controllers: [DoctorProfileController],
   providers: [

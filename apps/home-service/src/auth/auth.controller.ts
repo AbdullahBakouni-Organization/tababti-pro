@@ -40,26 +40,12 @@ import { JwtUserGuard } from '@app/common/guards/jwt-user.guard';
 import { AuthValidateService } from '@app/common/auth-validate';
 import { JwtUserRefreshGuard } from '@app/common/guards/jwt-refresh-user.guard';
 import { ParseMongoIdPipe } from '@app/common/pipes/parse-mongo-id.pipe';
-import multer from 'multer';
+import { memoryStorageConfig } from '@app/common/constant/images-dtos.constant';
+
 export interface RequestWithUser extends Request {
   user: User;
 }
-// Memory storage config for MinIO
-const memoryStorageConfig = {
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
-  fileFilter: (req: any, file: Express.Multer.File, cb: any) => {
-    const allowed = ['image/jpeg', 'image/png', 'image/webp'];
-    allowed.includes(file.mimetype)
-      ? cb(null, true)
-      : cb(
-          new BadRequestException(
-            'Invalid file type. Allowed: JPEG, PNG, WEBP',
-          ),
-          false,
-        );
-  },
-};
+
 @ApiTags('Authentication')
 @Controller('auth-service')
 export class AuthController {

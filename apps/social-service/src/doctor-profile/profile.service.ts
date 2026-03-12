@@ -6,16 +6,21 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { DoctorRepository } from './profile.repository';
 import { Doctor } from '@app/common/database/schemas/doctor.schema';
 import { Post } from '@app/common/database/schemas/post.schema';
-import { PostStatus } from '@app/common/database/schemas/common.enums';
+import {
+  GalleryImageStatus,
+  PostStatus,
+} from '@app/common/database/schemas/common.enums';
 import {
   CITY_SUBCITY_MAP,
   UpdateDoctorProfileDto,
-  UploadedProfileFiles,
 } from './dto/update-doctor-profile.dto';
+import { MinioService } from 'apps/home-service/src/minio/minio.service';
+import { calculateYearsOfExperience } from '@app/common/utils/calculate-experience.util';
+import { uploadDoctorProfileImage } from '@app/common/utils/upload-profile-images.util';
 
 @Injectable()
 export class DoctorProfileService {
@@ -24,6 +29,7 @@ export class DoctorProfileService {
   constructor(
     private readonly doctorRepo: DoctorRepository,
     @InjectModel(Post.name) private readonly postModel: Model<Post>,
+    private minioService: MinioService,
   ) {}
 
   // ── GET private profile ────────────────────────────────────────────────
@@ -31,20 +37,17 @@ export class DoctorProfileService {
     const doctor = await this.doctorRepo.findByAuthAccountId(authAccountId);
     if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
 
-    const posts = await this.postModel
-      .find({ authorId: doctor._id, authorType: 'doctor' })
-      .sort({ createdAt: -1 })
-      .lean();
-
-    return this.formatPrivateDoctor(doctor, posts);
+    return this.formatPrivateDoctor(doctor);
   }
 
   // ── UPDATE profile ─────────────────────────────────────────────────────
   async updateProfile(
     authAccountId: string,
     dto: UpdateDoctorProfileDto,
-    files: UploadedProfileFiles,
+    newImage: Express.Multer.File | undefined,
   ): Promise<any> {
+    const doctor = await this.doctorRepo.findByAuthAccountId(authAccountId);
+    if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
     // 1. Validate specialization pairing
     if (dto.publicSpecialization && dto.privateSpecialization) {
       const valid = this.doctorRepo.checkPrivateSpecializationMatchesPublic(
@@ -81,13 +84,6 @@ export class DoctorProfileService {
       ...(whatsup !== undefined && { whatsup }),
       ...(clinic !== undefined && { clinic }),
     }));
-
-    // 5. Merge gallery: kept existing URLs + newly uploaded paths
-    const keptUrls = Array.isArray(dto.gallery) ? dto.gallery : [];
-    const newUploads = Array.isArray(files.galleryImages)
-      ? files.galleryImages
-      : [];
-    const mergedGallery = [...keptUrls, ...newUploads];
 
     // profile.service.ts — updateProfile() payload section only
     // (everything else stays the same)
@@ -128,28 +124,41 @@ export class DoctorProfileService {
     if (normalizedExperienceDate)
       updatePayload.yearsOfExperience = normalizedExperienceDate;
 
-    // Gallery merge
-    if (mergedGallery.length) updatePayload.gallery = mergedGallery;
+    if (newImage !== undefined && doctor.imageFileName && doctor.imageBucket) {
+      try {
+        await this.minioService.deleteFile(
+          doctor.imageBucket,
+          doctor.imageFileName,
+        );
+      } catch (error) {
+        const err = error as Error;
+        this.logger.warn(`Failed to delete old image: ${err.message}`);
+      }
+    }
 
-    // Files
-    if (files.image) updatePayload.image = files.image;
-    if (files.certificateImage)
-      updatePayload.certificateImage = files.certificateImage;
-    if (files.licenseImage) updatePayload.licenseImage = files.licenseImage;
+    // Upload new image
+    const uploadResult = await uploadDoctorProfileImage(
+      this.minioService,
+      doctor._id.toString(),
+      newImage,
+    );
 
-    const doctor = await this.doctorRepo.updateByAuthAccountId(
+    // Update user record
+    if (uploadResult) {
+      updatePayload.image = uploadResult.url;
+      updatePayload.imageFileName = uploadResult.fileName;
+      updatePayload.imageBucket = uploadResult.bucket;
+    }
+    const updatedDoctor = await this.doctorRepo.updateByAuthAccountId(
       authAccountId,
       updatePayload as any,
     );
 
-    if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
+    if (!updatedDoctor) {
+      throw new NotFoundException('Doctor profile not found after update.');
+    }
 
-    const posts = await this.postModel
-      .find({ authorId: doctor._id, authorType: 'doctor' })
-      .sort({ createdAt: -1 })
-      .lean();
-
-    return this.formatPrivateDoctor(doctor, posts);
+    return this.formatPrivateDoctor(updatedDoctor);
   }
 
   // ── DELETE doctor ──────────────────────────────────────────────────────
@@ -170,106 +179,100 @@ export class DoctorProfileService {
         this.logger.warn(`Failed to increment profileViews: ${err.message}`),
       );
 
-    const posts = await this.postModel
-      .find({
-        authorId: doctor.authAccountId,
-        authorType: 'doctor',
-        status: { $in: [PostStatus.APPROVED, PostStatus.PUBLISHED] },
-      })
-      .sort({ createdAt: -1 })
-      .lean();
-
-    return this.formatPublicDoctor(doctor, posts);
+    return this.formatPrivateDoctor(doctor);
   }
 
+  async getDoctorPosts(doctorId: string, page = 1, limit = 10): Promise<any> {
+    const skip = (page - 1) * limit;
+    const doctor = await this.doctorRepo.findById(doctorId);
+    const [posts, totalPosts] = await Promise.all([
+      this.postModel
+        .find({
+          authorId: new Types.ObjectId(doctor?.authAccountId),
+          authorType: 'doctor',
+          status: {
+            $in: [PostStatus.APPROVED],
+          },
+        })
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+
+      this.postModel.countDocuments({
+        authorId: new Types.ObjectId(doctor?.authAccountId),
+        authorType: 'doctor',
+      }),
+    ]);
+
+    const totalPages = Math.ceil(totalPosts / limit);
+
+    return {
+      posts,
+      pagination: {
+        page,
+        limit,
+        totalPosts,
+        totalPages,
+      },
+    };
+  }
   // ── FORMAT: private (full data) ────────────────────────────────────────
-  private formatPrivateDoctor(doctor: Doctor, posts: any[] = []) {
+  private formatPrivateDoctor(doctor: Doctor) {
     return {
       id: doctor._id,
       fullName: [doctor.firstName, doctor.middleName, doctor.lastName]
         .filter(Boolean)
         .join(' '),
+
       bio: doctor.bio ?? '',
       gender: doctor.gender,
       status: doctor.status,
+
       city: doctor.city,
       subcity: doctor.subcity,
+
       publicSpecialization: doctor.publicSpecialization,
       privateSpecialization: doctor.privateSpecialization,
+
       experienceStartDate: doctor.yearsOfExperience ?? null,
-      yearsOfExperience: this.calculateYearsOfExperience(
-        doctor.yearsOfExperience,
-      ),
+      yearsOfExperience: calculateYearsOfExperience(doctor.yearsOfExperience),
+
       inspectionPrice: doctor.inspectionPrice ?? 0,
       inspectionDuration: doctor.inspectionDuration ?? 0,
+
       image: doctor.image ?? null,
-      gallery: doctor.gallery ?? [],
+
       phones: doctor.phones,
       workingHours: doctor.workingHours ?? [],
-      posts: posts.map((p) => ({
-        id: p._id,
-        content: p.content,
-        images: p.images ?? [],
-        status: p.status as PostStatus,
-        subscriptionType: p.subscriptionType,
-        createdAt: p.createdAt,
-      })),
-      sessions:
-        doctor.sessions?.map((s) => ({
-          deviceName: s.deviceName,
-          lastActivityAt: s.lastActivityAt,
-          isActive: s.isActive,
-        })) ?? [],
-      maxSessions: doctor.maxSessions,
     };
   }
 
-  // ── FORMAT: public (safe subset only) ─────────────────────────────────
-  private formatPublicDoctor(doctor: Doctor, posts: any[] = []) {
+  async getDoctorGallery(doctorId: string, page = 1, limit = 10): Promise<any> {
+    const doctor = await this.doctorRepo.findById(doctorId);
+
+    if (!doctor) {
+      throw new NotFoundException('Doctor not found');
+    }
+
+    const gallery = (doctor.gallery ?? []).filter(
+      (img) => img.status === GalleryImageStatus.APPROVED,
+    );
+
+    const total = gallery.length;
+    const totalPages = Math.ceil(total / limit);
+
+    const startIndex = (page - 1) * limit;
+    const paginatedGallery = gallery.slice(startIndex, startIndex + limit);
+
     return {
-      id: doctor._id,
-      fullName: [doctor.firstName, doctor.middleName, doctor.lastName]
-        .filter(Boolean)
-        .join(' '),
-      bio: doctor.bio ?? '',
-      gender: doctor.gender,
-      city: doctor.city,
-      subcity: doctor.subcity,
-      publicSpecialization: doctor.publicSpecialization,
-      privateSpecialization: doctor.privateSpecialization,
-      experienceStartDate: doctor.yearsOfExperience ?? null,
-      yearsOfExperience: this.calculateYearsOfExperience(
-        doctor.yearsOfExperience,
-      ),
-      inspectionPrice: doctor.inspectionPrice ?? 0,
-      inspectionDuration: doctor.inspectionDuration ?? 0,
-      profileViews: doctor.profileViews ?? 0,
-      image: doctor.image ?? null,
-      gallery: doctor.gallery ?? [],
-      phones: doctor.phones,
-      workingHours: doctor.workingHours ?? [],
-      posts: posts.map((p) => ({
-        id: p._id,
-        content: p.content,
-        images: p.images ?? [],
-        status: p.status as PostStatus,
-        createdAt: p.createdAt,
-      })),
+      gallery: paginatedGallery,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+      },
     };
-  }
-
-  // ── HELPER ─────────────────────────────────────────────────────────────
-  private calculateYearsOfExperience(startDate?: Date): number {
-    if (!startDate) return 0;
-
-    const today = new Date();
-    const start = new Date(startDate);
-    let years = today.getFullYear() - start.getFullYear();
-
-    const monthDiff = today.getMonth() - start.getMonth();
-    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < start.getDate()))
-      years--;
-
-    return Math.max(0, years);
   }
 }

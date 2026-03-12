@@ -18,7 +18,7 @@ import {
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => ({
         secret: configService.get<string>('JWT_ACCESS_SECRET'),
-        signOptions: { expiresIn: '15m' },
+        signOptions: { expiresIn: '5h' },
       }),
       inject: [ConfigService],
     }),

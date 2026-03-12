@@ -514,7 +514,7 @@ export class DashboardService {
       {
         $match: {
           doctorId,
-          status: { $in: [BookingStatus.PENDING] },
+          status: { $in: [BookingStatus.COMPLETED] },
         },
       },
 

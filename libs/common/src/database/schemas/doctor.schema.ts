@@ -196,7 +196,7 @@ export class Doctor extends Document {
     required: false,
     type: String,
     trim: true,
-    match: /^[\p{L}\p{N}._-]+$/u,
+    maxlength: 500,
   })
   bio?: string;
 

@@ -42,6 +42,7 @@ import {
   UpdateUserResponseDto,
 } from './dto/update-user-info.dto';
 import { MinioService, UploadResult } from '../minio/minio.service';
+import { uploadUserProfileImage } from '@app/common/utils/upload-profile-images.util';
 
 @Injectable()
 export class UsersService {
@@ -706,7 +707,11 @@ export class UsersService {
         user.DataofBirth = updateUserDto.DataofBirth;
       }
 
-      if (user.profileImageFileName && user.profileImageBucket) {
+      if (
+        newImage !== undefined &&
+        user.profileImageFileName &&
+        user.profileImageBucket
+      ) {
         try {
           await this.minioService.deleteFile(
             user.profileImageBucket,
@@ -720,7 +725,11 @@ export class UsersService {
       }
 
       // Upload new image
-      const uploadResult = await this.uploadUserProfileImage(userId, newImage);
+      const uploadResult = await uploadUserProfileImage(
+        this.minioService,
+        userId,
+        newImage,
+      );
 
       // Update user record
       if (uploadResult) {
@@ -756,14 +765,6 @@ export class UsersService {
     } finally {
       await session.endSession();
     }
-  }
-  private async uploadUserProfileImage(
-    userId: string,
-    file: Express.Multer.File | undefined,
-  ): Promise<UploadResult | undefined> {
-    if (!file) return undefined;
-    const folder = `patients/${userId}/profile/images`;
-    return await this.minioService.uploadFile(file, 'patients', folder);
   }
 
   async getUserProfile(userId: string) {

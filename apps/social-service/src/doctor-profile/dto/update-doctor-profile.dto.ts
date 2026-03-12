@@ -73,14 +73,6 @@ export const MERGED_AREAS_ENUM = Object.assign(
   DeirEzzorAreas,
 );
 
-// ── Uploaded files — never touches ValidationPipe ─────────────────────────
-export interface UploadedProfileFiles {
-  image?: string;
-  certificateImage?: string;
-  licenseImage?: string;
-  galleryImages: string[];
-}
-
 // ── Helper: parse JSON string from form-data safely ───────────────────────
 const parseJsonField = (val: unknown): unknown => {
   if (typeof val === 'string') {
@@ -230,11 +222,4 @@ export class UpdateDoctorProfileDto {
   @ValidateNested({ each: true })
   @Type(() => PhonesDto)
   phones?: PhonesDto[];
-
-  // ── Gallery — Transform parses JSON string from form-data ─────────────
-  @IsOptional()
-  @Transform(({ value }) => parseJsonField(value))
-  @IsArray()
-  @IsString({ each: true })
-  gallery?: string[];
 }

@@ -10,6 +10,7 @@ import {
 } from '@app/common/database/schemas/common.enums';
 import { EntityProfileRepository } from './entity-profile.repository';
 import { EntityType } from '../dto/get-entity-profile.dto';
+import { calculateYearsOfExperience } from '@app/common/utils/calculate-experience.util';
 
 @Injectable()
 export class EntityProfileService {
@@ -41,14 +42,14 @@ export class EntityProfileService {
 
     await this.repo.incrementDoctorViews(id);
 
-    const posts = await this.postModel
-      .find({
-        authorId: doctor._id,
-        authorType: 'doctor',
-        status: { $in: [PostStatus.APPROVED, PostStatus.PUBLISHED] },
-      })
-      .sort({ createdAt: -1 })
-      .lean();
+    // const posts = await this.postModel
+    //   .find({
+    //     authorId: doctor._id,
+    //     authorType: 'doctor',
+    //     status: { $in: [PostStatus.APPROVED, PostStatus.PUBLISHED] },
+    //   })
+    //   .sort({ createdAt: -1 })
+    //   .lean();
 
     return {
       type: UserRole.DOCTOR,
@@ -68,7 +69,7 @@ export class EntityProfileService {
       privateSpecialization: doctor.privateSpecialization,
       inspectionPrice: doctor.inspectionPrice || 0,
       inspectionDuration: doctor.inspectionDuration || 0,
-      yearsOfExperience: this.calculateYears(doctor.yearsOfExperience),
+      yearsOfExperience: calculateYearsOfExperience(doctor.yearsOfExperience),
       experienceStartDate: doctor.yearsOfExperience || null,
       rating: doctor.rating || 0,
       gallery: doctor.gallery ?? [],
@@ -78,13 +79,13 @@ export class EntityProfileService {
       insuranceCompanies: doctor.insuranceCompanies || [],
       hospitals: doctor.hospitals || [],
       centers: doctor.centers || [],
-      posts: posts.map((p) => ({
-        id: p._id,
-        content: p.content,
-        images: p.images || [],
-        status: p.status,
-        createdAt: p.createdAt,
-      })),
+      // posts: posts.map((p) => ({
+      //   id: p._id,
+      //   content: p.content,
+      //   images: p.images || [],
+      //   status: p.status,
+      //   createdAt: p.createdAt,
+      // })),
     };
   }
 
@@ -280,17 +281,6 @@ export class EntityProfileService {
   // HELPER METHODS
   // ══════════════════════════════════════════════════════════════════════════
 
-  private calculateYears(startDate: Date): number {
-    if (!startDate) return 0;
-    const today = new Date();
-    const start = new Date(startDate);
-    let years = today.getFullYear() - start.getFullYear();
-    const monthDiff = today.getMonth() - start.getMonth();
-    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < start.getDate()))
-      years--;
-    return years;
-  }
-
   /**
    * Calculates aggregate statistics for a hospital
    * Deduplicates doctors, machines, and operations across all departments
@@ -414,28 +404,6 @@ export class EntityProfileService {
         return this.repo.addHospitalGallery(id, images);
       case EntityType.CENTER:
         return this.repo.addCenterGallery(id, images);
-    }
-  }
-
-  async removeGallery(
-    id: string,
-    type: EntityType,
-    images: string[],
-  ): Promise<string[]> {
-    switch (type) {
-      case EntityType.HOSPITAL:
-        return this.repo.removeHospitalGallery(id, images);
-      case EntityType.CENTER:
-        return this.repo.removeCenterGallery(id, images);
-    }
-  }
-
-  async clearGallery(id: string, type: EntityType): Promise<void> {
-    switch (type) {
-      case EntityType.HOSPITAL:
-        return this.repo.clearHospitalGallery(id);
-      case EntityType.CENTER:
-        return this.repo.clearCenterGallery(id);
     }
   }
 }

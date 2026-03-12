@@ -41,6 +41,8 @@ import {
   ProfileImageResponseDto,
 } from './dto/images.dto';
 import { MinioService, UploadResult } from '../minio/minio.service';
+import { uploadDoctorProfileImage } from '@app/common/utils/upload-profile-images.util';
+import { Post } from '@app/common/database/schemas/post.schema';
 export interface GalleryImageWithStatus extends GalleryImage {
   status: GalleryImageStatus;
   imageId: string; // Unique ID for this image
@@ -66,6 +68,7 @@ export class DoctorBookingsQueryService {
     private readonly cacheService: CacheService,
     private readonly kafkaProducer: KafkaService,
     private readonly minioService: MinioService,
+    @InjectModel(Post.name) private readonly postModel: Model<Post>,
   ) {}
 
   /**
@@ -582,7 +585,14 @@ export class DoctorBookingsQueryService {
     }
 
     // Upload new profile image to MinIO
-    const uploadResult = await this.uploadDoctorProfileImage(doctorId, file);
+    const uploadResult = await uploadDoctorProfileImage(
+      this.minioService,
+      doctorId,
+      file,
+    );
+    if (!uploadResult) {
+      throw new Error('Failed to upload profile image');
+    }
 
     // Update doctor record
     doctor.image = uploadResult.url;
@@ -791,17 +801,6 @@ export class DoctorBookingsQueryService {
   }
 
   /**
-   * Upload doctor profile image to MinIO
-   */
-  private async uploadDoctorProfileImage(
-    doctorId: string,
-    file: Express.Multer.File,
-  ): Promise<UploadResult> {
-    const folder = `doctors/${doctorId}/profile`;
-    return this.minioService.uploadFile(file, 'doctors', folder);
-  }
-
-  /**
    * Upload doctor gallery image to MinIO
    */
   private async uploadDoctorGalleryImage(
@@ -897,6 +896,37 @@ export class DoctorBookingsQueryService {
     return {
       gallery: approvedGallery,
       galleryCount: approvedGallery.length,
+    };
+  }
+
+  async getDoctorPosts(doctorId: string, page = 1) {
+    const limit = 10;
+    const skip = (page - 1) * limit;
+
+    const [posts, totalPosts] = await Promise.all([
+      this.postModel
+        .find({ authorId: new Types.ObjectId(doctorId), authorType: 'doctor' })
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+
+      this.postModel.countDocuments({
+        authorId: doctorId,
+        authorType: 'doctor',
+      }),
+    ]);
+
+    const totalPages = Math.ceil(totalPosts / limit);
+
+    return {
+      posts,
+      pagination: {
+        page,
+        limit,
+        totalPosts,
+        totalPages,
+      },
     };
   }
 }

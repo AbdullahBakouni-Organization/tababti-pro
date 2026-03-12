@@ -94,59 +94,20 @@ import { DoctorBookingsQueryService } from './doctor.service.v2';
 import { RescheduleBookingDto } from './dto/resechedula-booking.dto,';
 import { ParseMongoIdPipe } from '../../../../libs/common/src/pipes/parse-mongo-id.pipe';
 import { Throttle } from '@nestjs/throttler';
-import multer from 'multer';
 import { UploadResult, MinioService } from '../minio/minio.service';
 import {
   GalleryImagesResponseDto,
   ProfileImageResponseDto,
 } from './dto/images.dto';
+import {
+  memoryDocsStorageConfig,
+  memoryStorageConfig,
+} from '@app/common/constant/images-dtos.constant';
 
 // ============================================
 // Login DTO
 // ============================================
-const memoryStorageConfig = {
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 10 * 1024 * 1024,
-  },
-  fileFilter: (req: any, file: Express.Multer.File, cb: any) => {
-    const allowedImageTypes = ['image/jpeg', 'image/png', 'image/webp'];
-    const allowedDocTypes = ['application/pdf'];
-    const isImage = file.fieldname.includes('Image');
-    const isDocument = file.fieldname.includes('Document');
-    if (isImage && allowedImageTypes.includes(file.mimetype)) {
-      cb(null, true);
-    } else if (isDocument && allowedDocTypes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(
-        new BadRequestException(
-          `Invalid file type for ${file.fieldname}. ` +
-            `${isImage ? 'Allowed: JPEG, PNG, WEBP' : 'Allowed: PDF'}`,
-        ),
-        false,
-      );
-    }
-  },
-};
-const imageMemoryConfig = {
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB per image
-  },
-  fileFilter: (req: any, file: Express.Multer.File, cb: any) => {
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
 
-    if (allowedTypes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(
-        new BadRequestException('Invalid file type. Allowed: JPEG, PNG, WEBP'),
-        false,
-      );
-    }
-  },
-};
 export class LoginDto {
   phone: string;
   password: string;
@@ -189,7 +150,7 @@ export class DoctorController {
         { name: 'certificateDocument', maxCount: 1 },
         { name: 'licenseDocument', maxCount: 1 },
       ],
-      memoryStorageConfig,
+      memoryDocsStorageConfig,
     ),
   )
   @HttpCode(HttpStatus.CREATED)
@@ -567,18 +528,6 @@ export class DoctorController {
   // ============================================
   // PROTECTED ENDPOINTS (Require Authentication)
   // ============================================
-
-  /**
-   * Get current doctor profile
-   */
-  @Get('me')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Get current doctor profile' })
-  getProfile() {
-    // This method needs to be implemented with proper doctor service methods
-    throw new Error('Method not implemented yet');
-  }
 
   /**
    * Get all active sessions
@@ -1210,7 +1159,7 @@ export class DoctorController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.DOCTOR)
   @Post('profile-image')
-  @UseInterceptors(FileInterceptor('image', imageMemoryConfig))
+  @UseInterceptors(FileInterceptor('image', memoryStorageConfig))
   @HttpCode(HttpStatus.OK)
   @ApiConsumes('multipart/form-data')
   @ApiOperation({
@@ -1271,7 +1220,7 @@ export class DoctorController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.DOCTOR)
   @Post('gallery')
-  @UseInterceptors(FilesInterceptor('images', 10, imageMemoryConfig)) // Max 10 images at once
+  @UseInterceptors(FilesInterceptor('images', 10, memoryStorageConfig)) // Max 10 images at once
   @HttpCode(HttpStatus.CREATED)
   @ApiConsumes('multipart/form-data')
   @ApiOperation({
@@ -1431,5 +1380,20 @@ export class DoctorController {
       req.user.entity._id.toString(),
     );
     return this.DoctorServiceV2.getDoctorGalleryImages(doctorId);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
+  @Get('posts')
+  async getDoctorPosts(@Req() req: any) {
+    const doctorId = new ParseMongoIdPipe().transform(
+      req.user.accountId.toString(),
+    );
+    const data = await this.DoctorServiceV2.getDoctorPosts(doctorId);
+    return {
+      success: true,
+      message: 'Posts fetched successfully',
+      data,
+    };
   }
 }
