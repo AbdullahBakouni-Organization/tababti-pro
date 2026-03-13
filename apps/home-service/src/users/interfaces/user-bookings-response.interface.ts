@@ -26,7 +26,9 @@ export interface BookingResponseItem {
 }
 
 export interface UserBookingsResponse {
-  data: BookingResponseItem[];
+  booking: {
+    data: BookingResponseItem[];
+  };
   meta: {
     total: number;
     page: number;

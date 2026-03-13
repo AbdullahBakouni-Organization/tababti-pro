@@ -21,6 +21,7 @@ import { PostStats } from './post.interface';
 import { Post, PostDocument } from '@app/common/database/schemas/post.schema';
 import { MinioService } from 'apps/home-service/src/minio/minio.service';
 import { console } from 'inspector/promises';
+import { formatDate } from '@app/common/utils/get-syria-date';
 
 @Injectable()
 export class PostService {
@@ -410,5 +411,143 @@ export class PostService {
       );
       // Don't throw - continue with post deletion even if MinIO cleanup fails
     }
+  }
+
+  async getApprovedPosts(page: number = 1, limit: number = 10) {
+    const skip = (page - 1) * limit;
+
+    const [posts, total] = await Promise.all([
+      this.postModel
+        .find({ status: PostStatus.APPROVED })
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      this.postModel.countDocuments({ status: PostStatus.APPROVED }),
+    ]);
+
+    // Collect all authorIds grouped by type
+    const doctorIds: Types.ObjectId[] = [];
+    const hospitalIds: Types.ObjectId[] = [];
+    const centerIds: Types.ObjectId[] = [];
+
+    for (const post of posts) {
+      if (post.authorType === UserRole.DOCTOR) doctorIds.push(post.authorId);
+      else if (post.authorType === UserRole.HOSPITAL)
+        hospitalIds.push(post.authorId);
+      else if (post.authorType === UserRole.CENTER)
+        centerIds.push(post.authorId);
+    }
+
+    // Fetch all authors in parallel using authAccountId
+    const [doctors, hospitals, centers] = await Promise.all([
+      doctorIds.length
+        ? this.doctorModel
+            .find({ authAccountId: { $in: doctorIds } })
+            .select('authAccountId firstName middleName lastName image')
+            .lean()
+        : [],
+      hospitalIds.length
+        ? this.hospitalModel
+            .find({ authAccountId: { $in: hospitalIds } })
+            .select('authAccountId name image')
+            .lean()
+        : [],
+      centerIds.length
+        ? this.centerModel
+            .find({ authAccountId: { $in: centerIds } })
+            .select('authAccountId name image')
+            .lean()
+        : [],
+    ]);
+
+    // Build lookup maps keyed by authAccountId string
+    // Doctor map
+    // Doctor map
+    const doctorMap = new Map<
+      string,
+      { fullName: string; image: string | null }
+    >(
+      doctors.map(
+        (d) =>
+          [
+            d.authAccountId.toString(),
+            {
+              fullName: [d.firstName, d.middleName, d.lastName]
+                .filter(Boolean)
+                .join(' '),
+              image: d.image ?? null,
+            },
+          ] as [string, { fullName: string; image: string | null }],
+      ),
+    );
+
+    // Hospital map
+    const hospitalMap = new Map<
+      string,
+      { fullName: string; image: string | null }
+    >(
+      hospitals.map(
+        (h) =>
+          [
+            h.authAccountId.toString(),
+            { fullName: h.name, image: h.image ?? null },
+          ] as [string, { fullName: string; image: string | null }],
+      ),
+    );
+
+    // Center map
+    const centerMap = new Map<
+      string,
+      { fullName: string; image: string | null }
+    >(
+      centers.map(
+        (c) =>
+          [
+            c.authAccountId.toString(),
+            { fullName: c.name, image: c.image ?? null },
+          ] as [string, { fullName: string; image: string | null }],
+      ),
+    );
+
+    // Map posts to response
+    const data = posts.map((post) => {
+      const authorKey = post.authorId?.toString();
+      let author: { fullName: string; image: string | null } = {
+        fullName: 'Unknown',
+        image: null,
+      };
+
+      if (post.authorType === UserRole.DOCTOR) {
+        author = doctorMap.get(authorKey) ?? author;
+      } else if (post.authorType === UserRole.HOSPITAL) {
+        author = hospitalMap.get(authorKey) ?? author;
+      } else if (post.authorType === UserRole.CENTER) {
+        author = centerMap.get(authorKey) ?? author;
+      }
+
+      return {
+        id: post._id,
+        content: post.content || null,
+        images: post.images || [],
+        authorType: post.authorType,
+        authorName: author.fullName,
+        authorImage: author.image,
+        createdAt: formatDate(post.createdAt!),
+      };
+    });
+
+    return {
+      posts: {
+        data,
+        metadata: {
+          total,
+          page,
+          limit,
+          totalPages: Math.ceil(total / limit),
+          hasNextPage: skip + posts.length < total,
+        },
+      },
+    };
   }
 }

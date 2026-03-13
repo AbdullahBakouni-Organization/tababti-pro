@@ -43,6 +43,7 @@ import {
 import { MinioService, UploadResult } from '../minio/minio.service';
 import { uploadDoctorProfileImage } from '@app/common/utils/upload-profile-images.util';
 import { Post } from '@app/common/database/schemas/post.schema';
+import { SearchDoctorsDto } from './dto/search-of-another-doctor.dto';
 export interface GalleryImageWithStatus extends GalleryImage {
   status: GalleryImageStatus;
   imageId: string; // Unique ID for this image
@@ -926,6 +927,67 @@ export class DoctorBookingsQueryService {
         limit,
         totalPosts,
         totalPages,
+      },
+    };
+  }
+
+  // doctors.service.ts
+  async searchDoctorsByName(dto: SearchDoctorsDto) {
+    const page = parseInt(dto.page ?? '1');
+    const limit = parseInt(dto.limit ?? '10');
+    const skip = (page - 1) * limit;
+
+    // Powerful regex: trims, escapes special chars, supports arabic + english
+    // splits by space so "احمد علي" matches firstName+middleName+lastName in any order
+    const escapedName = dto.name.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // escape regex special chars
+
+    const nameParts = escapedName.split(/\s+/).filter(Boolean);
+
+    // Each word must match at least one of the name fields
+    const nameConditions = nameParts.map((part) => ({
+      $or: [
+        { firstName: { $regex: part, $options: 'i' } },
+        { middleName: { $regex: part, $options: 'i' } },
+        { lastName: { $regex: part, $options: 'i' } },
+      ],
+    }));
+
+    const query = { $and: nameConditions };
+
+    const [doctors, total] = await Promise.all([
+      this.doctorModel
+        .find(query)
+        .select(
+          'firstName middleName lastName image publicSpecialization privateSpecialization',
+        )
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      this.doctorModel.countDocuments(query),
+    ]);
+
+    const data = doctors.map((doctor) => {
+      return {
+        id: doctor._id,
+        fullName: [doctor.firstName, doctor.middleName, doctor.lastName]
+          .filter(Boolean)
+          .join(' '),
+        image: doctor.image ?? null,
+        publicSpecialization: doctor.publicSpecialization,
+        privateSpecialization: doctor.privateSpecialization,
+      };
+    });
+
+    return {
+      doctors: {
+        data,
+        metadata: {
+          total,
+          page,
+          limit,
+          totalPages: Math.ceil(total / limit),
+          hasNextPage: skip + doctors.length < total,
+        },
       },
     };
   }

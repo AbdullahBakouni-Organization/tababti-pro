@@ -45,21 +45,6 @@ export class CreateBookingDto {
 }
 
 export class BookingResponseDto {
-  bookingId: string | undefined;
-  patientId: string;
-  doctorId: string;
-  slotId: string;
-  status: string;
-  bookingDate: Date;
-  bookingTime: string;
-  bookingEndTime: string;
-  location: {
-    type: string;
-    entity_name: string;
-    address: string;
-  };
-  price: number;
-  createdBy: string;
-  note?: string;
-  createdAt: Date | undefined;
+  success: boolean;
+  message?: string;
 }

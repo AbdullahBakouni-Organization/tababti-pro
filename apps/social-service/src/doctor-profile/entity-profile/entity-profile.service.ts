@@ -5,6 +5,7 @@ import { Model, Types } from 'mongoose';
 import { Post } from '@app/common/database/schemas/post.schema';
 import { CommonDepartment } from '@app/common/database/schemas/common_departments.schema';
 import {
+  GalleryImageStatus,
   PostStatus,
   UserRole,
 } from '@app/common/database/schemas/common.enums';
@@ -21,14 +22,19 @@ export class EntityProfileService {
     private readonly departmentModel: Model<CommonDepartment>,
   ) {}
 
-  async getEntityProfile(id: string, type: UserRole) {
+  async getEntityProfile(
+    id: string,
+    type: UserRole,
+    page: number = 1,
+    limit: number = 10,
+  ) {
     switch (type) {
       case UserRole.DOCTOR:
-        return this.getDoctorProfile(id);
+        return this.getDoctorProfile(id, page, limit);
       case UserRole.HOSPITAL:
-        return this.getHospitalProfile(id);
+        return this.getHospitalProfile(id, page, limit);
       case UserRole.CENTER:
-        return this.getCenterProfile(id);
+        return this.getCenterProfile(id, page, limit);
     }
   }
 
@@ -36,20 +42,22 @@ export class EntityProfileService {
   // DOCTOR PROFILE
   // ══════════════════════════════════════════════════════════════════════════
 
-  private async getDoctorProfile(id: string) {
+  private async getDoctorProfile(id: string, page: number, limit: number) {
     const doctor = await this.repo.findDoctorById(id);
     if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
-
     await this.repo.incrementDoctorViews(id);
 
-    // const posts = await this.postModel
-    //   .find({
-    //     authorId: doctor._id,
-    //     authorType: 'doctor',
-    //     status: { $in: [PostStatus.APPROVED, PostStatus.PUBLISHED] },
-    //   })
-    //   .sort({ createdAt: -1 })
-    //   .lean();
+    // Filter only approved gallery images
+    const approvedGallery =
+      doctor.gallery?.filter(
+        (img) => img.status === GalleryImageStatus.APPROVED,
+      ) ?? [];
+
+    // Paginate approved gallery
+    const galleryTotal = approvedGallery.length;
+    const galleryStart = (page - 1) * limit;
+    const galleryEnd = galleryStart + limit;
+    const paginatedGallery = approvedGallery.slice(galleryStart, galleryEnd);
 
     return {
       type: UserRole.DOCTOR,
@@ -69,23 +77,32 @@ export class EntityProfileService {
       privateSpecialization: doctor.privateSpecialization,
       inspectionPrice: doctor.inspectionPrice || 0,
       inspectionDuration: doctor.inspectionDuration || 0,
-      yearsOfExperience: calculateYearsOfExperience(doctor.yearsOfExperience),
-      experienceStartDate: doctor.yearsOfExperience || null,
+      yearsOfExperience: calculateYearsOfExperience(doctor.experienceStartDate),
+      experienceStartDate: doctor.experienceStartDate || null,
       rating: doctor.rating || 0,
-      gallery: doctor.gallery ?? [],
+      gallery: {
+        data: paginatedGallery.map((img) => ({
+          imageId: img.imageId,
+          url: img.url,
+          fileName: img.fileName,
+          description: img.description || null,
+          uploadedAt: img.uploadedAt,
+          approvedAt: img.approvedAt || null,
+        })),
+        meta: {
+          total: galleryTotal,
+          page,
+          limit,
+          totalPages: Math.ceil(galleryTotal / limit),
+          hasNextPage: galleryEnd < galleryTotal,
+        },
+      },
       workingHours: doctor.workingHours || [],
       profileViews: doctor.profileViews || 0,
       isSubscribed: doctor.isSubscribed,
       insuranceCompanies: doctor.insuranceCompanies || [],
       hospitals: doctor.hospitals || [],
       centers: doctor.centers || [],
-      // posts: posts.map((p) => ({
-      //   id: p._id,
-      //   content: p.content,
-      //   images: p.images || [],
-      //   status: p.status,
-      //   createdAt: p.createdAt,
-      // })),
     };
   }
 
@@ -93,7 +110,7 @@ export class EntityProfileService {
   // HOSPITAL PROFILE (WITH DEPARTMENTS, MACHINES, OPERATIONS)
   // ══════════════════════════════════════════════════════════════════════════
 
-  private async getHospitalProfile(id: string) {
+  private async getHospitalProfile(id: string, page: number, limit: number) {
     const hospital = await this.repo.findHospitalById(id);
     if (!hospital) throw new NotFoundException('hospital.NOT_FOUND');
 
@@ -188,7 +205,7 @@ export class EntityProfileService {
   // CENTER PROFILE (WITH DEPARTMENTS, MACHINES, OPERATIONS)
   // ══════════════════════════════════════════════════════════════════════════
 
-  private async getCenterProfile(id: string) {
+  private async getCenterProfile(id: string, page: number, limit: number) {
     const center = await this.repo.findCenterById(id);
     if (!center) throw new NotFoundException('center.NOT_FOUND');
 

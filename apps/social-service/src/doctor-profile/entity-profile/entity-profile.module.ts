@@ -19,6 +19,7 @@ import {
   CenterSchema,
 } from '@app/common/database/schemas/center.schema';
 import { Post, PostSchema } from '@app/common/database/schemas/post.schema';
+import { AuthValidateModule } from '@app/common/auth-validate';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { Post, PostSchema } from '@app/common/database/schemas/post.schema';
       { name: Center.name, schema: CenterSchema },
       { name: Post.name, schema: PostSchema },
     ]),
+    AuthValidateModule,
   ],
   controllers: [EntityProfileController],
   providers: [EntityProfileService, EntityProfileRepository],

@@ -9,7 +9,6 @@ import {
   Req,
   UseGuards,
   Put,
-  BadRequestException,
   UseInterceptors,
   UploadedFile,
 } from '@nestjs/common';
@@ -76,6 +75,7 @@ export class UsersController {
     @Req() req: any,
     @Query('doctorId') doctorId: string,
     @Query('bookingDate') bookingDate: string,
+    @Query('slotId') slotId: string,
   ): Promise<BookingValidationResponseDto> {
     const patientId = new ParseMongoIdPipe().transform(
       req.user.entity._id.toString(),
@@ -85,6 +85,7 @@ export class UsersController {
       patientId,
       doctorId,
       date,
+      slotId,
     );
   }
 

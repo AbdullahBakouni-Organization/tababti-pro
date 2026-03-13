@@ -103,6 +103,7 @@ import {
   memoryDocsStorageConfig,
   memoryStorageConfig,
 } from '@app/common/constant/images-dtos.constant';
+import { SearchDoctorsDto } from './dto/search-of-another-doctor.dto';
 
 // ============================================
 // Login DTO
@@ -1395,5 +1396,10 @@ export class DoctorController {
       message: 'Posts fetched successfully',
       data,
     };
+  }
+
+  @Get('search')
+  async searchDoctors(@Query() dto: SearchDoctorsDto) {
+    return this.DoctorServiceV2.searchDoctorsByName(dto);
   }
 }

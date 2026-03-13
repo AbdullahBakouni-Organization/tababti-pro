@@ -1,6 +1,6 @@
 import { PrivateMedicineSpecialty } from '@app/common/database/schemas/common.enums';
 import { IsString, IsMongoId, IsArray, ArrayNotEmpty } from 'class-validator';
-import { InputType, Field } from '@nestjs/graphql';  // ← add this
+import { InputType, Field } from '@nestjs/graphql'; // ← add this
 
 export class CreateQuestionDto {
   @IsString()

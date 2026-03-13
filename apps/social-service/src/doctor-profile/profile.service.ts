@@ -122,7 +122,10 @@ export class DoctorProfileService {
 
     // Experience date (DB field is yearsOfExperience)
     if (normalizedExperienceDate)
-      updatePayload.yearsOfExperience = normalizedExperienceDate;
+      updatePayload.experienceStartDate = normalizedExperienceDate;
+    updatePayload.yearsOfExperience = calculateYearsOfExperience(
+      normalizedExperienceDate,
+    );
 
     if (newImage !== undefined && doctor.imageFileName && doctor.imageBucket) {
       try {
@@ -235,9 +238,9 @@ export class DoctorProfileService {
       publicSpecialization: doctor.publicSpecialization,
       privateSpecialization: doctor.privateSpecialization,
 
-      experienceStartDate: doctor.yearsOfExperience ?? null,
-      yearsOfExperience: calculateYearsOfExperience(doctor.yearsOfExperience),
-
+      yearsOfExperience:
+        calculateYearsOfExperience(doctor.experienceStartDate) ?? 0,
+      experienceStartDate: doctor.experienceStartDate ?? null,
       inspectionPrice: doctor.inspectionPrice ?? 0,
       inspectionDuration: doctor.inspectionDuration ?? 0,
 
