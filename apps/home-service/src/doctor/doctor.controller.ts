@@ -403,7 +403,7 @@ export class DoctorController {
       },
     };
   }
-  @Throttle({ default: { limit: 3, ttl: 60 } })
+  @Throttle({ short: { ttl: 1000, limit: 3 } })
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.DOCTOR)
   @Post('forgot-password/request-otp')

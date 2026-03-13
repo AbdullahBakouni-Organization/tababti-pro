@@ -17,18 +17,11 @@ import {
   Center,
   CenterSchema,
 } from '@app/common/database/schemas/center.schema';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
-import { APP_GUARD } from '@nestjs/core';
+
 import { MinioModule } from 'apps/home-service/src/minio/minio.module';
 
 @Module({
   imports: [
-    ThrottlerModule.forRoot([
-      {
-        ttl: 60,
-        limit: 5,
-      },
-    ]),
     MongooseModule.forFeature([
       { name: Post.name, schema: PostSchema },
       { name: User.name, schema: UserSchema },
@@ -39,14 +32,7 @@ import { MinioModule } from 'apps/home-service/src/minio/minio.module';
     MinioModule,
   ],
   controllers: [PostController],
-  providers: [
-    PostService,
-    PostRepository,
-    {
-      provide: APP_GUARD,
-      useClass: ThrottlerGuard,
-    },
-  ],
+  providers: [PostService, PostRepository],
   exports: [PostService],
 })
 export class PostModule {}

@@ -8,27 +8,15 @@ import { DoctorProfileController } from './profile.controller';
 import { DoctorProfileService } from './profile.service';
 import { DoctorRepository } from './profile.repository';
 import { EntityProfileModule } from './entity-profile/entity-profile.module';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
-import { APP_GUARD } from '@nestjs/core';
 import { MinioModule } from 'apps/home-service/src/minio/minio.module';
 
 @Module({
   imports: [
-    ThrottlerModule.forRoot([
-      {
-        ttl: 60,
-        limit: 5,
-      },
-    ]),
     MongooseModule.forFeature([{ name: Doctor.name, schema: DoctorSchema }]),
     EntityProfileModule,
     MinioModule,
   ],
   controllers: [DoctorProfileController],
-  providers: [
-    DoctorProfileService,
-    DoctorRepository,
-    { provide: APP_GUARD, useClass: ThrottlerGuard },
-  ],
+  providers: [DoctorProfileService, DoctorRepository],
 })
 export class DoctorProfileModule {}

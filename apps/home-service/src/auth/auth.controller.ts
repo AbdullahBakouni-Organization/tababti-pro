@@ -31,7 +31,6 @@ import type { Response } from 'express';
 import { RolesGuard } from '@app/common/guards/role.guard';
 import { UserRole } from '@app/common/database/schemas/common.enums';
 import { Roles } from '@app/common/decorator/role.decorator';
-import { Throttle } from '@nestjs/throttler';
 import { FileInterceptor } from '@nestjs/platform-express';
 
 import type { Request } from 'express';
@@ -52,7 +51,7 @@ export class AuthController {
     private readonly authService: AuthService,
     private authValidateService: AuthValidateService,
   ) {}
-  @Throttle({ default: { limit: 3, ttl: 60 } })
+
   @Post('request-otp')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -75,7 +74,6 @@ export class AuthController {
     return await this.authService.requestOtp(requestOtpDto);
   }
 
-  @Throttle({ default: { limit: 5, ttl: 300 } })
   @Post('verify-otp')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -101,7 +99,7 @@ export class AuthController {
   ): Promise<AuthResponseDto> {
     return await this.authService.verifyOtp(verifyOtpDto, res);
   }
-  @Throttle({ default: { limit: 2, ttl: 120 } })
+
   @Post('resend-otp')
   @ApiOperation({ summary: 'Resend OTP code' })
   @ApiResponse({

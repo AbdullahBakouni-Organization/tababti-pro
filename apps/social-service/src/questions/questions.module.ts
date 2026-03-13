@@ -28,17 +28,9 @@ import {
 } from '@app/common/database/schemas/center.schema';
 
 import { SpecializationsModule } from '../specializations/specializations.module';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
-import { APP_GUARD } from '@nestjs/core';
 
 @Module({
   imports: [
-    ThrottlerModule.forRoot([
-      {
-        ttl: 60,
-        limit: 5,
-      },
-    ]),
     MongooseModule.forFeature([
       { name: Question.name, schema: QuestionSchema },
       { name: Answer.name, schema: AnswerSchema },
@@ -50,10 +42,6 @@ import { APP_GUARD } from '@nestjs/core';
     SpecializationsModule,
   ],
   controllers: [QuestionsController],
-  providers: [
-    QuestionsService,
-    QuestionsRepository,
-    { provide: APP_GUARD, useClass: ThrottlerGuard },
-  ],
+  providers: [QuestionsService, QuestionsRepository],
 })
 export class QuestionsModule {}

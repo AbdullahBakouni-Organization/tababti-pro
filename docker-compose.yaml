@@ -6,8 +6,6 @@ networks:
         - subnet: 172.25.0.0/24
 
 volumes:
-  postgres_data:
-    driver: local
   mongodb_data:
     driver: local
   redis_data:

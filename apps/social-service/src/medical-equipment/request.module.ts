@@ -24,17 +24,9 @@ import {
   MedicalEquipmentRequest,
   MedicalEquipmentRequestSchema,
 } from '@app/common/database/schemas/medical_equipment_requests.schema';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
-import { APP_GUARD } from '@nestjs/core';
 
 @Module({
   imports: [
-    ThrottlerModule.forRoot([
-      {
-        ttl: 60,
-        limit: 5,
-      },
-    ]),
     MongooseModule.forFeature([
       { name: LegalAdviceRequest.name, schema: LegalAdviceRequestSchema },
       {
@@ -54,7 +46,6 @@ import { APP_GUARD } from '@nestjs/core';
     LegalAdviceRepository,
     MedicalEquipmentService,
     MedicalEquipmentRepository,
-    { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],
   exports: [LegalAdviceService, MedicalEquipmentService],
 })
