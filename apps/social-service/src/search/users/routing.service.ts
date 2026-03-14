@@ -8,7 +8,6 @@ import {
   TravelMode,
   FALLBACK_SPEEDS,
   NearbyEntity,
-  RoutingData,
 } from './types/nearby.types';
 import {
   MatrixResponse,
@@ -214,7 +213,7 @@ export class RoutingService {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // ORS HTTP CALLS 
+  // ORS HTTP CALLS
   // ═══════════════════════════════════════════════════════════════════════════
 
   private async callMatrixAPI(
@@ -443,13 +442,11 @@ export class RoutingService {
       await this.routeQueue.add(
         'warmup-routes',
         {
-          entities: entities
-            .slice(0, 5)
-            .map((e) => ({
-              id: e.id,
-              latitude: e.latitude,
-              longitude: e.longitude,
-            })),
+          entities: entities.slice(0, 5).map((e) => ({
+            id: e.id,
+            latitude: e.latitude,
+            longitude: e.longitude,
+          })),
           customerLat: lat,
           customerLng: lng,
           travelMode,

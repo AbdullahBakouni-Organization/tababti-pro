@@ -25,10 +25,8 @@ export class NearbyRepository {
     @InjectModel('Hospital') private readonly hospitalModel: Model<HospitalRaw>,
     @InjectModel('Center') private readonly centerModel: Model<CenterRaw>,
     @InjectModel('PublicSpecialization')
-    private readonly publicSpecModel: Model<any>,
-    @InjectModel('PrivateSpecialization')
-    private readonly privateSpecModel: Model<any>,
-    @InjectModel('CommonDepartment') private readonly deptModel: Model<any>,
+    @InjectModel('CommonDepartment')
+    private readonly deptModel: Model<any>,
     private readonly cache: NearbyCache,
   ) {}
 
@@ -334,16 +332,12 @@ export class NearbyRepository {
           .select({
             name: 1,
             address: 1,
+            latitude: 1, // ✅ ADD THIS
+            longitude: 1, // ✅ ADD THIS
             bio: 1,
             centerSpecialization: 1,
-            approvalStatus: 1,
             cityId: 1,
-            phones: 1,
             image: 1,
-            rating: 1,
-            latitude: 1,
-            longitude: 1,
-            workingHours: 1,
           })
           .lean()
           .exec();

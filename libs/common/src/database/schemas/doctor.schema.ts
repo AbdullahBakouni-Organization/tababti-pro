@@ -196,7 +196,7 @@ export class Doctor extends Document {
     required: false,
     type: String,
     trim: true,
-    match: /^[\p{L}\p{N}._-]+$/u,
+    maxlength: 500,
   })
   bio?: string;
 
@@ -294,9 +294,11 @@ export class Doctor extends Document {
   @Prop({ default: 5 }) // Max 5 concurrent sessions
   maxSessions: number;
 
-  @Prop({ type: Date })
-  yearsOfExperience: Date;
+  @Prop({ type: Number })
+  yearsOfExperience: number;
 
+  @Prop({ type: Date })
+  experienceStartDate: Date;
   // ==================== SECURITY ====================
 
   @Prop({ default: 0 })

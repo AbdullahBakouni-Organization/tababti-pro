@@ -35,7 +35,30 @@ export class DoctorSearchQuery {
       ? { [dto.sortBy]: dto.order === 'asc' ? 1 : -1 }
       : undefined;
 
-    const mongooseQuery = this.model.find(query).skip(skip).limit(limit).lean();
+    const mongooseQuery = this.model
+      .find(query)
+      .select({
+        firstName: 1,
+        middleName: 1,
+        lastName: 1,
+        yearsOfExperience: 1,
+        image: 1,
+        gender: 1,
+        inspectionPrice: 1,
+        inspectionDuration: 1,
+        cityId: 1,
+        city: 1,
+        subcity: 1,
+        publicSpecializationId: 1,
+        privateSpecializationId: 1,
+        publicSpecialization: 1,
+        privateSpecialization: 1,
+      })
+      .populate('publicSpecializationId', 'name')
+      .populate('privateSpecializationId', 'name')
+      .skip(skip)
+      .limit(limit)
+      .lean();
     if (sort) mongooseQuery.sort(sort);
 
     const [data, total] = await Promise.all([

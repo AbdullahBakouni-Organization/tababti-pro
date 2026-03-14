@@ -26,6 +26,9 @@ export class Center extends Document {
   @Prop({ type: Types.ObjectId, ref: 'Cities', required: true })
   cityId: Types.ObjectId;
 
+  @Prop({ type: Types.ObjectId, ref: 'SubCities' })
+  subcityId: Types.ObjectId;
+
   @Prop({
     type: [{ type: Object }],
     index: true,

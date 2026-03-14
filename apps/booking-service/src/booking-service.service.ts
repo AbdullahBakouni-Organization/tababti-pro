@@ -69,6 +69,7 @@ export class BookingService {
       patientId,
       createBookingDto.doctorId,
       slot.date,
+      slot._id.toString(),
     );
 
     if (!validation.canBook) {
@@ -151,7 +152,10 @@ export class BookingService {
       await this.invalidateBookingCaches(createBookingDto.doctorId, patientId);
 
       // Step 8: Return response
-      return this.mapToResponseDto(booking[0]);
+      return {
+        success: true,
+        message: `Booking created successfully: ${booking[0]._id.toString()}`,
+      };
     } catch (error) {
       // Rollback transaction on error
       await session.abortTransaction();
@@ -287,26 +291,5 @@ export class BookingService {
       const err = error as Error;
       this.logger.warn(`Failed to invalidate booking caches: ${err.message}`);
     }
-  }
-
-  /**
-   * Map booking to response DTO
-   */
-  private mapToResponseDto(booking: BookingDocument): BookingResponseDto {
-    return {
-      bookingId: booking._id?.toString(),
-      patientId: booking.patientId.toString(),
-      doctorId: booking.doctorId.toString(),
-      slotId: booking.slotId.toString(),
-      status: booking.status,
-      bookingDate: booking.bookingDate,
-      bookingTime: booking.bookingTime,
-      bookingEndTime: booking.bookingEndTime,
-      location: booking.location,
-      price: booking.price,
-      createdBy: booking.createdBy,
-      note: booking.note,
-      createdAt: booking.createdAt,
-    };
   }
 }

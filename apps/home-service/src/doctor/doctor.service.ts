@@ -281,6 +281,8 @@ export class DoctorService {
           firstName: dto.firstName,
           middleName: dto.middleName,
           lastName: dto.lastName,
+          latitude: dto.doctorLat,
+          longitude: dto.doctorLng,
           password: dto.password,
           phones: [
             {

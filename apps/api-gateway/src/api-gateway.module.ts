@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
 import { ApiGatewayController } from './controllers/api-gateway.controller';
 import { ApiGatewayService } from './api-gateway.service';
 import { HttpModule } from '@nestjs/axios';
@@ -12,12 +14,28 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: ['.env', '.env.test'],
+      envFilePath: ['.env'],
     }),
-
-    HttpModule.registerAsync({
+    ThrottlerModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
+        throttlers: [
+          {
+            name: 'short',
+            ttl: config.get<number>('THROTTLE_SHORT_TTL', 1000), // 1 second
+            limit: config.get<number>('THROTTLE_SHORT_LIMIT', 10), // 10 req/sec
+          },
+          {
+            name: 'long',
+            ttl: config.get<number>('THROTTLE_LONG_TTL', 60000), // 1 minute
+            limit: config.get<number>('THROTTLE_LONG_LIMIT', 100), // 200 req/min
+          },
+        ],
+      }),
+    }),
+    HttpModule.registerAsync({
+      inject: [ConfigService],
+      useFactory: () => ({
         timeout: 5000,
         maxRedirects: 5,
       }),
@@ -30,6 +48,12 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
     BookingProxyController,
     NotificationProxyController,
   ],
-  providers: [ApiGatewayService],
+  providers: [
+    ApiGatewayService,
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard, // applies globally to all controllers
+    },
+  ],
 })
 export class ApiGatewayModule {}

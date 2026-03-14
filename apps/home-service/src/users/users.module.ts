@@ -4,30 +4,11 @@ import { UsersController } from './users.controller';
 import { DatabaseModule } from '@app/common/database/database.module';
 import { KafkaModule } from '@app/common/kafka/kafka.module';
 import { CacheModule } from '@app/common/cache/cache.module';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
-import { APP_GUARD } from '@nestjs/core';
 import { MinioModule } from '../minio/minio.module';
 
 @Module({
-  imports: [
-    ThrottlerModule.forRoot([
-      {
-        ttl: 60,
-        limit: 5,
-      },
-    ]),
-    DatabaseModule,
-    KafkaModule,
-    CacheModule,
-    MinioModule,
-  ],
-  providers: [
-    UsersService,
-    {
-      provide: APP_GUARD,
-      useClass: ThrottlerGuard,
-    },
-  ],
+  imports: [DatabaseModule, KafkaModule, CacheModule, MinioModule],
+  providers: [UsersService],
   controllers: [UsersController],
   exports: [UsersService],
 })

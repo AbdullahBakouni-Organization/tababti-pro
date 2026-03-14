@@ -12,9 +12,12 @@ import {
   registerDecorator,
   ValidationOptions,
   ValidationArguments,
+  IsNumber,
+  Min,
+  Max,
 } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
-import { Transform } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   AleppoAreas,
   ApprovalStatus,
@@ -117,6 +120,20 @@ export class DoctorRegistrationDto {
   @ApiProperty({ enum: City, example: City.Damascus })
   @IsEnum(City, { message: 'Invalid city selection' })
   city: City;
+
+  @ApiProperty({ example: 1265465498234 })
+  @Type(() => Number)
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  doctorLat: number;
+
+  @ApiProperty({ example: 1265465498234 })
+  @Type(() => Number)
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  doctorLng: number;
 
   @ApiProperty({ example: 'al_mazzeh' })
   @IsString()

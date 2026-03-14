@@ -5,7 +5,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
+import { Model, PipelineStage, Types } from 'mongoose';
 import { Cron, CronExpression } from '@nestjs/schedule';
 
 import { Booking } from '@app/common/database/schemas/booking.schema';
@@ -25,14 +25,13 @@ import {
   GenderStatsQueryDto,
   DoctorDashboardDto,
   DashboardStatsDto,
-  RecentPatientDto,
   CalendarMonthDto,
   CalendarDayDto,
   AppointmentsTableResultDto,
-  AppointmentRowDto,
   GenderStatsDto,
   LocationChartDto,
   LocationChartDataPointDto,
+  RecentPatientsResponseDto,
 } from '../dto/dashboard-query.dto';
 
 // ─── Location type mapping ────────────────────────────────────────────────────
@@ -95,7 +94,7 @@ export class DashboardService {
    */
   private readonly _recentPatientsCache = new Map<
     string,
-    CacheEntry<RecentPatientDto[]>
+    CacheEntry<RecentPatientsResponseDto>
   >();
 
   /**
@@ -201,7 +200,7 @@ export class DashboardService {
    */
   private async _getRecentPatientsCached(
     doctorId: Types.ObjectId,
-  ): Promise<RecentPatientDto[]> {
+  ): Promise<RecentPatientsResponseDto> {
     const key = doctorId.toString();
     const hit = this._recentPatientsCache.get(key);
     if (hit) return hit.data;
@@ -266,7 +265,7 @@ export class DashboardService {
     query: DashboardQueryDto,
   ): Promise<DoctorDashboardDto> {
     const doctor = await this.resolveDoctor(accountId);
-    const doctorId = doctor._id as Types.ObjectId;
+    const doctorId = doctor._id;
     const refDate = resolveRefDate(query.selectedDate);
 
     const [
@@ -320,7 +319,7 @@ export class DashboardService {
     const doctor = await this.doctorModel.findById(doctorId).lean();
     if (!doctor) throw new NotFoundException('Doctor not found');
 
-    const docId = doctor._id as Types.ObjectId;
+    const docId = doctor._id;
     const refDate = resolveRefDate(query.selectedDate);
 
     const [
@@ -447,54 +446,144 @@ export class DashboardService {
   // RECENT PATIENTS   (public method routes through cache)
   // ═══════════════════════════════════════════════════════════════════════════
 
-  async getRecentPatients(accountId: string): Promise<RecentPatientDto[]> {
+  async getRecentPatients(
+    accountId: string,
+  ): Promise<RecentPatientsResponseDto> {
     const doctor = await this.resolveDoctor(accountId);
-    const doctorId = doctor._id as Types.ObjectId;
+    const doctorId = doctor._id;
     return this._getRecentPatientsCached(doctorId); // ← was _getRecentPatientsRaw
   }
 
+  // private async _getRecentPatientsRaw(
+  //   doctorId: Types.ObjectId,
+  // ): Promise<RecentPatientDto[]> {
+  //   const bookings = await this.bookingModel.aggregate([
+  //     {
+  //       $match: {
+  //         doctorId,
+  //         status: { $in: [BookingStatus.PENDING] },
+  //       },
+  //     },
+  //     { $sort: { bookingDate: -1, bookingTime: 1 } },
+  //     { $limit: 10 },
+  //     {
+  //       $lookup: {
+  //         from: 'users',
+  //         localField: 'patientId',
+  //         foreignField: '_id',
+  //         as: 'patient',
+  //       },
+  //     },
+  //     { $unwind: { path: '$patient', preserveNullAndEmptyArrays: true } },
+  //     {
+  //       $project: {
+  //         patientId: 1,
+  //         status: 1,
+  //         bookingDate: 1,
+  //         bookingTime: 1,
+  //         locationName: '$location.entity_name',
+  //         patientName: '$patient.username',
+  //         patientImage: '$patient.profileImage',
+  //         PatientGender: '$patient.gender',
+  //       },
+  //     },
+  //   ]);
+
+  //   return bookings.map((b) => ({
+  //     patientId: b.patientId?.toString() ?? '',
+  //     bookingId: b._id?.toString() ?? '',
+  //     name: b.patientName ?? 'Unknown',
+  //     image: b.patientImage ?? undefined,
+  //     locationName: b.locationName ?? '',
+  //     status: b.status,
+  //     bookingDate: b.bookingDate,
+  //     bookingTime: b.bookingTime,
+  //     gender: b.PatientGender,
+  //   }));
+  // }
+  //
+
   private async _getRecentPatientsRaw(
     doctorId: Types.ObjectId,
-  ): Promise<RecentPatientDto[]> {
-    const bookings = await this.bookingModel.aggregate([
+    page = 1,
+    limit = 10,
+  ): Promise<RecentPatientsResponseDto> {
+    const skip = (page - 1) * limit;
+
+    const result = await this.bookingModel.aggregate([
       {
         $match: {
           doctorId,
-          status: { $in: [BookingStatus.PENDING, BookingStatus.CONFIRMED] },
+          status: { $in: [BookingStatus.COMPLETED] },
         },
       },
-      { $sort: { bookingDate: -1 } },
-      { $limit: 10 },
+
+      { $sort: { bookingDate: -1, bookingTime: 1 } },
+
       {
-        $lookup: {
-          from: 'users',
-          localField: 'patientId',
-          foreignField: '_id',
-          as: 'patient',
-        },
-      },
-      { $unwind: { path: '$patient', preserveNullAndEmptyArrays: true } },
-      {
-        $project: {
-          patientId: 1,
-          status: 1,
-          bookingDate: 1,
-          locationName: '$location.entity_name',
-          patientName: '$patient.username',
-          patientImage: '$patient.image',
+        $facet: {
+          data: [
+            { $skip: skip },
+            { $limit: limit },
+
+            {
+              $lookup: {
+                from: 'users',
+                localField: 'patientId',
+                foreignField: '_id',
+                as: 'patient',
+                pipeline: [
+                  {
+                    $project: {
+                      username: 1,
+                      profileImage: 1,
+                      gender: 1,
+                    },
+                  },
+                ],
+              },
+            },
+
+            { $unwind: { path: '$patient', preserveNullAndEmptyArrays: true } },
+
+            {
+              $project: {
+                patientId: { $toString: '$patientId' },
+                bookingId: { $toString: '$_id' },
+
+                Patientname: { $ifNull: ['$patient.username', 'Unknown'] },
+                Patientimage: '$patient.profileImage',
+                Patientgender: '$patient.gender',
+
+                locationName: '$location.entity_name',
+
+                bookingDate: {
+                  $dateToString: {
+                    format: '%Y/%m/%d',
+                    date: '$bookingDate',
+                  },
+                },
+
+                bookingTime: 1,
+                status: 1,
+              },
+            },
+          ],
+
+          totalCount: [{ $count: 'count' }],
         },
       },
     ]);
 
-    return bookings.map((b) => ({
-      patientId: b.patientId?.toString() ?? '',
-      bookingId: b._id?.toString() ?? '',
-      name: b.patientName ?? 'Unknown',
-      image: b.patientImage ?? undefined,
-      locationName: b.locationName ?? '',
-      status: b.status,
-      bookingDate: b.bookingDate,
-    }));
+    const data = result[0]?.data ?? [];
+    const total = result[0]?.totalCount?.[0]?.count ?? 0;
+
+    return {
+      patients: data,
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -506,7 +595,7 @@ export class DashboardService {
     query: CalendarQueryDto,
   ): Promise<CalendarMonthDto> {
     const doctor = await this.resolveDoctor(accountId);
-    const doctorId = doctor._id as Types.ObjectId;
+    const doctorId = doctor._id;
     return this._getCalendarRaw(doctorId, query);
   }
 
@@ -565,7 +654,7 @@ export class DashboardService {
     query: AppointmentsQueryDto,
   ): Promise<AppointmentsTableResultDto> {
     const doctor = await this.resolveDoctor(accountId);
-    const doctorId = doctor._id as Types.ObjectId;
+    const doctorId = doctor._id;
     return this._getAppointmentsRaw(doctorId, query);
   }
 
@@ -577,81 +666,92 @@ export class DashboardService {
     const limit = Math.min(query.limit ?? 10, 50);
     const skip = (page - 1) * limit;
 
-    const match: Record<string, any> = { doctorId };
+    const match: Record<string, unknown> = {
+      doctorId,
+      status: {
+        $in: [BookingStatus.PENDING],
+      },
+    };
 
     if (query.date) {
-      const day = new Date(query.date);
-      const nextDay = new Date(query.date);
-      nextDay.setDate(nextDay.getDate() + 1);
-      match.bookingDate = { $gte: day, $lt: nextDay };
+      const start = new Date(query.date);
+      const end = new Date(query.date);
+      end.setDate(end.getDate() + 1);
+
+      match.bookingDate = { $gte: start, $lt: end };
     }
+
     if (query.monthDate) {
       const d = new Date(query.monthDate);
-      const start = new Date(d.getFullYear(), d.getMonth(), 1);
-      const end = new Date(
-        d.getFullYear(),
-        d.getMonth() + 1,
-        0,
-        23,
-        59,
-        59,
-        999,
-      );
-      match.bookingDate = { $gte: start, $lte: end };
-    }
-    if (query.status) match.status = query.status;
 
-    const result = await this.bookingModel.aggregate([
+      const start = new Date(d.getFullYear(), d.getMonth(), 1);
+      const end = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+
+      match.bookingDate = { $gte: start, $lt: end };
+    }
+
+    const pipeline: PipelineStage[] = [
       { $match: match },
+
       { $sort: { bookingDate: -1, bookingTime: 1 } },
+
       {
         $lookup: {
           from: 'users',
           localField: 'patientId',
           foreignField: '_id',
           as: 'patient',
+          pipeline: [
+            {
+              $project: {
+                username: 1,
+                profileImage: 1,
+                gender: 1,
+              },
+            },
+          ],
         },
       },
+
       { $unwind: { path: '$patient', preserveNullAndEmptyArrays: true } },
+
       {
         $facet: {
           data: [
             { $skip: skip },
             { $limit: limit },
+
             {
               $project: {
-                bookingId: '$_id',
-                patientName: '$patient.username',
-                patientImage: '$patient.image',
+                bookingId: { $toString: '$_id' },
+                patientName: { $ifNull: ['$patient.username', 'Unknown'] },
+                patientImage: '$patient.profileImage',
                 gender: '$patient.gender',
                 time: '$bookingTime',
                 date: {
-                  $dateToString: { format: '%Y/%m/%d', date: '$bookingDate' },
+                  $dateToString: {
+                    format: '%Y/%m/%d',
+                    date: '$bookingDate',
+                  },
                 },
                 locationName: '$location.entity_name',
                 status: 1,
               },
             },
           ],
+
           totalCount: [{ $count: 'count' }],
         },
       },
-    ]);
+    ];
+
+    const result = await this.bookingModel.aggregate(pipeline);
 
     const raw = result[0]?.data ?? [];
     const total = result[0]?.totalCount?.[0]?.count ?? 0;
 
     return {
-      appointments: raw.map((r: any) => ({
-        bookingId: r.bookingId?.toString() ?? '',
-        patientName: r.patientName ?? 'Unknown',
-        patientImage: r.patientImage ?? undefined,
-        gender: r.gender ?? '',
-        time: r.time ?? '',
-        date: r.date ?? '',
-        locationName: r.locationName ?? '',
-        status: r.status ?? '',
-      })),
+      appointments: raw,
       total,
       page,
       totalPages: Math.ceil(total / limit),
@@ -667,7 +767,7 @@ export class DashboardService {
     query: GenderStatsQueryDto,
   ): Promise<GenderStatsDto> {
     const doctor = await this.resolveDoctor(accountId);
-    const doctorId = doctor._id as Types.ObjectId;
+    const doctorId = doctor._id;
     const refDate = resolveRefDate(query.selectedDate);
     return this._getGenderStatsRaw(doctorId, refDate);
   }
@@ -757,7 +857,7 @@ export class DashboardService {
     query: LocationChartQueryDto,
   ): Promise<LocationChartDto> {
     const doctor = await this.resolveDoctor(accountId);
-    const doctorId = doctor._id as Types.ObjectId;
+    const doctorId = doctor._id;
     const refDate = resolveRefDate(query.selectedDate);
     return this._getLocationChartCached(
       doctorId,

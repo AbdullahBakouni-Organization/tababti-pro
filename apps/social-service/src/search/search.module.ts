@@ -2,7 +2,6 @@ import { Module, forwardRef } from '@nestjs/common';
 import { CacheModule } from '@nestjs/cache-manager';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { BullModule } from '@nestjs/bull';
-import { ThrottlerModule } from '@nestjs/throttler';
 
 import { DatabaseModule } from '@app/common/database/database.module';
 import { SearchController } from './search.controller';
@@ -25,14 +24,6 @@ import { UsersModule } from './users/users.module';
   imports: [
     // ── Global / infrastructure ────────────────────────────────────────────
     CacheModule.register({ isGlobal: true }),
-
-    ThrottlerModule.forRoot({
-      throttlers: [
-        { name: 'short', ttl: 10_000, limit: 5 },
-        { name: 'medium', ttl: 60_000, limit: 20 },
-        { name: 'long', ttl: 3_600_000, limit: 200 },
-      ],
-    }),
 
     EventEmitterModule.forRoot(),
 

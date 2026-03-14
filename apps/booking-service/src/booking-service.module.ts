@@ -9,19 +9,13 @@ import { CacheModule } from '@app/common/cache/cache.module';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { BullModule } from '@nestjs/bull';
 import { UsersService } from 'apps/home-service/src/users/users.service';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { MinioModule } from 'apps/home-service/src/minio/minio.module';
 import { AuthValidateModule } from '@app/common/auth-validate';
 
 @Module({
   imports: [
-    ThrottlerModule.forRoot([
-      {
-        ttl: 60,
-        limit: 5,
-      },
-    ]),
     ConfigModule.forRoot({
       isGlobal: true,
     }),

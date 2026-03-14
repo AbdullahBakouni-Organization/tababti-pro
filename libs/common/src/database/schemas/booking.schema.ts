@@ -100,7 +100,11 @@ BookingSchema.index(
   },
   { unique: true },
 );
-
+BookingSchema.index({
+  doctorId: 1,
+  status: 1,
+  bookingDate: -1,
+});
 export type BookingDocument = Booking &
   Document & {
     patientId: Types.ObjectId | User;

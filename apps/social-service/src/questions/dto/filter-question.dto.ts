@@ -1,4 +1,10 @@
-import { IsIn, IsOptional, IsMongoId, IsArray, IsNumberString } from 'class-validator';
+import {
+  IsIn,
+  IsOptional,
+  IsMongoId,
+  IsArray,
+  IsNumberString,
+} from 'class-validator';
 import { Transform } from 'class-transformer';
 
 export class FilterQuestionDto {

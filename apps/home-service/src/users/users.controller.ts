@@ -9,7 +9,6 @@ import {
   Req,
   UseGuards,
   Put,
-  BadRequestException,
   UseInterceptors,
   UploadedFile,
 } from '@nestjs/common';
@@ -40,28 +39,14 @@ import { RolesGuard } from '@app/common/guards/role.guard';
 import { Roles } from '@app/common/decorator/role.decorator';
 import { JwtUserGuard } from '@app/common/guards/jwt-user.guard';
 import { ParseMongoIdPipe } from '@app/common/pipes/parse-mongo-id.pipe';
-import multer from 'multer';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
   UpdateUserDto,
   UpdateUserResponseDto,
 } from './dto/update-user-info.dto';
 import { UserProfileResponseDto } from './dto/get-user-profile';
-const memoryStorageConfig = {
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
-  fileFilter: (req: any, file: Express.Multer.File, cb: any) => {
-    const allowed = ['image/jpeg', 'image/png', 'image/webp'];
-    allowed.includes(file.mimetype)
-      ? cb(null, true)
-      : cb(
-          new BadRequestException(
-            'Invalid file type. Allowed: JPEG, PNG, WEBP',
-          ),
-          false,
-        );
-  },
-};
+import { memoryStorageConfig } from '@app/common/constant/images-dtos.constant';
+
 @ApiTags('Patient Bookings')
 @Controller('users')
 export class UsersController {
@@ -90,6 +75,7 @@ export class UsersController {
     @Req() req: any,
     @Query('doctorId') doctorId: string,
     @Query('bookingDate') bookingDate: string,
+    @Query('slotId') slotId: string,
   ): Promise<BookingValidationResponseDto> {
     const patientId = new ParseMongoIdPipe().transform(
       req.user.entity._id.toString(),
@@ -99,6 +85,7 @@ export class UsersController {
       patientId,
       doctorId,
       date,
+      slotId,
     );
   }
 

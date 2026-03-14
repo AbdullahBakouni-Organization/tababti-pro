@@ -1,9 +1,8 @@
 // profile.repository.ts
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Doctor } from '@app/common/database/schemas/doctor.schema';
-import { SubCities } from '@app/common/database/schemas/sub-cities.schema';
 import {
   GeneralSpecialty,
   PrivateMedicineSpecialty,
@@ -12,12 +11,8 @@ import { SpecialtyMapping } from '@app/common/database/seeders/spicility.seeder'
 
 @Injectable()
 export class DoctorRepository {
-  private readonly logger = new Logger(DoctorRepository.name);
-
   constructor(
     @InjectModel(Doctor.name) private readonly doctorModel: Model<Doctor>,
-    @InjectModel(SubCities.name)
-    private readonly subcityModel: Model<SubCities>,
   ) {}
 
   // ── Find by authAccountId ──────────────────────────────────────────────
