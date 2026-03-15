@@ -44,6 +44,10 @@ import { MinioService, UploadResult } from '../minio/minio.service';
 import { uploadDoctorProfileImage } from '@app/common/utils/upload-profile-images.util';
 import { Post } from '@app/common/database/schemas/post.schema';
 import { SearchDoctorsDto } from './dto/search-of-another-doctor.dto';
+import {
+  invalidateBookingCaches,
+  invalidateProfileCaches,
+} from '@app/common/utils/cache-invalidation.util';
 export interface GalleryImageWithStatus extends GalleryImage {
   status: GalleryImageStatus;
   imageId: string; // Unique ID for this image
@@ -54,7 +58,8 @@ export interface GalleryImageWithStatus extends GalleryImage {
 @Injectable()
 export class DoctorBookingsQueryService {
   private readonly logger = new Logger(DoctorBookingsQueryService.name);
-  private readonly CACHE_TTL = 300; // 5 minutes
+  private readonly CACHE_TTL = 120; // 2 minutes
+  private readonly CACHE_TTL_REVALIDATE = 900; // 15 minutes
   private readonly CACHE_PREFIX = 'doctor:bookings';
   private readonly MAX_GALLERY_IMAGES = 20;
 
@@ -113,7 +118,7 @@ export class DoctorBookingsQueryService {
       throw new BadRequestException('Doctor not found');
     }
 
-    const inspectionDuration = doctor.inspectionDuration || 30; // Default 30 mins
+    const inspectionDuration = doctor.inspectionDuration || 0; // Default 0 mins
 
     // Build query filters
     const filters = this.buildFilters(dto, doctorId);
@@ -161,7 +166,12 @@ export class DoctorBookingsQueryService {
     };
 
     // Cache the result
-    await this.cacheService.set(cacheKey, response, this.CACHE_TTL);
+    await this.cacheService.set(
+      cacheKey,
+      response,
+      this.CACHE_TTL,
+      this.CACHE_TTL_REVALIDATE,
+    );
 
     this.logger.log(
       `Fetched ${bookingDetails.length} bookings (page ${page}/${totalPages})`,
@@ -474,7 +484,12 @@ export class DoctorBookingsQueryService {
       'Doctor Rescheduled your last appointment because you missed the previous appointment',
       'BOOKING_RESCHEDULED',
     );
-
+    await invalidateBookingCaches(
+      this.cacheService,
+      patient._id.toString(),
+      doctorId,
+      this.logger,
+    );
     this.logger.log(
       `✅ Booking ${dto.bookingId} marked as RESCHEDULED by doctor ${doctorId}`,
     );
@@ -600,7 +615,7 @@ export class DoctorBookingsQueryService {
     doctor.imageFileName = uploadResult.fileName;
     doctor.imageBucket = uploadResult.bucket;
     await doctor.save();
-
+    await invalidateProfileCaches(this.cacheService, doctorId, this.logger);
     this.logger.log(
       `Profile image uploaded successfully for doctor ${doctorId}`,
     );
@@ -771,6 +786,7 @@ export class DoctorBookingsQueryService {
 
         uploadedImages.push(galleryImage);
         uploadedUrls.push(uploadResult.url);
+        await invalidateProfileCaches(this.cacheService, doctorId, this.logger);
       } catch (error) {
         const err = error as Error;
         this.logger.error(`Failed to upload gallery image: ${err.message}`);
@@ -786,7 +802,7 @@ export class DoctorBookingsQueryService {
 
     doctor.gallery.push(...uploadedImages);
     await doctor.save();
-
+    await invalidateProfileCaches(this.cacheService, doctorId, this.logger);
     this.logger.log(
       `${files.length} images added to gallery (PENDING approval)`,
     );
@@ -868,16 +884,32 @@ export class DoctorBookingsQueryService {
     // Remove from gallery array
     doctor.gallery.splice(imageIndex, 1);
     await doctor.save();
-
+    await invalidateProfileCaches(this.cacheService, doctorId, this.logger);
     this.logger.log(`Gallery image deleted for doctor ${doctorId}`);
   }
 
   async getDoctorGalleryImages(
     doctorId: string,
+    page = 1,
   ): Promise<{ gallery: GalleryImageWithStatus[]; galleryCount: number }> {
     if (!Types.ObjectId.isValid(doctorId)) {
       throw new BadRequestException('Invalid doctor ID');
     }
+
+    const cacheKey = `doctor:gallery:${doctorId}`;
+
+    // Try cache first
+    const cached = await this.cacheService.get<{
+      gallery: GalleryImageWithStatus[];
+      galleryCount: number;
+    }>(cacheKey);
+
+    if (cached) {
+      this.logger.debug(`Gallery cache hit: ${cacheKey}`);
+      return cached;
+    }
+
+    this.logger.debug(`Gallery cache miss: ${cacheKey}`);
 
     const doctor = await this.doctorModel
       .findById(doctorId)
@@ -894,15 +926,40 @@ export class DoctorBookingsQueryService {
         (img) => img.status === GalleryImageStatus.APPROVED,
       ) || [];
 
-    return {
+    const result = {
       gallery: approvedGallery,
       galleryCount: approvedGallery.length,
     };
+
+    // Save to cache (TTL = 2 hours)
+    await this.cacheService.set(cacheKey, result, 3600, 7200);
+
+    return result;
   }
 
   async getDoctorPosts(doctorId: string, page = 1) {
     const limit = 10;
     const skip = (page - 1) * limit;
+
+    const cacheKey = `doctor:posts:${doctorId}:page${page}:limit${limit}`;
+
+    // Try cache first
+    const cached = await this.cacheService.get<{
+      posts: any[];
+      pagination: {
+        page: number;
+        limit: number;
+        totalPosts: number;
+        totalPages: number;
+      };
+    }>(cacheKey);
+
+    if (cached) {
+      this.logger.debug(`Posts cache hit: ${cacheKey}`);
+      return cached;
+    }
+
+    this.logger.debug(`Posts cache miss: ${cacheKey}`);
 
     const [posts, totalPosts] = await Promise.all([
       this.postModel
@@ -920,7 +977,7 @@ export class DoctorBookingsQueryService {
 
     const totalPages = Math.ceil(totalPosts / limit);
 
-    return {
+    const result = {
       posts,
       pagination: {
         page,
@@ -929,6 +986,11 @@ export class DoctorBookingsQueryService {
         totalPages,
       },
     };
+
+    // Save to cache (TTL = 2 hours)
+    await this.cacheService.set(cacheKey, result, 3600, 7200);
+
+    return result;
   }
 
   // doctors.service.ts

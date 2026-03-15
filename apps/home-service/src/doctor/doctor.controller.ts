@@ -751,7 +751,10 @@ export class DoctorController {
   async getAllSlots(
     @Query() query: GetAllSlotsDto,
   ): Promise<AllSlotsResponseDto[]> {
-    return this.DoctorService.getAllSlots(query);
+    const doctorId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
+    return this.DoctorService.getAllSlots(doctorId, query);
   }
 
   /**

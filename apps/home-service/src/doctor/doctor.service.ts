@@ -84,6 +84,7 @@ import {
   GenderBreakdownDto,
 } from './dto/doctor-patient-stats.dto';
 import { UploadResult } from '../minio/minio.service';
+import { invalidateBookingCaches } from '@app/common/utils/cache-invalidation.util';
 // ============================================
 // Kafka Events
 // ============================================
@@ -1020,7 +1021,6 @@ export class DoctorService {
       );
 
       // Step 3: Invalidate cache
-      await this.invalidateSlotsCache(doctorId);
 
       // Step 4: Publish Kafka event to refresh available slots
       this.publishSlotsRefreshedEvent(doctorId, slot);
@@ -1058,7 +1058,12 @@ export class DoctorService {
         dto.reason,
         'DOCTOR_CANCELLED',
       );
-
+      await invalidateBookingCaches(
+        this.cacheManager,
+        doctorId,
+        patient._id.toString(),
+        this.logger,
+      );
       return {
         message: 'Booking cancelled successfully',
         bookingId: booking._id.toString(),
@@ -1258,7 +1263,6 @@ export class DoctorService {
     this.logger.log(
       `Pause slots job queued: ${job.id} for ${dto.slotIds.length} slots`,
     );
-
     return {
       message: conflicts.hasConflicts
         ? 'Slots are being paused. Affected patients will be notified.'
@@ -1326,41 +1330,46 @@ export class DoctorService {
       return false;
     }
   }
-  private async invalidateSlotsCache(doctorId: string): Promise<void> {
-    try {
-      // Delete all cache keys related to this doctor's slots
-      const pattern = `slots:available:${doctorId}:*`;
-      await this.cacheManager.del(pattern);
 
-      this.logger.debug(`Slots cache invalidated for doctor ${doctorId}`);
-    } catch (error) {
-      const err = error as Error;
-      this.logger.warn(`Failed to invalidate slots cache: ${err.message}`);
-    }
-  }
+  async getAllSlots(
+    doctorId: string,
+    dto: GetAllSlotsDto,
+  ): Promise<AllSlotsResponseDto[]> {
+    this.logger.log(`Getting all slots for doctor ${doctorId} on ${dto.date}`);
 
-  async getAllSlots(dto: GetAllSlotsDto): Promise<AllSlotsResponseDto[]> {
-    this.logger.log(
-      `Getting all slots for doctor ${dto.doctorId} on ${dto.date}`,
-    );
-
-    if (!Types.ObjectId.isValid(dto.doctorId)) {
+    if (!Types.ObjectId.isValid(doctorId)) {
       throw new BadRequestException('Invalid doctor ID');
     }
-    const doctor = await this.doctorModel.findById(dto.doctorId).exec();
+
+    // Cache key
+    const cacheKey = `slots:available:${doctorId}:${dto.date}`;
+
+    // Try cache first
+    const cached = await this.cacheManager.get<AllSlotsResponseDto[]>(cacheKey);
+
+    if (cached) {
+      this.logger.debug(`Slots cache hit: ${cacheKey}`);
+      return cached;
+    }
+
+    this.logger.debug(`Slots cache miss: ${cacheKey}`);
+
+    const doctor = await this.doctorModel.findById(doctorId).exec();
     if (!doctor) {
       throw new NotFoundException('Doctor not found');
     }
+
     const date = new Date(dto.date);
+
     const startOfDay = new Date(date);
     startOfDay.setHours(0, 0, 0, 0);
+
     const endOfDay = new Date(date);
     endOfDay.setHours(23, 59, 59, 999);
 
-    // Get ALL slots (not just AVAILABLE)
     const slots = await this.slotModel
       .find({
-        doctorId: new Types.ObjectId(dto.doctorId),
+        doctorId: new Types.ObjectId(doctorId),
         status: { $ne: SlotStatus.INVALIDATED },
         date: { $gte: startOfDay, $lte: endOfDay },
       })
@@ -1380,18 +1389,16 @@ export class DoctorService {
         location: slot.location,
       };
 
-      // If slot is booked, get booking details
       if (slot.status === SlotStatus.BOOKED) {
         const booking = await this.bookingModel
           .findOne({ slotId: slot._id })
-          .populate<{
-            patientId: User;
-          }>('patientId', 'username phone')
+          .populate<{ patientId: User }>('patientId', 'username phone')
           .lean()
           .exec();
 
         if (booking && typeof booking.patientId !== 'string') {
           const patient = booking.patientId as unknown as User;
+
           slotData.existingBooking = {
             bookingId: booking._id.toString(),
             patientId: patient._id.toString(),
@@ -1408,6 +1415,9 @@ export class DoctorService {
     this.logger.log(
       `Found ${slotsWithBookings.length} slots (${slots.filter((s) => s.status === SlotStatus.BOOKED).length} booked)`,
     );
+
+    // Save to cache (example TTL = 2 minutes)
+    await this.cacheManager.set(cacheKey, slotsWithBookings, 120, 900);
 
     return slotsWithBookings;
   }
@@ -1561,6 +1571,7 @@ export class DoctorService {
 
     this.logger.log(`VIP booking job queued: ${job.id}`);
 
+    await this.invalidateSlotsCache(doctorId);
     return {
       message: conflict.hasConflict
         ? 'VIP booking is being created. Existing booking will be cancelled and patient notified.'
@@ -1850,8 +1861,13 @@ export class DoctorService {
         doctor,
         dto.notes,
       );
+      await invalidateBookingCaches(
+        this.cacheManager,
+        patient._id.toString(),
+        doctorId,
+        this.logger,
+      );
     }
-
     return {
       message: 'تم إنجاز الحجز بنجاح',
       bookingId: booking._id.toString(),

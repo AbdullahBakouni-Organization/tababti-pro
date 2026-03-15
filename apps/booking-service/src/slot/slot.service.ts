@@ -51,7 +51,7 @@ export class SlotGenerationService {
     }
 
     // Cache key based only on doctorId + date range (no location)
-    const cacheKey = `slots:grouped:${query.doctorId}:${query.startDate || 'default'}:${query.endDate || 'default'}`;
+    const cacheKey = `slots:available:${query.doctorId}:${query.startDate || 'default'}:${query.endDate || 'default'}`;
     const cached =
       await this.cacheManager.get<GroupedAvailableSlotsDto>(cacheKey);
     if (cached) {
@@ -146,7 +146,7 @@ export class SlotGenerationService {
       }
     }
 
-    await this.cacheManager.set(cacheKey, grouped, 120);
+    await this.cacheManager.set(cacheKey, grouped, 120, 900);
 
     this.logger.log(
       `Found slots for doctor ${query.doctorId} — clinic: ${grouped.clinic.length}, hospital: ${grouped.hospital.length}, center: ${grouped.center.length}`,

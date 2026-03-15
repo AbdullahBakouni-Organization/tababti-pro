@@ -9,8 +9,6 @@ import { CacheModule } from '@app/common/cache/cache.module';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { BullModule } from '@nestjs/bull';
 import { UsersService } from 'apps/home-service/src/users/users.service';
-import { ThrottlerGuard } from '@nestjs/throttler';
-import { APP_GUARD } from '@nestjs/core';
 import { MinioModule } from 'apps/home-service/src/minio/minio.module';
 import { AuthValidateModule } from '@app/common/auth-validate';
 
@@ -59,13 +57,6 @@ import { AuthValidateModule } from '@app/common/auth-validate';
     AuthValidateModule,
   ],
   controllers: [BookingController],
-  providers: [
-    BookingService,
-    UsersService,
-    {
-      provide: APP_GUARD,
-      useClass: ThrottlerGuard,
-    },
-  ],
+  providers: [BookingService, UsersService],
 })
 export class BookingServiceModule {}
