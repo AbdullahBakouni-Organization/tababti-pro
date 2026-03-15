@@ -205,4 +205,8 @@ export class NotificationServiceController {
     await this.notificationService.markAllAsRead(recipientId, recipientType);
     return { message: 'All notifications marked as read' };
   }
+  @Get('health')
+  getHello(): string {
+    return this.notificationService.getHello();
+  }
 }

@@ -8,9 +8,6 @@ import { BullModule } from '@nestjs/bull';
 import { WorkingHoursUpdateProcessorV2 } from './processors/update-working-hours.processor';
 import { FcmModule } from 'apps/home-service/src/fcm/fcm.module';
 import { SlotGenerationProcessor } from './processors/generate-working-hours.processor';
-import { ThrottlerGuard } from '@nestjs/throttler';
-import { APP_GUARD } from '@nestjs/core';
-
 @Module({
   imports: [
     BullModule.registerQueue({
@@ -45,10 +42,6 @@ import { APP_GUARD } from '@nestjs/core';
     SlotGenerationService,
     WorkingHoursUpdateProcessorV2,
     SlotGenerationProcessor,
-    {
-      provide: APP_GUARD,
-      useClass: ThrottlerGuard,
-    },
   ],
   controllers: [SlotController, SlotKafkaController],
   exports: [SlotGenerationService],

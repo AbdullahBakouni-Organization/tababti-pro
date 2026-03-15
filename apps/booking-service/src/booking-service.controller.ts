@@ -6,6 +6,7 @@ import {
   HttpStatus,
   UseGuards,
   Req,
+  Get,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { BookingService } from './booking-service.service';
@@ -54,5 +55,10 @@ export class BookingController {
       req.user.entity._id.toString(),
     );
     return this.bookingService.createBooking(createBookingDto, patientId);
+  }
+
+  @Get('health')
+  getHello(): string {
+    return this.bookingService.getHello();
   }
 }

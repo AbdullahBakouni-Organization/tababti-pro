@@ -292,4 +292,8 @@ export class BookingService {
       this.logger.warn(`Failed to invalidate booking caches: ${err.message}`);
     }
   }
+
+  getHello(): string {
+    return 'Hello World!';
+  }
 }

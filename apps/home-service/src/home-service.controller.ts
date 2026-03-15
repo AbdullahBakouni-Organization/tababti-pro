@@ -5,7 +5,7 @@ import { HomeServiceService } from './home-service.service';
 export class HomeServiceController {
   constructor(private readonly homeServiceService: HomeServiceService) {}
 
-  @Get()
+  @Get('health')
   getHello(): string {
     return this.homeServiceService.getHello();
   }

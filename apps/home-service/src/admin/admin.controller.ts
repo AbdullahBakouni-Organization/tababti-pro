@@ -99,9 +99,9 @@ export class AdminController {
     );
     res.cookie('admin_token', tokens.refreshToken, {
       httpOnly: true,
-      secure: false,
-      sameSite: 'lax',
-      maxAge: 24 * 60 * 60 * 1000 * 30,
+      secure: process.env.NODE_ENV === 'production', // true في production، false في development
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      maxAge: 24 * 60 * 60 * 1000 * 30, // 30 days
       path: '/',
     });
     return {
@@ -139,8 +139,8 @@ export class AdminController {
     const tokens = await this.authService.refreshAccessToken(refreshToken);
     res.cookie('admin_token', tokens.refreshToken, {
       httpOnly: true,
-      secure: false,
-      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production', // true في production، false في development
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
       maxAge: 24 * 60 * 60 * 1000 * 30, // 30 days
       path: '/',
     });

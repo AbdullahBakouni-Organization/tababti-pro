@@ -404,4 +404,7 @@ export class NotificationService {
       isRead: false,
     });
   }
+  getHello(): string {
+    return 'Hello World!';
+  }
 }

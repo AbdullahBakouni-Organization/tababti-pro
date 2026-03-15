@@ -82,8 +82,8 @@ export interface SessionData {
 
 @Injectable()
 export class AuthValidateService {
-  private readonly ACCESS_TOKEN_EXPIRY = '5h'; // 15 minutes
-  private readonly REFRESH_TOKEN_EXPIRY = '30d'; // 30 days
+  private readonly ACCESS_TOKEN_EXPIRY = '15m'; // 15 minutes
+  private readonly REFRESH_TOKEN_EXPIRY = '30d'; // 7 days
   private readonly MAX_SESSIONS = 5; // Max concurrent sessions
 
   constructor(
