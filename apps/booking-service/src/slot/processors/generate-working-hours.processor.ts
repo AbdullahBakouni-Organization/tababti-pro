@@ -14,7 +14,6 @@ import {
 } from '@app/common/database/schemas/common.enums';
 import { SlotGenerationEvent } from '@app/common/kafka/interfaces/kafka-event.interface'; // adjust path
 import { getSyriaDate } from '@app/common/utils/get-syria-date'; // adjust path
-import { CacheService } from '@app/common/cache/cache.service';
 
 export interface SlotGenerationJobData {
   eventType: 'SLOTS_GENERATE';
@@ -44,12 +43,10 @@ export class SlotGenerationProcessor {
 
   // How many weeks ahead to generate slots — keep same as your original service
   private readonly SLOT_GENERATION_WEEKS = 48;
-  private readonly CACHE_TTL = 3600;
 
   constructor(
     @InjectModel(AppointmentSlot.name)
     private slotModel: Model<AppointmentSlotDocument>,
-    private readonly cacheManager: CacheService,
   ) {
     this.logger.log(`[Slot Generation Job] Processing for doctor`);
   }
@@ -92,13 +89,6 @@ export class SlotGenerationProcessor {
 
       this.logger.log(
         `[Slot Generation Job] Generated ${slots.length} slots for doctor ${doctorId}`,
-      );
-
-      // Cache the generated slots count for monitoring — same as original
-      await this.cacheManager.set(
-        `slots:generated:${doctorId}`,
-        slots.length,
-        this.CACHE_TTL,
       );
 
       await job.progress(100);
@@ -168,7 +158,7 @@ export class SlotGenerationProcessor {
     }
 
     const createdSlots = await this.batchInsertSlots(slots);
-    await this.invalidateSlotCaches(doctorId);
+
     return createdSlots;
   }
 
@@ -264,34 +254,6 @@ export class SlotGenerationProcessor {
     }
 
     return createdSlots;
-  }
-
-  /* -------------------------------------------------------------------------- */
-  /*                            CACHE INVALIDATION                               */
-  /* -------------------------------------------------------------------------- */
-
-  private async invalidateSlotCaches(doctorId: string): Promise<void> {
-    try {
-      // Invalidate all cache keys related to this doctor's slots
-      // Adjust these keys to match whatever your service uses
-      const keysToDelete = [
-        `slots:doctor:${doctorId}`,
-        `slots:available:${doctorId}`,
-        `slots:generated:${doctorId}`,
-      ];
-
-      await Promise.all(keysToDelete.map((key) => this.cacheManager.del(key)));
-
-      this.logger.debug(
-        `[Slot Generation] Cache invalidated for doctor ${doctorId}`,
-      );
-    } catch (error) {
-      const err = error as Error;
-      // Cache invalidation failure should not fail the job
-      this.logger.warn(
-        `[Slot Generation] Cache invalidation warning: ${err.message}`,
-      );
-    }
   }
 
   /* -------------------------------------------------------------------------- */

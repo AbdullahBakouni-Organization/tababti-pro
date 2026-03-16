@@ -25,6 +25,7 @@ import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
 import { formatDate } from '@app/common/utils/get-syria-date';
 import { CacheService } from '@app/common/cache/cache.service';
 import { invalidateBookingCaches } from '@app/common/utils/cache-invalidation.util';
+import { minutesToTime, timeToMinutes } from '@app/common/utils/time-ago.util';
 
 export interface WorkingHoursUpdateJobData {
   doctorId: string;
@@ -134,7 +135,7 @@ export class WorkingHoursUpdateProcessorV2 {
     }> = [];
 
     try {
-      const futureDates = this.getNext12WeeksDatesForDay(day);
+      const futureDates = this.getNext48WeeksDatesForDay(day);
 
       // ✅ الـ ranges الجديدة لهذا اليوم فقط
       const validRanges = newWH.filter((w) => w.day === day);
@@ -347,7 +348,7 @@ export class WorkingHoursUpdateProcessorV2 {
     }
   }
 
-  private getNext12WeeksDatesForDay(day: Days): Date[] {
+  private getNext48WeeksDatesForDay(day: Days): Date[] {
     const dayMap: Record<Days, number> = {
       [Days.SUNDAY]: 7,
       [Days.MONDAY]: 1,
@@ -366,7 +367,7 @@ export class WorkingHoursUpdateProcessorV2 {
     }
 
     const dates: Date[] = [];
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < 48; i++) {
       const d = dt.plus({ weeks: i });
       dates.push(new Date(Date.UTC(d.year, d.month - 1, d.day, 0, 0, 0, 0)));
     }
@@ -379,12 +380,12 @@ export class WorkingHoursUpdateProcessorV2 {
     slot: AppointmentSlotDocument,
     ranges: WorkingHourRange[],
   ): boolean {
-    const slotStart = this.timeToMinutes(slot.startTime);
-    const slotEnd = this.timeToMinutes(slot.endTime);
+    const slotStart = timeToMinutes(slot.startTime);
+    const slotEnd = timeToMinutes(slot.endTime);
 
     for (const range of ranges) {
-      const rangeStart = this.timeToMinutes(range.startTime);
-      const rangeEnd = this.timeToMinutes(range.endTime);
+      const rangeStart = timeToMinutes(range.startTime);
+      const rangeEnd = timeToMinutes(range.endTime);
 
       const timeMatches = slotStart >= rangeStart && slotEnd <= rangeEnd;
       const locationMatches =
@@ -398,17 +399,6 @@ export class WorkingHoursUpdateProcessorV2 {
     }
 
     return false;
-  }
-
-  private timeToMinutes(time: string): number {
-    const [hours, minutes] = time.split(':').map(Number);
-    return hours * 60 + minutes;
-  }
-
-  private minutesToTime(minutes: number): string {
-    const h = Math.floor(minutes / 60);
-    const m = minutes % 60;
-    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
   }
 
   private buildSlotsFromRange(
@@ -428,12 +418,12 @@ export class WorkingHoursUpdateProcessorV2 {
   ): Partial<AppointmentSlotDocument>[] {
     const slots: Partial<AppointmentSlotDocument>[] = [];
 
-    let startMinutes = this.timeToMinutes(startTime);
-    const endMinutes = this.timeToMinutes(endTime);
+    let startMinutes = timeToMinutes(startTime);
+    const endMinutes = timeToMinutes(endTime);
 
     while (startMinutes + duration <= endMinutes) {
-      const slotStart = this.minutesToTime(startMinutes);
-      const slotEnd = this.minutesToTime(startMinutes + duration);
+      const slotStart = minutesToTime(startMinutes);
+      const slotEnd = minutesToTime(startMinutes + duration);
 
       slots.push({
         doctorId,

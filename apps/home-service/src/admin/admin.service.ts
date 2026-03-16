@@ -361,8 +361,9 @@ export class AdminService {
 
     try {
       // Use emit for fire-and-forget events
-      await this.kafkaProducer.emit(KAFKA_TOPICS.DOCTOR_REJECTED, event);
+      this.kafkaProducer.emit(KAFKA_TOPICS.DOCTOR_REJECTED, event);
     } catch (error) {
+      const err;
       const err = new Error(
         `Failed to publish Rejected event: ${error.message}`,
       );

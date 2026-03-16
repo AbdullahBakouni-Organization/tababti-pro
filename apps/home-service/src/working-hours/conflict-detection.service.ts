@@ -8,6 +8,7 @@ import {
   BookingDocument,
 } from '@app/common/database/schemas/booking.schema';
 import { getSyriaDate } from '@app/common/utils/get-syria-date';
+import { timeToMinutes } from '@app/common/utils/time-ago.util';
 
 @Injectable()
 export class ConflictDetectionService {
@@ -31,7 +32,7 @@ export class ConflictDetectionService {
   }> {
     const today = getSyriaDate();
     const endDate = new Date(today);
-    endDate.setDate(today.getDate() + 84);
+    endDate.setDate(today.getDate() + 365);
 
     // ✅ Only care about days that are in the new working hours
     const updatedDays = [
@@ -160,20 +161,12 @@ export class ConflictDetectionService {
     whStart: string,
     whEnd: string,
   ): boolean {
-    const apptStartMin = this.timeToMinutes(apptStart);
-    const apptEndMin = this.timeToMinutes(apptEnd);
-    const whStartMin = this.timeToMinutes(whStart);
-    const whEndMin = this.timeToMinutes(whEnd);
+    const apptStartMin = timeToMinutes(apptStart);
+    const apptEndMin = timeToMinutes(apptEnd);
+    const whStartMin = timeToMinutes(whStart);
+    const whEndMin = timeToMinutes(whEnd);
 
     return apptStartMin >= whStartMin && apptEndMin <= whEndMin;
-  }
-
-  /**
-   * Convert time string to minutes
-   */
-  private timeToMinutes(time: string): number {
-    const [hours, minutes] = time.split(':').map(Number);
-    return hours * 60 + minutes;
   }
 
   /**
