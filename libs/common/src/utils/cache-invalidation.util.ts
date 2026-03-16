@@ -12,6 +12,7 @@ export async function invalidateBookingCaches(
       `doctor:bookings:${doctorId}:*`,
       `slots:available:${doctorId}:*`,
       `doctor:${doctorId}:working-hours`,
+      `user_bookings:${patientId}:*`,
     ];
 
     if (patientId) {
@@ -59,6 +60,23 @@ export async function invalidateOtherDoctorProfileCaches(
       `doctors:posts:${doctorId}:*`,
       `doctors:gallery:${doctorId}:*`,
     ];
+
+    await Promise.all(
+      patterns.map((pattern) => cacheService.invalidatePattern(pattern)),
+    );
+  } catch (error) {
+    const err = error as Error;
+    logger?.warn(`Failed to invalidate booking caches: ${err.message}`);
+  }
+}
+
+export async function invalidateUserBookingCaches(
+  cacheService: CacheService,
+  userId: string,
+  logger?: Logger,
+): Promise<void> {
+  try {
+    const patterns = [`user_bookings:${userId}:*`];
 
     await Promise.all(
       patterns.map((pattern) => cacheService.invalidatePattern(pattern)),

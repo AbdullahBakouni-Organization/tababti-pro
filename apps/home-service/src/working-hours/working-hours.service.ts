@@ -488,7 +488,7 @@ export class WorkingHoursService {
       inspectionPrice: doctor.inspectionPrice,
     };
 
-    await this.cacheManager.set(cacheKey, result, this.CACHE_TTL, 3600);
+    await this.cacheManager.set(cacheKey, result, this.CACHE_TTL, 120);
 
     return result;
   }
