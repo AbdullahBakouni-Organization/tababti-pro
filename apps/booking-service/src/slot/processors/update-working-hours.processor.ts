@@ -23,6 +23,8 @@ import { Doctor } from '@app/common/database/schemas/doctor.schema';
 import { KafkaService } from '@app/common/kafka/kafka.service';
 import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
 import { formatDate } from '@app/common/utils/get-syria-date';
+import { CacheService } from '@app/common/cache/cache.service';
+import { invalidateBookingCaches } from '@app/common/utils/cache-invalidation.util';
 
 export interface WorkingHoursUpdateJobData {
   doctorId: string;
@@ -73,6 +75,7 @@ export class WorkingHoursUpdateProcessorV2 {
     @InjectConnection() private readonly connection: Connection,
     @InjectModel(Booking.name) private bookingModel: Model<BookingDocument>,
     private kafkaProducer: KafkaService,
+    private readonly cacheService: CacheService,
   ) {
     this.logger.log(`[Slot Update Job] Processing for doctor`);
   }
@@ -223,7 +226,7 @@ export class WorkingHoursUpdateProcessorV2 {
       }
 
       await session.commitTransaction();
-
+      await invalidateBookingCaches(this.cacheService, doctorId.toString());
       if (affectedBookings.length > 0) {
         await this.sendPersonalizedNotifications(affectedBookings).catch(
           (err) => this.logger.error('Notification error:', err),

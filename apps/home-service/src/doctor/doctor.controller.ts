@@ -104,6 +104,7 @@ import {
   memoryStorageConfig,
 } from '@app/common/constant/images-dtos.constant';
 import { SearchDoctorsDto } from './dto/search-of-another-doctor.dto';
+import { PaginateDto } from './dto/paginate.dto';
 
 // ============================================
 // Login DTO
@@ -750,8 +751,12 @@ export class DoctorController {
   })
   async getAllSlots(
     @Query() query: GetAllSlotsDto,
+    @Req() req: any,
   ): Promise<AllSlotsResponseDto[]> {
-    return this.DoctorService.getAllSlots(query);
+    const doctorId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
+    return this.DoctorService.getAllSlots(doctorId, query);
   }
 
   /**
@@ -1376,21 +1381,29 @@ export class DoctorController {
     },
   })
   @ApiResponse({ status: 404, description: 'Doctor not found' })
-  async getDoctorImages(@Req() req: any) {
+  async getDoctorImages(@Req() req: any, @Query() query: PaginateDto) {
     const doctorId = new ParseMongoIdPipe().transform(
       req.user.entity._id.toString(),
     );
-    return this.DoctorServiceV2.getDoctorGalleryImages(doctorId);
+    return this.DoctorServiceV2.getDoctorGalleryImages(
+      doctorId,
+      query.page,
+      query.limit,
+    );
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.DOCTOR)
   @Get('posts')
-  async getDoctorPosts(@Req() req: any) {
+  async getDoctorPosts(@Req() req: any, @Query() query: PaginateDto) {
     const doctorId = new ParseMongoIdPipe().transform(
       req.user.accountId.toString(),
     );
-    const data = await this.DoctorServiceV2.getDoctorPosts(doctorId);
+    const data = await this.DoctorServiceV2.getDoctorPosts(
+      doctorId,
+      query.page,
+      query.limit,
+    );
     return {
       success: true,
       message: 'Posts fetched successfully',

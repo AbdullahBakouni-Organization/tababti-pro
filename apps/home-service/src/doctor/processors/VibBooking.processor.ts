@@ -20,6 +20,8 @@ import {
 import { KafkaService } from '@app/common/kafka/kafka.service';
 import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
 import { VIPBookingJobData } from '../dto/vibbooking.dto';
+import { CacheService } from '@app/common/cache/cache.service';
+import { invalidateBookingCaches } from '@app/common/utils/cache-invalidation.util';
 
 @Processor('vip-booking')
 export class VIPBookingProcessor {
@@ -33,6 +35,7 @@ export class VIPBookingProcessor {
     @InjectModel(User.name)
     private userModel: Model<UserDocument>,
     private readonly kafkaService: KafkaService,
+    private readonly cacheManager: CacheService,
   ) {
     this.logger.log(`[VIP Booking Job] Processing for doctor`);
   }
@@ -147,6 +150,7 @@ export class VIPBookingProcessor {
 
       // Step 6: Publish Kafka event to refresh slots
       this.publishSlotsRefreshedEvent(doctorId, slotId);
+      await invalidateBookingCaches(this.cacheManager, doctorId);
     } catch (error) {
       const err = error as Error;
       await session.abortTransaction();

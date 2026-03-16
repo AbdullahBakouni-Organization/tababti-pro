@@ -28,6 +28,7 @@ import {
 import { CreateBookingDto, BookingResponseDto } from './dto/create-booking.dto';
 import { CacheService } from '@app/common/cache/cache.service';
 import { UsersService } from 'apps/home-service/src/users/users.service';
+import { invalidateBookingCaches } from '@app/common/utils/cache-invalidation.util';
 
 @Injectable()
 export class BookingService {
@@ -149,7 +150,12 @@ export class BookingService {
       // await this.publishBookingCreatedEvent(booking[0], patient, doctor, slot);
 
       // Step 7: Invalidate cache
-      await this.invalidateBookingCaches(createBookingDto.doctorId, patientId);
+      await invalidateBookingCaches(
+        this.cacheService,
+        createBookingDto.doctorId,
+        patientId,
+        this.logger,
+      );
 
       // Step 8: Return response
       return {
@@ -269,27 +275,6 @@ export class BookingService {
     }
     if (!Types.ObjectId.isValid(dto.slotId)) {
       throw new BadRequestException('Invalid slot ID');
-    }
-  }
-
-  /**
-   * Invalidate booking-related caches
-   */
-  private async invalidateBookingCaches(
-    doctorId: string,
-    patientId: string,
-  ): Promise<void> {
-    try {
-      const cacheKeys = [
-        `bookings:doctor:${doctorId}`,
-        `bookings:patient:${patientId}`,
-        `slots:available:${doctorId}`,
-      ];
-
-      await Promise.all(cacheKeys.map((key) => this.cacheService.del(key)));
-    } catch (error) {
-      const err = error as Error;
-      this.logger.warn(`Failed to invalidate booking caches: ${err.message}`);
     }
   }
 }

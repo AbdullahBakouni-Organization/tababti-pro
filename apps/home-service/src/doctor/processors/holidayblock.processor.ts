@@ -21,6 +21,8 @@ import { KafkaService } from '@app/common/kafka/kafka.service';
 import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
 import { HolidayBlockJobData } from '../dto/vibbooking.dto';
 import { formatDate } from '@app/common/utils/get-syria-date';
+import { invalidateBookingCaches } from '@app/common/utils/cache-invalidation.util';
+import { CacheService } from '@app/common/cache/cache.service';
 
 export interface PopulatedBookingDocument extends Omit<
   BookingDocument,
@@ -39,6 +41,7 @@ export class HolidayBlockProcessor {
     @InjectModel(AppointmentSlot.name)
     private slotModel: Model<AppointmentSlotDocument>,
     private readonly kafkaService: KafkaService,
+    private readonly cacheManager: CacheService,
   ) {
     this.logger.log(`[Holiday Block Job] Processing for doctor`);
   }
@@ -119,6 +122,7 @@ export class HolidayBlockProcessor {
 
       // Step 5: Publish Kafka event to refresh slots
       this.publishSlotsRefreshedEvent(doctorId, affectedSlotIds);
+      await invalidateBookingCaches(this.cacheManager, doctorId);
     } catch (error) {
       const err = error as Error;
       this.logger.error(

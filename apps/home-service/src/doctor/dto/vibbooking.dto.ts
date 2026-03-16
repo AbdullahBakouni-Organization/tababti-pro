@@ -18,14 +18,6 @@ import { SlotStatus } from '@app/common/database/schemas/common.enums';
  */
 export class GetAllSlotsDto {
   @ApiProperty({
-    description: 'Doctor ID',
-    example: '507f1f77bcf86cd799439010',
-  })
-  @IsNotEmpty()
-  @IsMongoId()
-  doctorId: string;
-
-  @ApiProperty({
     description: 'Date to get slots for (YYYY-MM-DD)',
     example: '2026-02-17',
   })

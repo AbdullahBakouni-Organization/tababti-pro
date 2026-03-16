@@ -21,6 +21,8 @@ import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
 import { PauseSlotsJobData } from '../dto/slot-management.dto';
 import { formatDate } from '@app/common/utils/get-syria-date';
 import { PopulatedBookingDocument } from './holidayblock.processor';
+import { invalidateBookingCaches } from '@app/common/utils/cache-invalidation.util';
+import { CacheService } from '@app/common/cache/cache.service';
 
 @Processor('pause-slots')
 export class PauseSlotsProcessor {
@@ -32,6 +34,7 @@ export class PauseSlotsProcessor {
     @InjectModel(AppointmentSlot.name)
     private slotModel: Model<AppointmentSlotDocument>,
     private readonly kafkaService: KafkaService,
+    private readonly cacheManager: CacheService,
   ) {
     this.logger.log(`[ Pause Slots Job] Processing for doctor`);
   }
@@ -83,7 +86,7 @@ export class PauseSlotsProcessor {
 
       // Step 4: Publish Kafka event for slots refreshed
       this.publishSlotsRefreshedEvent(doctorId, slotIds);
-
+      await invalidateBookingCaches(this.cacheManager, doctorId);
       this.logger.log(
         `[Pause Slots Job] Completed successfully for doctor ${doctorId}`,
       );

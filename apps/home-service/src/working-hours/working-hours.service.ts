@@ -109,7 +109,6 @@ export class WorkingHoursService {
     );
 
     // Invalidate cached doctor data
-    await this.invalidateDoctorCache(doctorId);
 
     // Publish events
     if (isFirstTime) {
@@ -454,25 +453,6 @@ export class WorkingHoursService {
         `Failed to publish slot generation event: ${err.message}`,
         err.stack,
       );
-    }
-  }
-
-  /**
-   * Invalidate doctor cache
-   */
-  private async invalidateDoctorCache(doctorId: string): Promise<void> {
-    try {
-      const cacheKeys = [
-        `doctor:${doctorId}`,
-        `doctor:${doctorId}:working-hours`,
-        `doctor:${doctorId}:profile`,
-      ];
-
-      await Promise.all(cacheKeys.map((key) => this.cacheManager.del(key)));
-      this.logger.debug(`Cache invalidated for doctor ${doctorId}`);
-    } catch (error) {
-      const err = error as Error;
-      this.logger.warn(`Failed to invalidate cache: ${err.message}`);
     }
   }
 

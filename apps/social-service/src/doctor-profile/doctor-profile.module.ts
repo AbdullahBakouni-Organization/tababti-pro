@@ -9,12 +9,14 @@ import { DoctorProfileService } from './profile.service';
 import { DoctorRepository } from './profile.repository';
 import { EntityProfileModule } from './entity-profile/entity-profile.module';
 import { MinioModule } from 'apps/home-service/src/minio/minio.module';
+import { CacheModule } from '@app/common/cache/cache.module';
 
 @Module({
   imports: [
     MongooseModule.forFeature([{ name: Doctor.name, schema: DoctorSchema }]),
     EntityProfileModule,
     MinioModule,
+    CacheModule,
   ],
   controllers: [DoctorProfileController],
   providers: [DoctorProfileService, DoctorRepository],
