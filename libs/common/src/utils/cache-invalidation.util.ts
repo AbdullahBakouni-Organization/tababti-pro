@@ -47,3 +47,24 @@ export async function invalidateProfileCaches(
     logger?.warn(`Failed to invalidate booking caches: ${err.message}`);
   }
 }
+
+export async function invalidateOtherDoctorProfileCaches(
+  cacheService: CacheService,
+  doctorId: string,
+  logger?: Logger,
+): Promise<void> {
+  try {
+    const patterns = [
+      `doctors:profile:${doctorId}:*`,
+      `doctors:posts:${doctorId}:*`,
+      `doctors:gallery:${doctorId}:*`,
+    ];
+
+    await Promise.all(
+      patterns.map((pattern) => cacheService.invalidatePattern(pattern)),
+    );
+  } catch (error) {
+    const err = error as Error;
+    logger?.warn(`Failed to invalidate booking caches: ${err.message}`);
+  }
+}

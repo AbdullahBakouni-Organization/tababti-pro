@@ -21,6 +21,8 @@ import {
 import { MinioService } from 'apps/home-service/src/minio/minio.service';
 import { calculateYearsOfExperience } from '@app/common/utils/calculate-experience.util';
 import { uploadDoctorProfileImage } from '@app/common/utils/upload-profile-images.util';
+import { CacheService } from '@app/common/cache/cache.service';
+import { invalidateProfileCaches } from '@app/common/utils/cache-invalidation.util';
 
 @Injectable()
 export class DoctorProfileService {
@@ -30,14 +32,32 @@ export class DoctorProfileService {
     private readonly doctorRepo: DoctorRepository,
     @InjectModel(Post.name) private readonly postModel: Model<Post>,
     private minioService: MinioService,
+    private readonly cacheService: CacheService,
   ) {}
 
   // ── GET private profile ────────────────────────────────────────────────
   async getProfile(authAccountId: string): Promise<any> {
     const doctor = await this.doctorRepo.findByAuthAccountId(authAccountId);
-    if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
 
-    return this.formatPrivateDoctor(doctor);
+    if (!doctor) {
+      throw new NotFoundException('doctor.NOT_FOUND');
+    }
+
+    const cacheKey = `doctor:profile:${doctor._id.toString()}`;
+
+    // Try cache
+    const cached = await this.cacheService.get<any>(cacheKey);
+    if (cached) {
+      this.logger?.debug?.(`Doctor profile cache hit: ${cacheKey}`);
+      return cached;
+    }
+
+    const result = this.formatPrivateDoctor(doctor);
+
+    // Memory = 1 hour, Redis = 2 hours
+    await this.cacheService.set(cacheKey, result, 3600, 7200);
+
+    return result;
   }
 
   // ── UPDATE profile ─────────────────────────────────────────────────────
@@ -160,7 +180,10 @@ export class DoctorProfileService {
     if (!updatedDoctor) {
       throw new NotFoundException('Doctor profile not found after update.');
     }
-
+    await invalidateProfileCaches(
+      this.cacheService,
+      updatedDoctor._id.toString(),
+    );
     return this.formatPrivateDoctor(updatedDoctor);
   }
 
@@ -172,7 +195,13 @@ export class DoctorProfileService {
 
   // ── GET public profile ─────────────────────────────────────────────────
   async getProfileById(doctorId: string): Promise<any> {
+    const cacheKey = `doctors:profile:${doctorId}`;
+    const cachedDoctor = await this.cacheService.get(cacheKey);
+
+    if (cachedDoctor) return cachedDoctor;
+
     const doctor = await this.doctorRepo.findById(doctorId);
+
     if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
 
     // Fire-and-forget — never block the response for a counter
@@ -182,10 +211,19 @@ export class DoctorProfileService {
         this.logger.warn(`Failed to increment profileViews: ${err.message}`),
       );
 
-    return this.formatPrivateDoctor(doctor);
+    const result = this.formatPrivateDoctor(doctor);
+
+    await this.cacheService.set(cacheKey, result, 3600, 7200);
+
+    return result;
   }
 
   async getDoctorPosts(doctorId: string, page = 1, limit = 10): Promise<any> {
+    const cacheKey = `doctors:posts:${doctorId}:${page}:${limit}`;
+    const cachedPosts = await this.cacheService.get(cacheKey);
+
+    if (cachedPosts) return cachedPosts;
+
     const skip = (page - 1) * limit;
     const doctor = await this.doctorRepo.findById(doctorId);
     const [posts, totalPosts] = await Promise.all([
@@ -209,8 +247,7 @@ export class DoctorProfileService {
     ]);
 
     const totalPages = Math.ceil(totalPosts / limit);
-
-    return {
+    const result = {
       posts,
       pagination: {
         page,
@@ -219,6 +256,10 @@ export class DoctorProfileService {
         totalPages,
       },
     };
+
+    await this.cacheService.set(cacheKey, result, 3600, 7200);
+
+    return result;
   }
   // ── FORMAT: private (full data) ────────────────────────────────────────
   private formatPrivateDoctor(doctor: Doctor) {
@@ -257,6 +298,10 @@ export class DoctorProfileService {
     if (!doctor) {
       throw new NotFoundException('Doctor not found');
     }
+    const cacheKey = `doctors:gallery:${doctorId}:${page}:${limit}`;
+    const cachedGallery = await this.cacheService.get(cacheKey);
+
+    if (cachedGallery) return cachedGallery;
 
     const gallery = (doctor.gallery ?? []).filter(
       (img) => img.status === GalleryImageStatus.APPROVED,
@@ -268,7 +313,7 @@ export class DoctorProfileService {
     const startIndex = (page - 1) * limit;
     const paginatedGallery = gallery.slice(startIndex, startIndex + limit);
 
-    return {
+    const result = {
       gallery: paginatedGallery,
       pagination: {
         page,
@@ -277,5 +322,9 @@ export class DoctorProfileService {
         totalPages,
       },
     };
+
+    await this.cacheService.set(cacheKey, result, 3600, 7200);
+
+    return result;
   }
 }

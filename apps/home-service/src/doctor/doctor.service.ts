@@ -1570,8 +1570,6 @@ export class DoctorService {
     });
 
     this.logger.log(`VIP booking job queued: ${job.id}`);
-
-    await this.invalidateSlotsCache(doctorId);
     return {
       message: conflict.hasConflict
         ? 'VIP booking is being created. Existing booking will be cancelled and patient notified.'

@@ -891,17 +891,31 @@ export class DoctorBookingsQueryService {
   async getDoctorGalleryImages(
     doctorId: string,
     page = 1,
-  ): Promise<{ gallery: GalleryImageWithStatus[]; galleryCount: number }> {
+    limit = 10,
+  ): Promise<{
+    gallery: GalleryImageWithStatus[];
+    pagination: {
+      page: number;
+      limit: number;
+      totalImages: number;
+      totalPages: number;
+    };
+  }> {
     if (!Types.ObjectId.isValid(doctorId)) {
       throw new BadRequestException('Invalid doctor ID');
     }
 
-    const cacheKey = `doctor:gallery:${doctorId}`;
+    const cacheKey = `doctor:gallery:${doctorId}:page${page}:limit${limit}`;
 
-    // Try cache first
+    // Try cache
     const cached = await this.cacheService.get<{
       gallery: GalleryImageWithStatus[];
-      galleryCount: number;
+      pagination: {
+        page: number;
+        limit: number;
+        totalImages: number;
+        totalPages: number;
+      };
     }>(cacheKey);
 
     if (cached) {
@@ -926,19 +940,31 @@ export class DoctorBookingsQueryService {
         (img) => img.status === GalleryImageStatus.APPROVED,
       ) || [];
 
+    const totalImages = approvedGallery.length;
+    const totalPages = Math.ceil(totalImages / limit);
+    const startIndex = (page - 1) * limit;
+    const paginatedGallery = approvedGallery.slice(
+      startIndex,
+      startIndex + limit,
+    );
+
     const result = {
-      gallery: approvedGallery,
-      galleryCount: approvedGallery.length,
+      gallery: paginatedGallery,
+      pagination: {
+        page,
+        limit,
+        totalImages,
+        totalPages,
+      },
     };
 
-    // Save to cache (TTL = 2 hours)
+    // Cache for 2 hours
     await this.cacheService.set(cacheKey, result, 3600, 7200);
 
     return result;
   }
 
-  async getDoctorPosts(doctorId: string, page = 1) {
-    const limit = 10;
+  async getDoctorPosts(doctorId: string, page = 1, limit = 10) {
     const skip = (page - 1) * limit;
 
     const cacheKey = `doctor:posts:${doctorId}:page${page}:limit${limit}`;
