@@ -19,6 +19,7 @@ import {
 } from '@app/common/database/schemas/center.schema';
 
 import { MinioModule } from 'apps/home-service/src/minio/minio.module';
+import { CacheModule } from '@app/common/cache/cache.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { MinioModule } from 'apps/home-service/src/minio/minio.module';
       { name: Center.name, schema: CenterSchema },
     ]),
     MinioModule,
+    CacheModule,
   ],
   controllers: [PostController],
   providers: [PostService, PostRepository],

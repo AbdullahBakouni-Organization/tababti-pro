@@ -1416,8 +1416,7 @@ export class DoctorService {
       `Found ${slotsWithBookings.length} slots (${slots.filter((s) => s.status === SlotStatus.BOOKED).length} booked)`,
     );
 
-    // Save to cache (example TTL = 2 minutes)
-    await this.cacheManager.set(cacheKey, slotsWithBookings, 120, 900);
+    await this.cacheManager.set(cacheKey, slotsWithBookings, 60, 7200);
 
     return slotsWithBookings;
   }
@@ -1861,8 +1860,8 @@ export class DoctorService {
       );
       await invalidateBookingCaches(
         this.cacheManager,
-        patient._id.toString(),
         doctorId,
+        patient._id.toString(),
         this.logger,
       );
     }

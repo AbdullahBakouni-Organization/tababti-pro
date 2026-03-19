@@ -23,6 +23,7 @@ import { DoctorProfileModule } from './doctor-profile/doctor-profile.module';
 //import { DashboardModule } from './dashboard/dashboard.module';
 import { RequestsModule } from './medical-equipment/request.module';
 import { DashboardModule } from './dashboard-service/dashboard.module';
+import { CacheModule } from '@app/common/cache/cache.module';
 
 @Module({
   imports: [
@@ -56,6 +57,7 @@ import { DashboardModule } from './dashboard-service/dashboard.module';
     DashboardModule,
     NearbyBookingModule,
     RequestsModule,
+    CacheModule,
   ],
   controllers: [SocialServiceController],
   providers: [SocialServiceService],

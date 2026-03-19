@@ -20,8 +20,9 @@ import { InjectModel } from '@nestjs/mongoose';
 import { PostStats } from './post.interface';
 import { Post, PostDocument } from '@app/common/database/schemas/post.schema';
 import { MinioService } from 'apps/home-service/src/minio/minio.service';
-import { console } from 'inspector/promises';
 import { formatDate } from '@app/common/utils/get-syria-date';
+import { invalidateProfileDoctorPostCaches } from '@app/common/utils/cache-invalidation.util';
+import { CacheService } from '@app/common/cache/cache.service';
 
 @Injectable()
 export class PostService {
@@ -34,6 +35,7 @@ export class PostService {
     @InjectModel(Center.name) private readonly centerModel: Model<Center>,
     @InjectModel(Post.name) private readonly postModel: Model<Post>,
     private minioService: MinioService,
+    private cacheService: CacheService,
   ) {}
 
   /**
@@ -57,7 +59,11 @@ export class PostService {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-
+    await invalidateProfileDoctorPostCaches(
+      this.cacheService,
+      accountId,
+      this.logger,
+    );
     return post;
   }
 
@@ -233,7 +239,11 @@ export class PostService {
 
     // delete post
     await this.postRepo.delete(postId);
-
+    await invalidateProfileDoctorPostCaches(
+      this.cacheService,
+      authAccountId,
+      this.logger,
+    );
     this.logger.log(`Post ${postId} and all images deleted successfully`);
 
     return post;
@@ -413,7 +423,14 @@ export class PostService {
     }
   }
 
-  async getApprovedPosts(page: number = 1, limit: number = 10) {
+  async getApprovedPosts(page: number = 1, limit: number = 30) {
+    const cacheKey = `approved_posts:page${page}:limit${limit}`;
+
+    const cached =
+      await this.cacheService.get<ReturnType<typeof this.getApprovedPosts>>(
+        cacheKey,
+      );
+    if (cached) return cached;
     const skip = (page - 1) * limit;
 
     const [posts, total] = await Promise.all([
@@ -537,7 +554,7 @@ export class PostService {
       };
     });
 
-    return {
+    const result = {
       posts: {
         data,
         metadata: {
@@ -549,5 +566,10 @@ export class PostService {
         },
       },
     };
+
+    // Cache for 5 min memory, 15 min Redis
+    await this.cacheService.set(cacheKey, result, 30, 7200);
+
+    return result;
   }
 }

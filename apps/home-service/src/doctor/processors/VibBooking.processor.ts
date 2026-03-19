@@ -113,7 +113,7 @@ export class VIPBookingProcessor {
             patientId: new Types.ObjectId(vipPatientId),
             doctorId: new Types.ObjectId(doctorId),
             slotId: new Types.ObjectId(slotId),
-            status: BookingStatus.CONFIRMED, // VIP bookings are auto-confirmed
+            status: BookingStatus.PENDING, // VIP bookings are auto-confirmed
             bookingDate: slot.date,
             bookingTime: slot.startTime,
             bookingEndTime: slot.endTime,
@@ -150,7 +150,17 @@ export class VIPBookingProcessor {
 
       // Step 6: Publish Kafka event to refresh slots
       this.publishSlotsRefreshedEvent(doctorId, slotId);
-      await invalidateBookingCaches(this.cacheManager, doctorId);
+      const affectedPatientIds = [
+        displacedPatient?._id?.toString(),
+        vipPatientId,
+      ].filter(Boolean) as string[];
+
+      await invalidateBookingCaches(
+        this.cacheManager,
+        doctorId,
+        affectedPatientIds,
+        this.logger,
+      );
     } catch (error) {
       const err = error as Error;
       await session.abortTransaction();

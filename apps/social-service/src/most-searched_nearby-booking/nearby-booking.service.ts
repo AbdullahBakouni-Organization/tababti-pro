@@ -15,8 +15,8 @@ import { PatientDetailDto } from './dto/patient.detail.dto';
 
 // ── Cache TTL constants (seconds) ─────────────────────────────────────────────
 const TTL = {
-  TOP_DOCTORS: { memory: 300, redis: 3600 },
-  NEXT_BOOKING: { memory: 30, redis: 120 },
+  TOP_DOCTORS: { memory: 300, redis: 7200 },
+  NEXT_BOOKING: { memory: 30, redis: 7200 },
   ALL_BOOKINGS: { memory: 60, redis: 300 },
   PATIENTS: { memory: 60, redis: 300 },
   APPOINTMENTS: { memory: 30, redis: 120 },
@@ -90,12 +90,7 @@ export class NearbyBookingService {
     const cached = fromCache(await this.cache.get(key));
     if (cached) return cached;
     const data = await this.repo.findTopDoctors(p, l);
-    await this.cache.set(
-      key,
-      data,
-      TTL.TOP_DOCTORS.memory,
-      TTL.TOP_DOCTORS.redis,
-    );
+    await this.cache.set(key, data, 120, TTL.TOP_DOCTORS.redis);
     return data;
   }
 

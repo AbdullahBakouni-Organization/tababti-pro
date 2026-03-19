@@ -41,12 +41,9 @@ import {
   UpdateUserDto,
   UpdateUserResponseDto,
 } from './dto/update-user-info.dto';
-import { MinioService, UploadResult } from '../minio/minio.service';
+import { MinioService } from '../minio/minio.service';
 import { uploadUserProfileImage } from '@app/common/utils/upload-profile-images.util';
-import {
-  invalidateBookingCaches,
-  invalidateUserBookingCaches,
-} from '@app/common/utils/cache-invalidation.util';
+import { invalidateBookingCaches } from '@app/common/utils/cache-invalidation.util';
 
 @Injectable()
 export class UsersService {
@@ -56,7 +53,7 @@ export class UsersService {
   private readonly MAX_BOOKINGS_PER_DOCTOR = 1; // One booking per doctor at a time
   private readonly MAX_BOOKINGS_PER_DAY = 3; // Maximum 3 bookings in one day
   private readonly MAX_CANCELLATIONS_PER_DAY = 5; // Maximum 5 cancellations per day
-  private readonly CACHE_TTL = 900; // 1 hour in ms
+  private readonly CACHE_TTL = 7200; // 2 hour in ms
   constructor(
     @InjectModel(Booking.name)
     private bookingModel: Model<BookingDocument>,
@@ -346,6 +343,7 @@ export class UsersService {
 
       const remainingCancellations =
         this.MAX_CANCELLATIONS_PER_DAY - (cancellationsToday + 1);
+
       await invalidateBookingCaches(
         this.cacheManager,
         doctor._id.toString(),
@@ -700,12 +698,7 @@ export class UsersService {
 
     // ✅ Cache only cancelled bookings for 1 hour
     if (status === BookingStatus.CANCELLED) {
-      await this.cacheManager.set(
-        cacheKey,
-        response,
-        this.CACHE_TTL,
-        this.CACHE_TTL,
-      );
+      await this.cacheManager.set(cacheKey, response, 60, this.CACHE_TTL);
       this.logger.log(`💾 Cached cancelled bookings for user ${userId}`);
     }
 

@@ -22,7 +22,7 @@ import { MinioService } from 'apps/home-service/src/minio/minio.service';
 import { calculateYearsOfExperience } from '@app/common/utils/calculate-experience.util';
 import { uploadDoctorProfileImage } from '@app/common/utils/upload-profile-images.util';
 import { CacheService } from '@app/common/cache/cache.service';
-import { invalidateProfileCaches } from '@app/common/utils/cache-invalidation.util';
+import { invalidateMainProfileCaches } from '@app/common/utils/cache-invalidation.util';
 
 @Injectable()
 export class DoctorProfileService {
@@ -43,7 +43,7 @@ export class DoctorProfileService {
       throw new NotFoundException('doctor.NOT_FOUND');
     }
 
-    const cacheKey = `doctor:profile:${doctor._id.toString()}`;
+    const cacheKey = `doctor:profile:${authAccountId}`;
 
     // Try cache
     const cached = await this.cacheService.get<any>(cacheKey);
@@ -54,8 +54,8 @@ export class DoctorProfileService {
 
     const result = this.formatPrivateDoctor(doctor);
 
-    // Memory = 1 hour, Redis = 2 hours
-    await this.cacheService.set(cacheKey, result, 3600, 7200);
+    // Memory = 1 Minute, Redis = 2 hours
+    await this.cacheService.set(cacheKey, result, 60, 7200);
 
     return result;
   }
@@ -180,9 +180,13 @@ export class DoctorProfileService {
     if (!updatedDoctor) {
       throw new NotFoundException('Doctor profile not found after update.');
     }
-    await invalidateProfileCaches(
+    await invalidateMainProfileCaches(
       this.cacheService,
-      updatedDoctor._id.toString(),
+      authAccountId,
+      this.logger,
+    );
+    await this.cacheService.invalidate(
+      `doctor_mobile_profile:${updatedDoctor._id.toString()}`,
     );
     return this.formatPrivateDoctor(updatedDoctor);
   }
@@ -195,15 +199,14 @@ export class DoctorProfileService {
 
   // ── GET public profile ─────────────────────────────────────────────────
   async getProfileById(doctorId: string): Promise<any> {
-    const cacheKey = `doctors:profile:${doctorId}`;
-    const cachedDoctor = await this.cacheService.get(cacheKey);
-
-    if (cachedDoctor) return cachedDoctor;
-
     const doctor = await this.doctorRepo.findById(doctorId);
 
     if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
 
+    const cacheKey = `doctors:profile:${doctor.authAccountId.toString()}`;
+    const cachedDoctor = await this.cacheService.get(cacheKey);
+
+    if (cachedDoctor) return cachedDoctor;
     // Fire-and-forget — never block the response for a counter
     this.doctorRepo
       .incrementProfileViews(doctorId)

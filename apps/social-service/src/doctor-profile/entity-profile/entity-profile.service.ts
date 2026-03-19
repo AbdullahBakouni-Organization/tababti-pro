@@ -12,6 +12,7 @@ import {
 import { EntityProfileRepository } from './entity-profile.repository';
 import { EntityType } from '../dto/get-entity-profile.dto';
 import { calculateYearsOfExperience } from '@app/common/utils/calculate-experience.util';
+import { CacheService } from '@app/common/cache/cache.service';
 
 @Injectable()
 export class EntityProfileService {
@@ -20,6 +21,7 @@ export class EntityProfileService {
     @InjectModel(Post.name) private readonly postModel: Model<Post>,
     @InjectModel(CommonDepartment.name)
     private readonly departmentModel: Model<CommonDepartment>,
+    private readonly cacheService: CacheService,
   ) {}
 
   async getEntityProfile(
@@ -43,23 +45,53 @@ export class EntityProfileService {
   // ══════════════════════════════════════════════════════════════════════════
 
   private async getDoctorProfile(id: string, page: number, limit: number) {
+    const cacheKey = `doctor_mobile_profile:${id}`;
+    const galleryCacheKey = `doctor_mobile_profile:${id}:gallery:page${page}:limit${limit}`;
+
+    // Try full profile cache (page-independent)
+    const cachedProfile = await this.cacheService.get<any>(cacheKey);
+    const cachedGallery = await this.cacheService.get<{
+      data: any[];
+      meta: any;
+    }>(galleryCacheKey);
+
+    if (cachedProfile && cachedGallery) {
+      return { ...cachedProfile, gallery: cachedGallery };
+    }
+
     const doctor = await this.repo.findDoctorById(id);
     if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
     await this.repo.incrementDoctorViews(id);
 
-    // Filter only approved gallery images
     const approvedGallery =
       doctor.gallery?.filter(
         (img) => img.status === GalleryImageStatus.APPROVED,
       ) ?? [];
 
-    // Paginate approved gallery
     const galleryTotal = approvedGallery.length;
     const galleryStart = (page - 1) * limit;
     const galleryEnd = galleryStart + limit;
     const paginatedGallery = approvedGallery.slice(galleryStart, galleryEnd);
 
-    return {
+    const galleryResult = {
+      data: paginatedGallery.map((img) => ({
+        imageId: img.imageId,
+        url: img.url,
+        fileName: img.fileName,
+        description: img.description || null,
+        uploadedAt: img.uploadedAt,
+        approvedAt: img.approvedAt || null,
+      })),
+      meta: {
+        total: galleryTotal,
+        page,
+        limit,
+        totalPages: Math.ceil(galleryTotal / limit),
+        hasNextPage: galleryEnd < galleryTotal,
+      },
+    };
+
+    const profileResult = {
       type: UserRole.DOCTOR,
       id: doctor._id,
       fullName: [doctor.firstName, doctor.middleName, doctor.lastName]
@@ -80,23 +112,6 @@ export class EntityProfileService {
       yearsOfExperience: calculateYearsOfExperience(doctor.experienceStartDate),
       experienceStartDate: doctor.experienceStartDate || null,
       rating: doctor.rating || 0,
-      gallery: {
-        data: paginatedGallery.map((img) => ({
-          imageId: img.imageId,
-          url: img.url,
-          fileName: img.fileName,
-          description: img.description || null,
-          uploadedAt: img.uploadedAt,
-          approvedAt: img.approvedAt || null,
-        })),
-        meta: {
-          total: galleryTotal,
-          page,
-          limit,
-          totalPages: Math.ceil(galleryTotal / limit),
-          hasNextPage: galleryEnd < galleryTotal,
-        },
-      },
       workingHours: doctor.workingHours || [],
       profileViews: doctor.profileViews || 0,
       isSubscribed: doctor.isSubscribed,
@@ -104,6 +119,14 @@ export class EntityProfileService {
       hospitals: doctor.hospitals || [],
       centers: doctor.centers || [],
     };
+
+    // Cache profile for 30 min, gallery page for 10 min
+    await Promise.all([
+      this.cacheService.set(cacheKey, profileResult, 60, 7200),
+      this.cacheService.set(galleryCacheKey, galleryResult, 60, 600),
+    ]);
+
+    return { ...profileResult, gallery: galleryResult };
   }
 
   // ══════════════════════════════════════════════════════════════════════════

@@ -122,7 +122,20 @@ export class HolidayBlockProcessor {
 
       // Step 5: Publish Kafka event to refresh slots
       this.publishSlotsRefreshedEvent(doctorId, affectedSlotIds);
-      await invalidateBookingCaches(this.cacheManager, doctorId);
+      const affectedPatientIds = [
+        ...new Set(
+          bookings
+            .map((b) => (b.patientId as any)?._id?.toString())
+            .filter(Boolean),
+        ),
+      ];
+
+      await invalidateBookingCaches(
+        this.cacheManager,
+        doctorId,
+        affectedPatientIds,
+        this.logger,
+      );
     } catch (error) {
       const err = error as Error;
       this.logger.error(

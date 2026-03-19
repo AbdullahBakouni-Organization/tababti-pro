@@ -86,7 +86,20 @@ export class PauseSlotsProcessor {
 
       // Step 4: Publish Kafka event for slots refreshed
       this.publishSlotsRefreshedEvent(doctorId, slotIds);
-      await invalidateBookingCaches(this.cacheManager, doctorId);
+      const affectedPatientIds = [
+        ...new Set(
+          cancelledBookings
+            .map((b) => (b.patientId as any)?._id?.toString())
+            .filter(Boolean),
+        ),
+      ];
+
+      await invalidateBookingCaches(
+        this.cacheManager,
+        doctorId,
+        affectedPatientIds, // ✅ all affected patients
+        this.logger,
+      );
       this.logger.log(
         `[Pause Slots Job] Completed successfully for doctor ${doctorId}`,
       );

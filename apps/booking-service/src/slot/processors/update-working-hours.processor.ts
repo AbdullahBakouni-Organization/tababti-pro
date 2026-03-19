@@ -227,10 +227,20 @@ export class WorkingHoursUpdateProcessorV2 {
       }
 
       await session.commitTransaction();
-      await invalidateBookingCaches(this.cacheService, doctorId.toString());
+
       if (affectedBookings.length > 0) {
         await this.sendPersonalizedNotifications(affectedBookings).catch(
           (err) => this.logger.error('Notification error:', err),
+        );
+        const affectedPatientIds = [
+          ...new Set(affectedBookings.map((b) => b.patientId)),
+        ];
+
+        await invalidateBookingCaches(
+          this.cacheService,
+          doctorId.toString(),
+          affectedPatientIds, // ✅ array of all affected patients
+          this.logger,
         );
       }
     } catch (error) {

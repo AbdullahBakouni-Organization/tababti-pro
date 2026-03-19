@@ -20,6 +20,7 @@ import {
 } from '@app/common/database/schemas/center.schema';
 import { Post, PostSchema } from '@app/common/database/schemas/post.schema';
 import { AuthValidateModule } from '@app/common/auth-validate';
+import { CacheModule } from '@app/common/cache/cache.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { AuthValidateModule } from '@app/common/auth-validate';
       { name: Post.name, schema: PostSchema },
     ]),
     AuthValidateModule,
+    CacheModule,
   ],
   controllers: [EntityProfileController],
   providers: [EntityProfileService, EntityProfileRepository],

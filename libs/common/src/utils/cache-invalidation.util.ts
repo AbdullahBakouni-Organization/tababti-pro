@@ -1,10 +1,37 @@
 import { Logger } from '@nestjs/common';
 import { CacheService } from '../cache/cache.service';
 
+// export async function invalidateBookingCaches(
+//   cacheService: CacheService,
+//   doctorId: string,
+//   patientId?: string,
+//   logger?: Logger,
+// ): Promise<void> {
+//   try {
+//     const patterns = [
+//       `doctor:bookings:${doctorId}:*`,
+//       `slots:available:${doctorId}:*`,
+//       `doctor:${doctorId}:working-hours`,
+//       `user_bookings:${patientId}:*`,
+//       `booking:next-user:${patientId}:*`,
+//     ];
+
+//     if (patientId) {
+//       patterns.push(`patient:bookings:${patientId}:*`);
+//     }
+
+//     await Promise.all(
+//       patterns.map((pattern) => cacheService.invalidatePattern(pattern)),
+//     );
+//   } catch (error) {
+//     const err = error as Error;
+//     logger?.warn(`Failed to invalidate booking caches: ${err.message}`);
+//   }
+// }
 export async function invalidateBookingCaches(
   cacheService: CacheService,
   doctorId: string,
-  patientId?: string,
+  patientId?: string | string[],
   logger?: Logger,
 ): Promise<void> {
   try {
@@ -12,11 +39,21 @@ export async function invalidateBookingCaches(
       `doctor:bookings:${doctorId}:*`,
       `slots:available:${doctorId}:*`,
       `doctor:${doctorId}:working-hours`,
-      `user_bookings:${patientId}:*`,
+      `doctor_mobile_profile:${doctorId}`,
     ];
 
-    if (patientId) {
-      patterns.push(`patient:bookings:${patientId}:*`);
+    const patientIds = patientId
+      ? Array.isArray(patientId)
+        ? patientId
+        : [patientId]
+      : [];
+
+    for (const id of patientIds) {
+      patterns.push(
+        `user_bookings:${id}:*`,
+        `booking:next-user:${id}:*`,
+        `patient:bookings:${id}:*`,
+      );
     }
 
     await Promise.all(
@@ -27,17 +64,16 @@ export async function invalidateBookingCaches(
     logger?.warn(`Failed to invalidate booking caches: ${err.message}`);
   }
 }
-
-export async function invalidateProfileCaches(
+export async function invalidateProfileDoctorPostCaches(
   cacheService: CacheService,
   doctorId: string,
   logger?: Logger,
 ): Promise<void> {
   try {
     const patterns = [
-      `doctor:profile:${doctorId}:*`,
       `doctor:posts:${doctorId}:*`,
-      `doctor:gallery:${doctorId}:*`,
+      `doctors:posts:${doctorId}:*`,
+      `approved_posts:*`,
     ];
 
     await Promise.all(
@@ -48,16 +84,15 @@ export async function invalidateProfileCaches(
     logger?.warn(`Failed to invalidate booking caches: ${err.message}`);
   }
 }
-
-export async function invalidateOtherDoctorProfileCaches(
+export async function invalidateProfileDoctorGalleryCaches(
   cacheService: CacheService,
   doctorId: string,
   logger?: Logger,
 ): Promise<void> {
   try {
     const patterns = [
-      `doctors:profile:${doctorId}:*`,
-      `doctors:posts:${doctorId}:*`,
+      `doctor:gallery:${doctorId}:*`,
+      `doctor_mobile_profile:${doctorId}:gallery:*`,
       `doctors:gallery:${doctorId}:*`,
     ];
 
@@ -70,13 +105,16 @@ export async function invalidateOtherDoctorProfileCaches(
   }
 }
 
-export async function invalidateUserBookingCaches(
+export async function invalidateMainProfileCaches(
   cacheService: CacheService,
-  userId: string,
+  authAccountId: string,
   logger?: Logger,
 ): Promise<void> {
   try {
-    const patterns = [`user_bookings:${userId}:*`];
+    const patterns = [
+      `doctor:profile:${authAccountId}`,
+      `doctors:profile:${authAccountId}:*`,
+    ];
 
     await Promise.all(
       patterns.map((pattern) => cacheService.invalidatePattern(pattern)),
