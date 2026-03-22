@@ -461,7 +461,7 @@ export class PostService {
       doctorIds.length
         ? this.doctorModel
             .find({ authAccountId: { $in: doctorIds } })
-            .select('authAccountId firstName middleName lastName image')
+            .select('authAccountId firstName middleName lastName image gender')
             .lean()
         : [],
       hospitalIds.length
@@ -483,7 +483,7 @@ export class PostService {
     // Doctor map
     const doctorMap = new Map<
       string,
-      { fullName: string; image: string | null }
+      { fullName: string; image: string | null; gender: string | null }
     >(
       doctors.map(
         (d) =>
@@ -494,8 +494,12 @@ export class PostService {
                 .filter(Boolean)
                 .join(' '),
               image: d.image ?? null,
+              gender: d.gender ?? null,
             },
-          ] as [string, { fullName: string; image: string | null }],
+          ] as [
+            string,
+            { fullName: string; image: string | null; gender: string | null },
+          ],
       ),
     );
 
@@ -530,9 +534,14 @@ export class PostService {
     // Map posts to response
     const data = posts.map((post) => {
       const authorKey = post.authorId?.toString();
-      let author: { fullName: string; image: string | null } = {
+      let author: {
+        fullName: string;
+        image: string | null;
+        gender?: string | null;
+      } = {
         fullName: 'Unknown',
         image: null,
+        gender: null, // ✅
       };
 
       if (post.authorType === UserRole.DOCTOR) {
@@ -550,6 +559,7 @@ export class PostService {
         authorType: post.authorType,
         authorName: author.fullName,
         authorImage: author.image,
+        authorGender: author.gender,
         createdAt: formatDate(post.createdAt!),
       };
     });

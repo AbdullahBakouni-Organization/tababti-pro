@@ -177,7 +177,7 @@ export class PostController {
     });
   }
 
-  @Roles(UserRole.USER)
+  // @Roles(UserRole.USER)
   @Get('all-approved-posts')
   async getApprovedPosts(
     @Query('page') page: number = 1,

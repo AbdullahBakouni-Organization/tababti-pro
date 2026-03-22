@@ -251,7 +251,10 @@ export class DoctorProfileService {
 
     const totalPages = Math.ceil(totalPosts / limit);
     const result = {
-      posts,
+      posts: posts.map((post) => ({
+        ...post,
+        authorGender: doctor?.gender ?? null,
+      })),
       pagination: {
         page,
         limit,

@@ -1002,7 +1002,7 @@ export class DoctorBookingsQueryService {
 
     this.logger.debug(`Posts cache miss: ${cacheKey}`);
 
-    const [posts, totalPosts] = await Promise.all([
+    const [posts, totalPosts, doctor] = await Promise.all([
       this.postModel
         .find({ authorId: new Types.ObjectId(doctorId), authorType: 'doctor' })
         .sort({ createdAt: -1 })
@@ -1014,12 +1014,19 @@ export class DoctorBookingsQueryService {
         authorId: new Types.ObjectId(doctorId),
         authorType: 'doctor',
       }),
+      this.doctorModel
+        .findOne({ authAccountId: new Types.ObjectId(doctorId) })
+        .select('gender')
+        .lean(),
     ]);
 
     const totalPages = Math.ceil(totalPosts / limit);
 
     const result = {
-      posts,
+      posts: posts.map((post) => ({
+        ...post,
+        authorGender: doctor?.gender ?? null,
+      })),
       pagination: {
         page,
         limit,
