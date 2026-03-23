@@ -100,10 +100,10 @@ export class DoctorProfileService {
     }
 
     // 4. Strip `normal` phones — read-only, set at registration
-    const sanitizedPhones = dto.phones?.map(({ whatsup, clinic }) => ({
-      ...(whatsup !== undefined && { whatsup }),
-      ...(clinic !== undefined && { clinic }),
-    }));
+    // const sanitizedPhones = dto.phones?.map(({ whatsup, clinic }) => ({
+    //   ...(whatsup !== undefined && { whatsup }),
+    //   ...(clinic !== undefined && { clinic }),
+    // }));
 
     // profile.service.ts — updateProfile() payload section only
     // (everything else stays the same)
@@ -138,7 +138,25 @@ export class DoctorProfileService {
       updatePayload.workingHours = dto.workingHours;
 
     // Phones (normal already stripped)
-    if (sanitizedPhones !== undefined) updatePayload.phones = sanitizedPhones;
+
+    if (dto.phones !== undefined && dto.phones.length > 0) {
+      // ادمج كل الـ phones objects في object واحد
+      const merged = dto.phones.reduce(
+        (acc, phone) => {
+          if (phone.whatsup !== undefined) acc.whatsup = phone.whatsup;
+          if (phone.clinic !== undefined) acc.clinic = phone.clinic;
+          return acc;
+        },
+        {} as { whatsup?: string[]; clinic?: string[] },
+      );
+
+      if (merged.whatsup !== undefined) {
+        updatePayload['phones.0.whatsup'] = merged.whatsup;
+      }
+      if (merged.clinic !== undefined) {
+        updatePayload['phones.0.clinic'] = merged.clinic;
+      }
+    }
 
     // Experience date (DB field is yearsOfExperience)
     if (normalizedExperienceDate)

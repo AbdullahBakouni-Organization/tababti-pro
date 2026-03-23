@@ -159,7 +159,7 @@ export class QuestionsController {
       pageNumber,
       limitNumber,
     );
-    return ApiResponse.success({ lang, messageKey: 'question.LIST', data });
+    return data;
   }
 
   // ══════════════════════════════════════════════════════════════

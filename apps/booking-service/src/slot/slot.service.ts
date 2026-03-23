@@ -114,10 +114,11 @@ export class SlotGenerationService {
       .exec();
 
     // Group by location type on the backend
+    // grouped object
     const grouped: GroupedAvailableSlotsDto = {
-      clinic: [],
-      hospital: [],
-      center: [],
+      clinic: { data: [], total: 0 },
+      hospital: { data: [], total: 0 },
+      center: { data: [], total: 0 },
     };
 
     for (const slot of slots) {
@@ -135,21 +136,24 @@ export class SlotGenerationService {
         status: slot.status,
       };
 
-      const locationType = slot.location?.type as WorkigEntity;
+      const locationType = slot.location?.type;
 
       if (locationType === WorkigEntity.CLINIC) {
-        grouped.clinic.push(mapped);
+        grouped.clinic.data.push(mapped);
       } else if (locationType === WorkigEntity.HOSPITAL) {
-        grouped.hospital.push(mapped);
+        grouped.hospital.data.push(mapped);
       } else if (locationType === WorkigEntity.CENTER) {
-        grouped.center.push(mapped);
+        grouped.center.data.push(mapped);
       }
     }
+    grouped.clinic.total = grouped.clinic.data.length;
+    grouped.hospital.total = grouped.hospital.data.length;
+    grouped.center.total = grouped.center.data.length;
 
     await this.cacheManager.set(cacheKey, grouped, 120, 900);
 
     this.logger.log(
-      `Found slots for doctor ${query.doctorId} — clinic: ${grouped.clinic.length}, hospital: ${grouped.hospital.length}, center: ${grouped.center.length}`,
+      `Found slots for doctor ${query.doctorId} — clinic: ${grouped.clinic.total}, hospital: ${grouped.hospital.total}, center: ${grouped.center.total}`,
     );
 
     return grouped;

@@ -39,7 +39,6 @@ interface WorkingHour {
 @Injectable()
 export class WorkingHoursService {
   private readonly logger = new Logger(WorkingHoursService.name);
-  private readonly CACHE_TTL = 86400; // 24 hours
 
   constructor(
     @InjectModel(Doctor.name) private doctorModel: Model<DoctorDocument>,
@@ -488,7 +487,7 @@ export class WorkingHoursService {
       inspectionPrice: doctor.inspectionPrice,
     };
 
-    await this.cacheManager.set(cacheKey, result, this.CACHE_TTL, 120);
+    await this.cacheManager.set(cacheKey, result, 120, 7200);
 
     return result;
   }

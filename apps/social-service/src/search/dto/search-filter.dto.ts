@@ -216,7 +216,7 @@ export class SearchFilterDto {
   @Type(() => Number)
   @IsNumber()
   @Min(1)
-  limit?: number = 10;
+  limit?: number;
 
   // ======== SORTING ========
   @IsOptional()

@@ -260,12 +260,20 @@ export class QuestionsService {
       const { questions, total, totalPages } =
         await this.repo.findQuestionsWithAnswers(match, skip, limit);
 
+      // return
       return {
-        questions: questions.map(this.mapQuestion.bind(this)),
-        total,
-        page,
-        limit,
-        totalPages,
+        questions: {
+          data: questions.map(this.mapQuestion.bind(this)),
+          total,
+        },
+        meta: {
+          total,
+          page,
+          limit,
+          totalPages,
+          hasNextPage: page < totalPages,
+          hasPreviousPage: page > 1,
+        },
       };
     } catch (error) {
       if (
@@ -301,7 +309,17 @@ export class QuestionsService {
       await this.getAnsweredQuestionIds(doctorProfileId);
 
     if (filter === 'myAnswers' && !answeredQuestionIds.length) {
-      return { questions: [], total: 0, page, limit, totalPages: 0 };
+      return {
+        questions: { data: [], total: 0 },
+        meta: {
+          total: 0,
+          page,
+          limit,
+          totalPages: 0,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        },
+      };
     }
 
     const match = await this.buildDoctorMatch(
@@ -322,11 +340,18 @@ export class QuestionsService {
       );
 
     return {
-      questions: questions.map((q) => this.mapDoctorQuestion(q)),
-      total,
-      page,
-      limit,
-      totalPages,
+      questions: {
+        data: questions.map((q) => this.mapDoctorQuestion(q)),
+        total,
+      },
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: page > 1,
+      },
     };
   }
 
@@ -522,7 +547,7 @@ export class QuestionsService {
     const answers = await this.answerModel
       .find({ responderId: doctorProfileId }, { questionId: 1 })
       .lean();
-    return answers.map((a) => a.questionId as Types.ObjectId);
+    return answers.map((a) => a.questionId);
   }
 
   /**

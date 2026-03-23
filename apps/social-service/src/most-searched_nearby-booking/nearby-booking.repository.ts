@@ -128,14 +128,16 @@ export class NearbyBookingRepository {
       ]),
       this.doctorModel.countDocuments(),
     ]);
-
+    const totalPages = Math.ceil(total / limit);
     return {
-      doctors: {
-        data: doctors,
+      doctors: { data: doctors, total },
+      meta: {
         total,
         page,
         limit,
-        totalPages: Math.ceil(total / limit),
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: page > 1,
       },
     };
   }

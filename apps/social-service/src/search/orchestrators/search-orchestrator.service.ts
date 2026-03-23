@@ -20,8 +20,7 @@ export class SearchOrchestratorService {
   ) {}
 
   async searchAll(dto: SearchFilterDto) {
-    const { search, page = 1 } = dto;
-
+    const { search, page = 1, limit = 10 } = dto;
     if (search?.trim()) await this.enhancer.trigger(search.trim());
 
     let doctorsResult: SearchResult<Doctor> = {
@@ -62,10 +61,22 @@ export class SearchOrchestratorService {
         ]);
     }
 
+    const grandTotal =
+      doctorsResult.total + hospitalsResult.total + centersResult.total;
+    const totalPages = Math.ceil(grandTotal / limit);
+
     return {
-      doctors: doctorsResult,
-      hospitals: hospitalsResult,
-      centers: centersResult,
+      doctors: { data: doctorsResult.data, total: doctorsResult.total },
+      hospitals: { data: hospitalsResult.data, total: hospitalsResult.total },
+      centers: { data: centersResult.data, total: centersResult.total },
+      meta: {
+        total: grandTotal,
+        page,
+        limit,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: page > 1,
+      },
     };
   }
 }

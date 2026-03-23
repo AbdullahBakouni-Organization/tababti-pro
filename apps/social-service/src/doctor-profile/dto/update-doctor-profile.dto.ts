@@ -162,7 +162,6 @@ export class UpdateDoctorProfileDto {
 
   @IsOptional()
   @IsString()
-  @MinLength(3)
   @MaxLength(1000)
   bio?: string;
 
@@ -217,7 +216,12 @@ export class UpdateDoctorProfileDto {
 
   // ── Phones — Transform parses JSON string from form-data ─────────────
   @IsOptional()
-  @Transform(({ value }) => parseJsonField(value))
+  @Transform(({ value }) => {
+    const parsed = parseJsonField(value);
+    if (!Array.isArray(parsed)) return parsed;
+    // حول كل object لـ instance من PhonesDto يدوياً
+    return parsed.map((item) => Object.assign(new PhonesDto(), item));
+  })
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => PhonesDto)

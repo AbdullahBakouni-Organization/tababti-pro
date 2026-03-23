@@ -78,8 +78,8 @@ export class AvailableSlotDto {
   };
   status: string;
 }
-export interface GroupedAvailableSlotsDto {
-  clinic: AvailableSlotDto[];
-  hospital: AvailableSlotDto[];
-  center: AvailableSlotDto[];
+export class GroupedAvailableSlotsDto {
+  clinic: { data: AvailableSlotDto[]; total: number };
+  hospital: { data: AvailableSlotDto[]; total: number };
+  center: { data: AvailableSlotDto[]; total: number };
 }

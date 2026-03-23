@@ -567,12 +567,14 @@ export class PostService {
     const result = {
       posts: {
         data,
-        metadata: {
+        total,
+        meta: {
           total,
           page,
           limit,
           totalPages: Math.ceil(total / limit),
           hasNextPage: skip + posts.length < total,
+          hasPreviousPage: page > 1,
         },
       },
     };

@@ -26,11 +26,18 @@ export interface MappedQuestion {
 }
 
 export interface QuestionPageResult {
-  questions: MappedQuestion[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
+  questions: {
+    data: any[]; // أو نوع الـ question عندك
+    total: number;
+  };
+  meta: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+    hasNextPage: boolean;
+    hasPreviousPage: boolean;
+  };
 }
 
 // ── Moderation result ─────────────────────────────────────────────────────────

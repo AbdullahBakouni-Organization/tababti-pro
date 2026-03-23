@@ -685,14 +685,17 @@ export class UsersService {
     );
 
     const response: UserBookingsResponse = {
-      booking: {
+      bookings: {
         data,
+        total,
       },
       meta: {
         total,
         page,
         limit,
         totalPages,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: page > 1,
       },
     };
 
