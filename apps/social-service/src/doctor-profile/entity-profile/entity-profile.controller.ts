@@ -45,10 +45,6 @@ export class EntityProfileController {
       +galleryLimit,
     );
 
-    return ApiResponse.success({
-      lang,
-      messageKey: 'entity.PROFILE_FETCHED',
-      data,
-    });
+    return data;
   }
 }

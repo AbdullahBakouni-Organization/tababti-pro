@@ -589,14 +589,11 @@ export class UsersService {
     // ✅ Cache key unique per user + filter + page
     const cacheKey = `user_bookings:${userId}:${status ?? 'all'}:page${page}:limit${limit}`;
 
-    // ✅ Try cache first — only for cancelled bookings
-    if (status === BookingStatus.CANCELLED) {
-      const cached =
-        await this.cacheManager.get<UserBookingsResponse>(cacheKey);
-      if (cached) {
-        this.logger.log(`✅ Cache HIT for ${cacheKey}`);
-        return cached;
-      }
+    const cached = await this.cacheManager.get<UserBookingsResponse>(cacheKey);
+    if (cached) {
+      this.logger.log(`✅ Cache HIT for ${cacheKey}`);
+      return cached;
+    } else {
       this.logger.log(`❌ Cache MISS for ${cacheKey}`);
     }
 
@@ -699,11 +696,7 @@ export class UsersService {
       },
     };
 
-    // ✅ Cache only cancelled bookings for 1 hour
-    if (status === BookingStatus.CANCELLED) {
-      await this.cacheManager.set(cacheKey, response, 60, this.CACHE_TTL);
-      this.logger.log(`💾 Cached cancelled bookings for user ${userId}`);
-    }
+    await this.cacheManager.set(cacheKey, response, 60, this.CACHE_TTL);
 
     return response;
   }

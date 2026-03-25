@@ -88,6 +88,7 @@ export class EntityProfileService {
         limit,
         totalPages: Math.ceil(galleryTotal / limit),
         hasNextPage: galleryEnd < galleryTotal,
+        hasPreviousPage: page > 1,
       },
     };
 

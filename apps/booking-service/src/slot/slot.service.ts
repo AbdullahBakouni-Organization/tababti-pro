@@ -150,7 +150,7 @@ export class SlotGenerationService {
     grouped.hospital.total = grouped.hospital.data.length;
     grouped.center.total = grouped.center.data.length;
 
-    await this.cacheManager.set(cacheKey, grouped, 120, 900);
+    await this.cacheManager.set(cacheKey, grouped, 120, 7200);
 
     this.logger.log(
       `Found slots for doctor ${query.doctorId} — clinic: ${grouped.clinic.total}, hospital: ${grouped.hospital.total}, center: ${grouped.center.total}`,
