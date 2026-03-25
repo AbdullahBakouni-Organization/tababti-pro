@@ -396,6 +396,8 @@ export class DoctorController {
         id: doctor._id.toString(),
         fullName: doctor.firstName + ' ' + doctor.lastName,
         phone: doctor.phones?.[0]?.normal?.[0] ?? '',
+        gender: doctor.gender,
+        image: doctor.image,
       },
       session: {
         deviceName: sessionInfo.deviceName,
@@ -613,11 +615,17 @@ export class DoctorController {
   @ApiBearerAuth()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Logout from all devices' })
-  async logoutAll(@Req() req: any) {
+  async logoutAll(@Req() req: any, @Res({ passthrough: true }) res: Response) {
     const doctorId: string = req.user.accountId;
     const role: UserRole.DOCTOR = req.user.role;
     await this.authService.logoutAllSessions(doctorId, role);
-
+    res.cookie('token', '', {
+      httpOnly: true,
+      secure: false,
+      sameSite: 'lax',
+      expires: new Date(0),
+      path: '/',
+    });
     return {
       message: 'Logged out from all devices',
     };
@@ -1399,7 +1407,7 @@ export class DoctorController {
     const doctorId = new ParseMongoIdPipe().transform(
       req.user.accountId.toString(),
     );
-    const data = await this.DoctorServiceV2.getDoctorPosts(
+    const posts = await this.DoctorServiceV2.getDoctorPosts(
       doctorId,
       query.page,
       query.limit,
@@ -1407,7 +1415,7 @@ export class DoctorController {
     return {
       success: true,
       message: 'Posts fetched successfully',
-      data,
+      posts,
     };
   }
 

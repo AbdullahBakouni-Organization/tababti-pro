@@ -130,7 +130,7 @@ export class PostService {
     status?: PostStatus,
   ) {
     const author = await this.getAuthor(authAccountId, role);
-    const authorProfileId = (author as any)._id.toString();
+    const authorProfileId = author._id.toString();
 
     return this.postRepo.findMyPosts(authorProfileId, page, limit, status);
   }
@@ -173,7 +173,7 @@ export class PostService {
     // ✅ Resolve author name + image
     const author = await this.resolveAuthor(
       post.authorId.toString(),
-      post.authorType as UserRole,
+      post.authorType,
     );
 
     const { likedBy: _likedBy, ...safePost } = post as any;
@@ -184,14 +184,14 @@ export class PostService {
     try {
       const model = this.getAuthorModel(role);
 
-      const profile = (await model
+      const profile = await model
         .findById(new Types.ObjectId(authorId), {
           firstName: 1, // Doctor ✅ (confirmed from schema)
           lastName: 1, // Doctor ✅
           name: 1, // Hospital / Center — adjust when you share those schemas
           image: 1, // All three ✅
         })
-        .lean()) as any;
+        .lean();
 
       if (!profile) return null;
 
@@ -221,14 +221,14 @@ export class PostService {
       throw new NotFoundException('post.NOT_FOUND');
     }
 
-    const model = this.getAuthorModel(post.authorType as UserRole);
+    const model = this.getAuthorModel(post.authorType);
     const author = await model
       .findOne({ authAccountId: new Types.ObjectId(authAccountId) })
       .lean();
 
     if (
       !author ||
-      post.authorId.toString() !== (author as any).authAccountId.toString()
+      post.authorId.toString() !== author.authAccountId.toString()
     ) {
       throw new ForbiddenException('post.FORBIDDEN');
     }
@@ -261,7 +261,7 @@ export class PostService {
     }
 
     const author = await this.getAuthor(accountId, role);
-    const profileId = (author as any)._id.toString();
+    const profileId = author._id.toString();
 
     return this.postRepo.toggleLike(postId, profileId);
   }
@@ -292,7 +292,7 @@ export class PostService {
         )
         .lean();
 
-      return profile ? (profile as any)._id.toString() : null;
+      return profile ? profile._id.toString() : null;
     } catch {
       return null;
     }
@@ -580,7 +580,7 @@ export class PostService {
     };
 
     // Cache for 5 min memory, 15 min Redis
-    await this.cacheService.set(cacheKey, result, 30, 7200);
+    await this.cacheService.set(cacheKey, result, 120, 7200);
 
     return result;
   }

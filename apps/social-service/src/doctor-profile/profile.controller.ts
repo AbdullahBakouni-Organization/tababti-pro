@@ -75,17 +75,19 @@ export class DoctorProfileController {
     @Query() pagination: PaginationDto,
     @Headers('accept-language') lang: 'en' | 'ar' = 'en',
   ) {
-    const data = await this.doctorService.getDoctorPosts(
+    const posts = await this.doctorService.getDoctorPosts(
       doctorId,
       pagination.page,
       pagination.limit,
     );
 
-    return ApiResponse.success({
-      lang,
-      messageKey: 'post.LIST',
-      data,
-    });
+    // return ApiResponse.success({
+    //   lang,
+    //   messageKey: 'post.LIST',
+    //   posts,
+    // });
+
+    return posts;
   }
 
   @Get(':id/gallery')
@@ -100,11 +102,7 @@ export class DoctorProfileController {
       pagination.limit,
     );
 
-    return ApiResponse.success({
-      lang,
-      messageKey: 'gallery.LIST',
-      data,
-    });
+    return data;
   }
 
   @Delete(':id')

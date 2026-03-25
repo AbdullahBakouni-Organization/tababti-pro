@@ -23,6 +23,7 @@ import { Roles } from '@app/common/decorator/role.decorator';
 import { SimilarDoctorsDto } from './dto/similira-doctor.dto';
 import { ApiResponse as AppResponse } from '../common/response/api-response';
 import { getLang } from '@app/common/helpers/get-lang.helper';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 
 @ApiTags('Search')
 @Controller('search')
@@ -71,8 +72,12 @@ export class SearchController {
       }),
     )
     query: SimilarDoctorsDto,
+    @CurrentUser('accountId') authAccountId: string,
   ) {
-    const data = await this.searchService.getSimilarDoctors(query);
+    const data = await this.searchService.getSimilarDoctors(
+      query,
+      authAccountId,
+    );
     return AppResponse.success({
       lang: getLang(),
       messageKey: 'common.SUCCESS',

@@ -27,7 +27,7 @@ export class SearchService {
     console.log('✅ Search cache cleared');
   }
 
-  async getSimilarDoctors(dto: SimilarDoctorsDto) {
+  async getSimilarDoctors(dto: SimilarDoctorsDto, authAccountId: string) {
     const { doctorId, page = 1, limit = 5 } = dto;
 
     const doctor = await this.doctorModel
@@ -41,6 +41,7 @@ export class SearchService {
     const skip = (page - 1) * limit;
     const filter = {
       _id: { $ne: new Types.ObjectId(doctorId) },
+      authAccountId: { $ne: new Types.ObjectId(authAccountId) },
       privateSpecialization: doctor.privateSpecialization,
       status: ApprovalStatus.APPROVED,
     };

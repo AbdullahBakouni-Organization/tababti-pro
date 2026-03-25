@@ -762,14 +762,14 @@ export class DoctorBookingsQueryService {
     }
 
     // Check gallery limit (including pending images)
-    const currentGalleryCount = doctor.gallery?.length || 0;
-    const totalAfterUpload = currentGalleryCount + files.length;
+    // const currentGalleryCount = doctor.gallery?.length || 0;
+    // const totalAfterUpload = currentGalleryCount + files.length;
 
-    if (totalAfterUpload > this.MAX_GALLERY_IMAGES) {
-      throw new BadRequestException(
-        `Gallery limit exceeded. Maximum ${this.MAX_GALLERY_IMAGES} images allowed.`,
-      );
-    }
+    // if (totalAfterUpload > this.MAX_GALLERY_IMAGES) {
+    //   throw new BadRequestException(
+    //     `Gallery limit exceeded. Maximum ${this.MAX_GALLERY_IMAGES} images allowed.`,
+    //   );
+    // }
 
     // Upload all images to MinIO
     const uploadedImages: GalleryImageWithStatus[] = [];
@@ -908,12 +908,14 @@ export class DoctorBookingsQueryService {
     page = 1,
     limit = 10,
   ): Promise<{
-    gallery: GalleryImageWithStatus[];
-    pagination: {
-      page: number;
-      limit: number;
-      totalImages: number;
-      totalPages: number;
+    data: {
+      gallery: GalleryImageWithStatus[];
+      meta: {
+        page: number;
+        limit: number;
+        total: number;
+        totalPages: number;
+      };
     };
   }> {
     if (!Types.ObjectId.isValid(doctorId)) {
@@ -924,12 +926,14 @@ export class DoctorBookingsQueryService {
 
     // Try cache
     const cached = await this.cacheService.get<{
-      gallery: GalleryImageWithStatus[];
-      pagination: {
-        page: number;
-        limit: number;
-        totalImages: number;
-        totalPages: number;
+      data: {
+        gallery: GalleryImageWithStatus[];
+        meta: {
+          page: number;
+          limit: number;
+          total: number;
+          totalPages: number;
+        };
       };
     }>(cacheKey);
 
@@ -964,12 +968,14 @@ export class DoctorBookingsQueryService {
     ).slice(startIndex, startIndex + limit);
 
     const result = {
-      gallery: paginatedGallery,
-      pagination: {
-        page,
-        limit,
-        totalImages,
-        totalPages,
+      data: {
+        gallery: paginatedGallery,
+        meta: {
+          page,
+          limit,
+          total: totalImages,
+          totalPages,
+        },
       },
     };
 
@@ -1016,22 +1022,26 @@ export class DoctorBookingsQueryService {
       }),
       this.doctorModel
         .findOne({ authAccountId: new Types.ObjectId(doctorId) })
-        .select('gender')
+        .select('gender image')
         .lean(),
     ]);
 
     const totalPages = Math.ceil(totalPosts / limit);
 
     const result = {
-      posts: posts.map((post) => ({
+      data: posts.map((post) => ({
         ...post,
         authorGender: doctor?.gender ?? null,
+        authorImage: doctor?.image ?? null,
       })),
-      pagination: {
+      total: totalPosts,
+      meta: {
+        total: totalPosts,
         page,
         limit,
-        totalPosts,
         totalPages,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: page > 1,
       },
     };
 

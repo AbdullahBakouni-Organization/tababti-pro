@@ -267,21 +267,25 @@ export class DoctorProfileService {
       }),
     ]);
 
-    const totalPages = Math.ceil(totalPosts / limit);
+    const totalPages = Math.ceil(posts.length / limit);
     const result = {
-      posts: posts.map((post) => ({
+      data: posts.map((post) => ({
         ...post,
         authorGender: doctor?.gender ?? null,
+        authorImage: doctor?.image ?? null,
       })),
-      pagination: {
+      total: posts.length,
+      meta: {
+        total: posts.length,
         page,
         limit,
-        totalPosts,
         totalPages,
+        hasNextPage: skip + posts.length < totalPages,
+        hasPreviousPage: page > 1,
       },
     };
 
-    await this.cacheService.set(cacheKey, result, 3600, 7200);
+    await this.cacheService.set(cacheKey, result, 120, 7200);
 
     return result;
   }
@@ -338,16 +342,18 @@ export class DoctorProfileService {
     const paginatedGallery = gallery.slice(startIndex, startIndex + limit);
 
     const result = {
-      gallery: paginatedGallery,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages,
+      data: {
+        gallery: paginatedGallery,
+        meta: {
+          page,
+          limit,
+          total,
+          totalPages,
+        },
       },
     };
 
-    await this.cacheService.set(cacheKey, result, 3600, 7200);
+    await this.cacheService.set(cacheKey, result, 120, 7200);
 
     return result;
   }
