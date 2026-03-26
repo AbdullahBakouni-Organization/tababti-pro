@@ -55,12 +55,18 @@ services:
     volumes:
       - ./nginx/nginx-internal.conf:/etc/nginx/nginx.conf:ro
     depends_on:
-      - home-service-1
-      - home-service-2
-      - social-service-1
-      - social-service-2
-      - booking-service
-      - notification-service
+      home-service-1:
+        condition: service_healthy
+      home-service-2:
+        condition: service_healthy
+      social-service-1:
+        condition: service_healthy
+      social-service-2:
+        condition: service_healthy
+      booking-service:
+        condition: service_healthy
+      notification-service:
+        condition: service_healthy
     networks:
       - tababti-network
     logging:
@@ -69,7 +75,7 @@ services:
         max-size: '10m'
         max-file: '3'
     healthcheck:
-      test: ['CMD', 'wget', '--spider', '-q', 'http://localhost:8080']
+      test: ['CMD-SHELL', 'curl -sf http://localhost:8080/health || exit 1']
       interval: 30s
       timeout: 10s
       retries: 3
@@ -136,6 +142,7 @@ services:
       MINIO_BUCKET_DOCTORS: ${MINIO_BUCKET_DOCTORS}
       MINIO_BUCKET_PATIENTS: ${MINIO_BUCKET_PATIENTS}
       MINIO_BUCKET_GENERAL: ${MINIO_BUCKET_GENERAL}
+      MINIO_PUBLIC_URL_DEV: ${MINIO_PUBLIC_URL_DEV}
       # JWT
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
@@ -147,12 +154,15 @@ services:
       SOCIAL_SERVICE_URL: http://nginx-internal:8080/social
       NOTIFICATION_SERVICE_URL: http://nginx-internal:8080/notification
       BOOKING_SERVICE_URL: http://nginx-internal:8080/booking
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
     depends_on:
       redis:
         condition: service_healthy
-      kafka:
-        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
       minio:
+        condition: service_healthy
+      nginx-internal:
         condition: service_healthy
     networks:
       - tababti-network
@@ -197,13 +207,18 @@ services:
       MINIO_BUCKET_DOCTORS: ${MINIO_BUCKET_DOCTORS}
       MINIO_BUCKET_PATIENTS: ${MINIO_BUCKET_PATIENTS}
       MINIO_BUCKET_GENERAL: ${MINIO_BUCKET_GENERAL}
+      MINIO_PUBLIC_URL_DEV: ${MINIO_PUBLIC_URL_DEV}
       FLASK_API_URL: ${FLASK_API_URL}
       OPENROUTE_API_KEY: ${OPENROUTE_API_KEY}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN:-15m}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
     depends_on:
       redis:
         condition: service_healthy
-      kafka:
-        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
     networks:
       - tababti-network
     logging:
@@ -211,7 +226,13 @@ services:
       options:
         max-size: '10m'
         max-file: '3'
-
+    healthcheck:
+      test:
+        ['CMD-SHELL', 'wget -qO- http://localhost:3001/api/v1/health || exit 1']
+      interval: 15s
+      timeout: 50s
+      retries: 5
+      start_period: 120s
   # ============================================
   # Home Service — Instance 2
   # ============================================
@@ -242,13 +263,18 @@ services:
       MINIO_BUCKET_DOCTORS: ${MINIO_BUCKET_DOCTORS}
       MINIO_BUCKET_PATIENTS: ${MINIO_BUCKET_PATIENTS}
       MINIO_BUCKET_GENERAL: ${MINIO_BUCKET_GENERAL}
+      MINIO_PUBLIC_URL_DEV: ${MINIO_PUBLIC_URL_DEV}
       FLASK_API_URL: ${FLASK_API_URL}
       OPENROUTE_API_KEY: ${OPENROUTE_API_KEY}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN:-15m}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
     depends_on:
       redis:
         condition: service_healthy
-      kafka:
-        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
     networks:
       - tababti-network
     logging:
@@ -256,6 +282,13 @@ services:
       options:
         max-size: '10m'
         max-file: '3'
+    healthcheck:
+      test:
+        ['CMD-SHELL', 'wget -qO- http://localhost:3001/api/v1/health || exit 1']
+      interval: 15s
+      timeout: 50s
+      retries: 5
+      start_period: 120s
 
   # ============================================
   # Social Service — Instance 1
@@ -269,6 +302,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3002
+      SOCIAL_PORT: 3002
       INSTANCE_ID: social-1
       MONGO_URI: ${MONGO_URI}
       MONGO_DB: ${MONGO_DB}
@@ -287,13 +321,18 @@ services:
       MINIO_BUCKET_DOCTORS: ${MINIO_BUCKET_DOCTORS}
       MINIO_BUCKET_PATIENTS: ${MINIO_BUCKET_PATIENTS}
       MINIO_BUCKET_GENERAL: ${MINIO_BUCKET_GENERAL}
+      MINIO_PUBLIC_URL_DEV: ${MINIO_PUBLIC_URL_DEV}
       FLASK_API_URL: ${FLASK_API_URL}
       OPENROUTE_API_KEY: ${OPENROUTE_API_KEY}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN:-15m}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
     depends_on:
       redis:
         condition: service_healthy
-      kafka:
-        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
     networks:
       - tababti-network
     logging:
@@ -301,6 +340,13 @@ services:
       options:
         max-size: '10m'
         max-file: '3'
+    healthcheck:
+      test:
+        ['CMD-SHELL', 'wget -qO- http://localhost:3002/api/v1/health || exit 1']
+      interval: 15s
+      timeout: 50s
+      retries: 5
+      start_period: 240s
 
   # ============================================
   # Social Service — Instance 2
@@ -315,6 +361,7 @@ services:
       NODE_ENV: production
       PORT: 3002
       INSTANCE_ID: social-2
+      SOCIAL_PORT: 3002
       MONGO_URI: ${MONGO_URI}
       MONGO_DB: ${MONGO_DB}
       REDIS_HOST: redis
@@ -332,13 +379,18 @@ services:
       MINIO_BUCKET_DOCTORS: ${MINIO_BUCKET_DOCTORS}
       MINIO_BUCKET_PATIENTS: ${MINIO_BUCKET_PATIENTS}
       MINIO_BUCKET_GENERAL: ${MINIO_BUCKET_GENERAL}
+      MINIO_PUBLIC_URL_DEV: ${MINIO_PUBLIC_URL_DEV}
       FLASK_API_URL: ${FLASK_API_URL}
       OPENROUTE_API_KEY: ${OPENROUTE_API_KEY}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN:-15m}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
     depends_on:
       redis:
         condition: service_healthy
-      kafka:
-        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
     networks:
       - tababti-network
     logging:
@@ -346,6 +398,13 @@ services:
       options:
         max-size: '10m'
         max-file: '3'
+    healthcheck:
+      test:
+        ['CMD-SHELL', 'wget -qO- http://localhost:3002/api/v1/health || exit 1']
+      interval: 15s
+      timeout: 50s
+      retries: 5
+      start_period: 240s
 
   # ============================================
   # Notification Service
@@ -359,6 +418,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3006
+      NOTIFICATION_PORT: 3006
       MONGO_URI: ${MONGO_URI}
       MONGO_DB: ${MONGO_DB}
       REDIS_HOST: redis
@@ -369,16 +429,15 @@ services:
       FIREBASE_CLIENT_EMAIL: ${FIREBASE_CLIENT_EMAIL}
       FIREBASE_PRIVATE_KEY: ${FIREBASE_PRIVATE_KEY}
       KAFKAJS_NO_PARTITIONER_WARNING: '1'
-      MINIO_BUCKET_DOCTORS: ${MINIO_BUCKET_DOCTORS}
-      MINIO_BUCKET_PATIENTS: ${MINIO_BUCKET_PATIENTS}
-      MINIO_BUCKET_GENERAL: ${MINIO_BUCKET_GENERAL}
-      FLASK_API_URL: ${FLASK_API_URL}
-      OPENROUTE_API_KEY: ${OPENROUTE_API_KEY}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN:-15m}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
     depends_on:
       redis:
         condition: service_healthy
-      kafka:
-        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
     networks:
       - tababti-network
     logging:
@@ -386,7 +445,16 @@ services:
       options:
         max-size: '10m'
         max-file: '3'
-
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'wget -qO- http://localhost:3006/api/v1/notifications/health || exit 1',
+        ]
+      interval: 15s
+      timeout: 50s
+      retries: 5
+      start_period: 240s
   # ============================================
   # Booking Service
   # ============================================
@@ -416,13 +484,16 @@ services:
       MINIO_BUCKET_DOCTORS: ${MINIO_BUCKET_DOCTORS}
       MINIO_BUCKET_PATIENTS: ${MINIO_BUCKET_PATIENTS}
       MINIO_BUCKET_GENERAL: ${MINIO_BUCKET_GENERAL}
-      FLASK_API_URL: ${FLASK_API_URL}
-      OPENROUTE_API_KEY: ${OPENROUTE_API_KEY}
+      MINIO_PUBLIC_URL_DEV: ${MINIO_PUBLIC_URL_DEV}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN:-15m}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
     depends_on:
       redis:
         condition: service_healthy
-      kafka:
-        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
     networks:
       - tababti-network
     logging:
@@ -430,6 +501,16 @@ services:
       options:
         max-size: '10m'
         max-file: '3'
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'wget -qO- http://localhost:3003/api/v1/bookings/health || exit 1',
+        ]
+      interval: 15s
+      timeout: 50s
+      retries: 5
+      start_period: 240s
 
   # ============================================
   # Kafka (KRaft mode — no Zookeeper)
@@ -475,7 +556,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 30s
+      start_period: 90s
 
   # ============================================
   # MinIO
@@ -559,3 +640,55 @@ services:
       options:
         max-size: '10m'
         max-file: '3'
+
+  kafka-init:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: tababti-kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      echo 'Creating Kafka topics...';
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic booking.created --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic booking.cancelled.by.user --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic booking.cancelled.by.doctor --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic booking.cancelled.by.system --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic booking.completed --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic booking.reminder --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic booking.rescheduled.notification --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic booking.cancelled.notification --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic doctor.profile.updated --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic doctor.working.hours.updated --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic doctor.inspection.time.updated --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic doctor.holiday.added --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic doctor.approved --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic doctor.rejected --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic doctor.ads.created --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic doctor.offers.created --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic doctor.registered --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic hospital.profile.updated --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic hospital.approved --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic center.profile.updated --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic center.approved --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic question.created --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic question.answered --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic rating.created --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic cache.invalidate --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic slots.generate --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic slots.generate.for.today --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic slots.generate.for.future --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic slots.refreshed --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic working.hours.added --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic working.hours.updated --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic whatsapp.send.message --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic whatsapp.send.otp --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic admin.approved.post --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic admin.rejected.post --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic admin.approved.gallery.images --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic admin.rejected.gallery.images --partitions 1 --replication-factor 1;
+      echo 'All 35 topics created.';
+      exit 0;
+      "
+    networks:
+      - tababti-network

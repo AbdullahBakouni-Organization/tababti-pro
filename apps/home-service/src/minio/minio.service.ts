@@ -125,6 +125,16 @@ export class MinioService {
    * Get public URL for a file
    */
   getPublicUrl(bucket: string, fileName: string): string {
+    const publicUrl = this.configService.get<string>(
+      'MINIO_PUBLIC_URL_DEV',
+      '',
+    );
+
+    if (publicUrl) {
+      return `${publicUrl}/${bucket}/${fileName}`;
+    }
+
+    // Fallback to internal URL (for development without proxy)
     const endpoint = this.configService.get<string>(
       'MINIO_ENDPOINT',
       'localhost',
@@ -132,7 +142,6 @@ export class MinioService {
     const port = this.configService.get<string>('MINIO_PORT', '9000');
     const useSSL =
       this.configService.get<string>('MINIO_USE_SSL', 'false') === 'true';
-
     const protocol = useSSL ? 'https' : 'http';
     const portSuffix =
       (useSSL && port === '443') || (!useSSL && port === '80')

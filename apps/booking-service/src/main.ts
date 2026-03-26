@@ -55,7 +55,7 @@ async function bootstrap() {
   logger.log('✅ Kafka consumer connected and listening for events');
 
   // Start HTTP server (optional, for REST endpoints)
-  const port = configService.get<number>('BOOKING_PORT', 3001);
+  const port = configService.get<number>('BOOKING_PORT', 3003);
   await app.listen(port);
   logger.log(`✅ HTTP server running on port ${port}`);
 }
