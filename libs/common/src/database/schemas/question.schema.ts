@@ -80,6 +80,11 @@ export class Question extends Document {
   })
   status: QuestionStatus;
 
+  // ── Unknown Status ────────────────────────────────────────────────────────
+
+  @Prop({ type: String, required: false })
+  unknownId: string;
+
   // ── APPROVAL STATUS (FIXED: No index property here)────────────────────────
   // ✅ FIXED: Removed index: true from @Prop (use schema.index() instead)
   // ✅ FIXED: Made it required (not optional)

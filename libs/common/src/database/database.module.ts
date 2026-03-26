@@ -30,6 +30,7 @@ import { SystemConfigSchema } from './schemas/system-config.schema';
 import { CitySchema } from './schemas/cities.schema';
 import { AppointmentSlotSchema } from './schemas/slot.schema';
 import { CommonDepartmentSchema } from './schemas/common_departments.schema';
+import { UnknownQuestionSchema } from './schemas/unknown.schema';
 
 @Global()
 @Module({
@@ -98,6 +99,10 @@ import { CommonDepartmentSchema } from './schemas/common_departments.schema';
       {
         name: 'AppointmentSlot',
         schema: AppointmentSlotSchema,
+      },
+      {
+        name: 'UnknownQuestion',
+        schema: UnknownQuestionSchema,
       },
     ]),
   ],

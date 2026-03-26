@@ -32,6 +32,7 @@ import {
   QuestionStats,
   SpecializationStat,
 } from '../interface/question.interfaces';
+import { UnknownQuestion } from '@app/common/database/schemas/unknown.schema';
 
 interface AnswerQuestionParams {
   questionId: string;
@@ -86,25 +87,44 @@ export class QuestionsService {
     authAccountId: string,
     lang: 'en' | 'ar' = 'en',
   ): Promise<Question> {
-    if (!Types.ObjectId.isValid(authAccountId))
+    // 1. Validate user ID
+    if (!Types.ObjectId.isValid(authAccountId)) {
       throw new BadRequestException('user.INVALID_ID');
+    }
 
     const user = await this.userModel
       .findOne({ authAccountId: new Types.ObjectId(authAccountId) })
       .lean();
-    if (!user) throw new NotFoundException('user.NOT_FOUND');
 
-    const specializationIds =
-      (await this.specializationsService.validateAndGetIds(
+    if (!user) {
+      throw new NotFoundException('user.NOT_FOUND');
+    }
+
+    // 2. Handle specialization safely
+
+    let specializationIds: Types.ObjectId[] | undefined;
+
+    if (dto.specializationId && dto.specializationId.length > 0) {
+      specializationIds = await this.specializationsService.validateAndGetIds(
         dto.specializationId,
-      )) as any;
+      );
+    }
 
-    return this.repo.create({
+    // 3. Build payload (clean way)
+    const payload: any = {
       userId: (user as any)._id,
       content: dto.content,
-      specializationId: specializationIds,
-      status: QuestionStatus.PENDING, // always starts pending
-    });
+      unknownId: dto.unknownId,
+      status: QuestionStatus.PENDING,
+    };
+
+    // Only add specialization if it exists
+    if (specializationIds) {
+      payload.specializationId = specializationIds;
+    }
+
+    // 4. Create
+    return this.repo.create(payload);
   }
 
   // ══════════════════════════════════════════════════════════════
@@ -161,7 +181,7 @@ export class QuestionsService {
 
     return {
       questionId: (question as any)._id,
-      status: newStatus as QuestionStatus.APPROVED | QuestionStatus.REJECTED,
+      status: newStatus,
       reason: dto.reason?.trim(),
       moderatedAt,
     };
@@ -308,6 +328,38 @@ export class QuestionsService {
     const answeredQuestionIds =
       await this.getAnsweredQuestionIds(doctorProfileId);
 
+    if (filter === 'all') {
+      const match = {
+        unknownId: { $exists: true, $ne: null },
+        status: 'approved',
+      };
+      const skip = (page - 1) * limit;
+
+      const { questions, total, totalPages } =
+        await this.repo.findDoctorQuestionsWithAnswers(
+          match,
+          skip,
+          limit,
+          doctorProfileId,
+          false,
+        );
+
+      return {
+        questions: {
+          data: questions.map((q) => this.mapDoctorQuestion(q)),
+          total,
+        },
+        meta: {
+          total,
+          page,
+          limit,
+          totalPages,
+          hasNextPage: page < totalPages,
+          hasPreviousPage: page > 1,
+        },
+      };
+    }
+
     if (filter === 'myAnswers' && !answeredQuestionIds.length) {
       return {
         questions: { data: [], total: 0 },
@@ -327,6 +379,10 @@ export class QuestionsService {
       answeredQuestionIds,
       doctor,
     );
+
+    // Apply approved status to specialization and myAnswers filters
+    match.status = 'approved';
+
     const skip = (page - 1) * limit;
     const showOnlyMine = filter === 'myAnswers';
 
@@ -461,12 +517,12 @@ export class QuestionsService {
         pending,
         rejected,
         deleted,
-        acceptedByMe: acceptedByMe as number,
+        acceptedByMe: acceptedByMe,
         approvedPercent: pct(approved, total),
         answeredPercent: pct(answered, total),
         pendingPercent: pct(pending, total),
         rejectedPercent: pct(rejected, total),
-        acceptedByMePercent: pct(acceptedByMe as number, total),
+        acceptedByMePercent: pct(acceptedByMe, total),
         bySpecialization,
       };
     } catch (error) {
@@ -538,14 +594,17 @@ export class QuestionsService {
       [UserRole.CENTER]: 'center.NOT_FOUND',
     };
     if (!profile) throw new NotFoundException(notFoundKey[role]);
-    return (profile as any)._id;
+    return profile._id;
   }
 
   private async getAnsweredQuestionIds(
     doctorProfileId: Types.ObjectId,
   ): Promise<Types.ObjectId[]> {
     const answers = await this.answerModel
-      .find({ responderId: doctorProfileId }, { questionId: 1 })
+      .find(
+        { responderId: new Types.ObjectId(doctorProfileId) },
+        { questionId: 1 },
+      )
       .lean();
     return answers.map((a) => a.questionId);
   }

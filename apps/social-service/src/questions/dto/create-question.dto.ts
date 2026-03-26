@@ -1,15 +1,26 @@
 import { PrivateMedicineSpecialty } from '@app/common/database/schemas/common.enums';
-import { IsString, IsMongoId, IsArray, ArrayNotEmpty } from 'class-validator';
+import {
+  IsString,
+  IsMongoId,
+  IsArray,
+  ArrayNotEmpty,
+  IsOptional,
+} from 'class-validator';
 import { InputType, Field } from '@nestjs/graphql'; // ← add this
 
 export class CreateQuestionDto {
   @IsString()
   content: string;
 
+  @IsOptional()
   @IsArray()
   @ArrayNotEmpty()
   @IsMongoId({ each: true })
-  specializationId: (string | PrivateMedicineSpecialty)[];
+  specializationId?: string[];
+
+  @IsMongoId()
+  @IsOptional()
+  unknownId?: string;
 }
 
 // ── GraphQL InputType ─────────────────────────────────────────────────────────

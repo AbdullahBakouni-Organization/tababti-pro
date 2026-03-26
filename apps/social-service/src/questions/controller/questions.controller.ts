@@ -42,7 +42,7 @@ export class QuestionsController {
   // Starts as PENDING — admin must approve before it is visible.
   // ══════════════════════════════════════════════════════════════
   @Post()
-  @Roles(UserRole.USER)
+  @Roles(UserRole.USER, UserRole.DOCTOR)
   @ApiOperation({ summary: 'Submit a new question (starts as PENDING)' })
   async create(
     @Body() dto: CreateQuestionDto,
