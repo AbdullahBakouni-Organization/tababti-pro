@@ -17,13 +17,9 @@ export class SpecializationsController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.DOCTOR, UserRole.HOSPITAL, UserRole.CENTER, UserRole.USER)
   @ApiBearerAuth()
-  async getDropdown(@Headers('accept-language') lang: 'en' | 'ar' = 'en') {
+  async getDropdown() {
     const data = await this.service.getDropdownList();
-    return ApiResponse.success({
-      lang,
-      messageKey: 'specialization.LIST',
-      data,
-    });
+    return data;
   }
 
   // ── GET /specializations/paginated ────────────────────────────────────────

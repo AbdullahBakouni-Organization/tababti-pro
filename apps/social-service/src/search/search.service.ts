@@ -52,7 +52,7 @@ export class SearchService {
         .select(
           'firstName middleName lastName image city subcity ' +
             'publicSpecialization privateSpecialization ' +
-            'inspectionPrice inspectionDuration rating',
+            'inspectionPrice inspectionDuration rating image',
         )
         .sort({ rating: -1 })
         .skip(skip)
@@ -63,7 +63,9 @@ export class SearchService {
     ]);
 
     return {
-      data: doctors,
+      doctors: {
+        data: doctors,
+      },
       meta: {
         total,
         page,

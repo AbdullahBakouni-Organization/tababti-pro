@@ -22,9 +22,6 @@ export class WorkingHoursValidator {
       throw new BadRequestException('Working hours cannot be empty.');
     }
 
-    // استخراج الأيام التي سيتم استبدالها
-    const updatedDays = [...new Set(newHours.map((h) => h.day))];
-
     // 1️⃣ فحص صحة الوقت
     this.validateTimeRanges(newHours);
 

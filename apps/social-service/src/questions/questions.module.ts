@@ -28,6 +28,7 @@ import {
 } from '@app/common/database/schemas/center.schema';
 
 import { SpecializationsModule } from '../specializations/specializations.module';
+import { CacheModule } from '@app/common/cache/cache.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { SpecializationsModule } from '../specializations/specializations.module
       { name: Center.name, schema: CenterSchema },
     ]),
     SpecializationsModule,
+    CacheModule,
   ],
   controllers: [QuestionsController],
   providers: [QuestionsService, QuestionsRepository],

@@ -25,6 +25,7 @@ import {
   WorkingHoursAddedEvent,
 } from '@app/common/kafka/interfaces/kafka-event.interface';
 import { WorkingHoursValidator } from './working-hours.validator';
+import { invalidateBookingCaches } from '@app/common/utils/cache-invalidation.util';
 interface WorkingHour {
   day: string;
   startTime: string;
@@ -114,7 +115,7 @@ export class WorkingHoursService {
       // Publish slot generation event for booking service
       this.publishSlotGenerationEvent(doctor, addWorkingHoursDto);
     }
-
+    await invalidateBookingCaches(this.cacheManager, doctorId.toString());
     // Publish working hours added event
     // this.publishWorkingHoursAddedEvent(doctor, addWorkingHoursDto);
 

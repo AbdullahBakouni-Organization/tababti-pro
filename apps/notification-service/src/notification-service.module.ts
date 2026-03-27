@@ -4,6 +4,7 @@ import { NotificationService } from './notification-service.service';
 import { FcmModule } from 'apps/home-service/src/fcm/fcm.module';
 import { ConfigModule } from '@nestjs/config';
 import { DatabaseModule } from '@app/common/database/database.module';
+import { AuthValidateModule } from '@app/common/auth-validate';
 
 @Module({
   imports: [
@@ -12,6 +13,7 @@ import { DatabaseModule } from '@app/common/database/database.module';
     }),
     FcmModule,
     DatabaseModule,
+    AuthValidateModule,
   ],
   controllers: [NotificationServiceController],
   providers: [NotificationService],

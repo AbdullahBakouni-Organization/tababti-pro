@@ -21,8 +21,6 @@ import { RolesGuard } from '@app/common/guards/role.guard';
 import { UserRole } from '@app/common/database/schemas/common.enums';
 import { Roles } from '@app/common/decorator/role.decorator';
 import { SimilarDoctorsDto } from './dto/similira-doctor.dto';
-import { ApiResponse as AppResponse } from '../common/response/api-response';
-import { getLang } from '@app/common/helpers/get-lang.helper';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 
 @ApiTags('Search')
@@ -78,11 +76,12 @@ export class SearchController {
       query,
       authAccountId,
     );
-    return AppResponse.success({
-      lang: getLang(),
-      messageKey: 'common.SUCCESS',
-      data,
-    });
+    // return AppResponse.success({
+    //   lang: getLang(),
+    //   messageKey: 'common.SUCCESS',
+    //   data,
+    // });
+    return data;
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)

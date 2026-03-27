@@ -78,9 +78,9 @@ export class CenterSeeder {
         isSubscribed: false,
         searchCount: 0,
         profileViews: 0,
-        image: faker.image.url(), 
+        image: faker.image.url(),
         certificateImage: faker.image.url(),
-        licenseImages: faker.image.url(), 
+        licenseImages: faker.image.url(),
       });
 
       console.log(`✅ Center created: ${center.name} in city ${city.name}`);

@@ -9,12 +9,8 @@ import { Transform } from 'class-transformer';
 
 export class FilterQuestionDto {
   @IsOptional()
-  @IsIn(['allQuestions', 'answered', 'pending', 'public'])
-  filter?: 'allQuestions' | 'answered' | 'pending' | 'public';
-
-  @IsOptional()
-  @IsMongoId()
-  publicSpecializationId?: string;
+  @IsIn(['allQuestions', 'answered', 'pending', 'main'])
+  filter?: 'allQuestions' | 'answered' | 'pending' | 'main';
 
   @IsOptional()
   @IsArray()

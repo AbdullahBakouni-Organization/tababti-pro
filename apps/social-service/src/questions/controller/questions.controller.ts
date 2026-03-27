@@ -42,7 +42,7 @@ export class QuestionsController {
   // Starts as PENDING — admin must approve before it is visible.
   // ══════════════════════════════════════════════════════════════
   @Post()
-  @Roles(UserRole.USER, UserRole.DOCTOR)
+  @Roles(UserRole.USER)
   @ApiOperation({ summary: 'Submit a new question (starts as PENDING)' })
   async create(
     @Body() dto: CreateQuestionDto,
@@ -147,14 +147,11 @@ export class QuestionsController {
     @Query() query: FilterQuestionDto,
     @Query('page') page = '1',
     @Query('limit') limit = '10',
-    @Headers('accept-language') lang: 'en' | 'ar' = 'en',
   ) {
     const pageNumber = Math.max(1, parseInt(page, 10));
     const limitNumber = Math.min(Math.max(1, parseInt(limit, 10)), 50);
     const data = await this.service.getQuestions(
-      accountId,
-      query.filter ?? 'allQuestions',
-      query.publicSpecializationId,
+      query.filter ?? 'main',
       query.privateSpecializationIds,
       pageNumber,
       limitNumber,

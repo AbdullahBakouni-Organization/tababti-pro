@@ -11,6 +11,8 @@ import {
   PublicSpecializationDocument,
 } from '@app/common/database/schemas/publicspecializations.schema';
 import { WorkigEntity } from '@app/common/database/schemas/common.enums';
+import { UnknownQuestion } from '@app/common/database/schemas/unknown.schema';
+import { CacheService } from '@app/common/cache/cache.service';
 
 @Injectable()
 export class SpecializationsService {
@@ -19,6 +21,10 @@ export class SpecializationsService {
     private readonly specializationModel: Model<PrivateSpecialization>,
     @InjectModel(PublicSpecialization.name)
     private readonly publicSpecializationModel: Model<PublicSpecializationDocument>,
+
+    @InjectModel(UnknownQuestion.name)
+    private readonly unknownQuestionModel: Model<UnknownQuestion>,
+    private readonly cacheManager: CacheService,
   ) {}
 
   // ── existing methods unchanged ────────────────────────────────────────────
@@ -48,14 +54,38 @@ export class SpecializationsService {
   }
 
   async getDropdownList() {
-    const data = await this.specializationModel
-      .find()
-      .select('_id name')
-      .sort({ name: 1 })
-      .lean();
+    const cacheKey = `dropdownList`;
+    const cached = await this.cacheManager.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
 
-    if (!data.length) throw new NotFoundException('specialization.NOT_FOUND');
-    return data;
+    const [specializations, unknownQuestion] = await Promise.all([
+      this.specializationModel
+        .find()
+        .select('_id name')
+        .sort({ name: 1 })
+        .lean(),
+      this.unknownQuestionModel.findOne().select('_id name').lean(),
+    ]);
+
+    if (!specializations.length)
+      throw new NotFoundException('specialization.NOT_FOUND');
+
+    const result = {
+      unknownQuestion: {
+        data: unknownQuestion
+          ? { _id: unknownQuestion._id, name: unknownQuestion.name }
+          : null,
+      },
+      specializations: {
+        data: specializations,
+      },
+    };
+
+    await this.cacheManager.set(cacheKey, result, 3600, 86400);
+
+    return result;
   }
 
   // ── NEW: paginated specializations ────────────────────────────────────────

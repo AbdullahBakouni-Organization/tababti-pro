@@ -4,6 +4,7 @@ import {
   InternalServerErrorException,
   BadRequestException,
   ForbiddenException,
+  Logger,
 } from '@nestjs/common';
 import { Types, Model } from 'mongoose';
 import { InjectModel } from '@nestjs/mongoose';
@@ -32,7 +33,8 @@ import {
   QuestionStats,
   SpecializationStat,
 } from '../interface/question.interfaces';
-import { UnknownQuestion } from '@app/common/database/schemas/unknown.schema';
+import { CacheService } from '@app/common/cache/cache.service';
+import { invalidateQuestionsCaches } from '@app/common/utils/cache-invalidation.util';
 
 interface AnswerQuestionParams {
   questionId: string;
@@ -67,6 +69,7 @@ function visibleMatch(extra: Record<string, any> = {}): Record<string, any> {
 
 @Injectable()
 export class QuestionsService {
+  private readonly logger = new Logger(QuestionsRepository.name);
   constructor(
     private readonly repo: QuestionsRepository,
     private readonly specializationsService: SpecializationsService,
@@ -76,6 +79,7 @@ export class QuestionsService {
     @InjectModel(Doctor.name) private readonly doctorModel: Model<Doctor>,
     @InjectModel(Hospital.name) private readonly hospitalModel: Model<Hospital>,
     @InjectModel(Center.name) private readonly centerModel: Model<Center>,
+    private readonly cacheManager: CacheService,
   ) {}
 
   // ══════════════════════════════════════════════════════════════
@@ -122,7 +126,7 @@ export class QuestionsService {
     if (specializationIds) {
       payload.specializationId = specializationIds;
     }
-
+    await invalidateQuestionsCaches(this.cacheManager);
     // 4. Create
     return this.repo.create(payload);
   }
@@ -230,58 +234,53 @@ export class QuestionsService {
   // Visibility gate: only APPROVED + ANSWERED questions.
   // ══════════════════════════════════════════════════════════════
   async getQuestions(
-    authAccountId: string,
-    filter: 'allQuestions' | 'answered' | 'pending' | 'public' = 'allQuestions',
-    publicSpecializationId?: string,
+    filter: 'allQuestions' | 'answered' | 'pending' | 'main',
     privateSpecializationIds?: string[],
     page = 1,
     limit = 10,
   ): Promise<QuestionPageResult> {
+    const cacheKey = `questions:${filter}:${privateSpecializationIds?.join(',')}:${page}:${limit}`;
+
+    const cached = await this.cacheManager.get<QuestionPageResult>(cacheKey);
+    if (cached) return cached;
+
     try {
-      const match: Record<string, any> = {
-        status: { $in: VISIBLE_STATUSES },
-      };
+      const match: Record<string, any> = {};
 
-      // Narrow by user filter
-      if (filter === 'answered') match.status = QuestionStatus.ANSWERED;
-      // 'pending' bypasses the visibility gate — restrict this to ADMIN role
-      // in the controller via @Roles(UserRole.ADMIN) if needed.
-      if (filter === 'pending') match.status = QuestionStatus.PENDING;
+      // STATUS FILTER
+      if (filter === 'answered') {
+        match.status = QuestionStatus.ANSWERED;
+      } else if (filter === 'pending') {
+        match.status = QuestionStatus.PENDING;
+      } else {
+        match.status = QuestionStatus.APPROVED;
+      }
 
+      // allQuestions → must have unknownId
+      if (filter === 'allQuestions') {
+        match.unknownId = { $exists: true, $ne: null };
+      }
+
+      // private specializations
       if (privateSpecializationIds?.length) {
+        const specializationObjectIds = privateSpecializationIds.map((id) => {
+          if (!Types.ObjectId.isValid(id))
+            throw new BadRequestException('specialization.INVALID_ID');
+
+          return new Types.ObjectId(id);
+        });
+
         match.specializationId = {
-          $in: privateSpecializationIds.map((id) => {
-            if (!Types.ObjectId.isValid(id))
-              throw new BadRequestException('specialization.INVALID_ID');
-            return new Types.ObjectId(id);
-          }),
+          $elemMatch: { $in: specializationObjectIds },
         };
       }
 
-      if (filter === 'public') {
-        const privateSpecs =
-          await this.specializationsService.getPrivateIdsByPublicName(
-            'طب_بشري',
-          );
-        match.specializationId = { $in: privateSpecs };
-      }
-
-      if (publicSpecializationId) {
-        if (!Types.ObjectId.isValid(publicSpecializationId))
-          throw new BadRequestException('specialization.INVALID_ID');
-        const privateSpecs =
-          await this.specializationsService.getPrivateIdsByPublic(
-            publicSpecializationId,
-          );
-        match.specializationId = { $in: privateSpecs };
-      }
-
       const skip = (page - 1) * limit;
+      this.logger.log(`MATCH FILTER: ${JSON.stringify(match, null, 2)}`);
       const { questions, total, totalPages } =
         await this.repo.findQuestionsWithAnswers(match, skip, limit);
 
-      // return
-      return {
+      const result = {
         questions: {
           data: questions.map(this.mapQuestion.bind(this)),
           total,
@@ -295,12 +294,19 @@ export class QuestionsService {
           hasPreviousPage: page > 1,
         },
       };
+
+      // cache
+      await this.cacheManager.set(cacheKey, result, 120, 7200);
+
+      return result;
     } catch (error) {
       if (
         error instanceof NotFoundException ||
         error instanceof BadRequestException
-      )
+      ) {
         throw error;
+      }
+
       console.error('[QuestionsService.getQuestions]', error);
       throw new InternalServerErrorException('common.ERROR');
     }
@@ -464,7 +470,7 @@ export class QuestionsService {
         { $set: { status: QuestionStatus.ANSWERED } },
       );
     }
-
+    await invalidateQuestionsCaches(this.cacheManager);
     return answer;
   }
 

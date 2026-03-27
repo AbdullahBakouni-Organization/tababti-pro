@@ -10,9 +10,9 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 
 import { Booking } from '@app/common/database/schemas/booking.schema';
 import { Doctor } from '@app/common/database/schemas/doctor.schema';
-import { User } from '@app/common/database/schemas/user.schema';
 import {
   BookingStatus,
+  UserRole,
   WorkigEntity,
 } from '@app/common/database/schemas/common.enums';
 
@@ -33,6 +33,13 @@ import {
   LocationChartDataPointDto,
   RecentPatientsResponseDto,
 } from '../dto/dashboard-query.dto';
+import { Question } from '@app/common/database/schemas/question.schema';
+import { Answer } from '@app/common/database/schemas/answer.schema';
+import { Post } from '@app/common/database/schemas/post.schema';
+import {
+  DoctorStatsResponseDto,
+  MonthlyStatDto,
+} from '../dto/doctor-community-stats.dto';
 
 // ─── Location type mapping ────────────────────────────────────────────────────
 const LOCATION_BUCKETS: Record<string, 'clinic' | 'hospital' | 'center'> = {
@@ -79,8 +86,9 @@ export class DashboardService {
     private readonly bookingModel: Model<Booking>,
     @InjectModel(Doctor.name)
     private readonly doctorModel: Model<Doctor>,
-    @InjectModel(User.name)
-    private readonly userModel: Model<User>,
+    @InjectModel(Question.name) private readonly questionModel: Model<Question>,
+    @InjectModel(Answer.name) private readonly answerModel: Model<Answer>,
+    @InjectModel(Post.name) private readonly postModel: Model<Post>,
   ) {}
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -453,55 +461,6 @@ export class DashboardService {
     const doctorId = doctor._id;
     return this._getRecentPatientsCached(doctorId); // ← was _getRecentPatientsRaw
   }
-
-  // private async _getRecentPatientsRaw(
-  //   doctorId: Types.ObjectId,
-  // ): Promise<RecentPatientDto[]> {
-  //   const bookings = await this.bookingModel.aggregate([
-  //     {
-  //       $match: {
-  //         doctorId,
-  //         status: { $in: [BookingStatus.PENDING] },
-  //       },
-  //     },
-  //     { $sort: { bookingDate: -1, bookingTime: 1 } },
-  //     { $limit: 10 },
-  //     {
-  //       $lookup: {
-  //         from: 'users',
-  //         localField: 'patientId',
-  //         foreignField: '_id',
-  //         as: 'patient',
-  //       },
-  //     },
-  //     { $unwind: { path: '$patient', preserveNullAndEmptyArrays: true } },
-  //     {
-  //       $project: {
-  //         patientId: 1,
-  //         status: 1,
-  //         bookingDate: 1,
-  //         bookingTime: 1,
-  //         locationName: '$location.entity_name',
-  //         patientName: '$patient.username',
-  //         patientImage: '$patient.profileImage',
-  //         PatientGender: '$patient.gender',
-  //       },
-  //     },
-  //   ]);
-
-  //   return bookings.map((b) => ({
-  //     patientId: b.patientId?.toString() ?? '',
-  //     bookingId: b._id?.toString() ?? '',
-  //     name: b.patientName ?? 'Unknown',
-  //     image: b.patientImage ?? undefined,
-  //     locationName: b.locationName ?? '',
-  //     status: b.status,
-  //     bookingDate: b.bookingDate,
-  //     bookingTime: b.bookingTime,
-  //     gender: b.PatientGender,
-  //   }));
-  // }
-  //
 
   private async _getRecentPatientsRaw(
     doctorId: Types.ObjectId,
@@ -947,8 +906,8 @@ export class DashboardService {
   // ═══════════════════════════════════════════════════════════════════════════
 
   async resolveDoctor(authAccountId: string) {
-    if (!Types.ObjectId.isValid(authAccountId))
-      throw new BadRequestException('doctor.INVALID_ID');
+    // if (!Types.ObjectId.isValid(authAccountId))
+    //   throw new BadRequestException('doctor.INVALID_ID');
 
     const doctor = await this.doctorModel
       .findOne({ authAccountId: new Types.ObjectId(authAccountId) })
@@ -985,5 +944,217 @@ export class DashboardService {
       String(i + 1),
     );
     return { start, end, labels };
+  }
+
+  private getMonthRange(offset: 0 | -1): [Date, Date] {
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+    const end = new Date(
+      now.getFullYear(),
+      now.getMonth() + offset + 1,
+      0,
+      23,
+      59,
+      59,
+      999,
+    );
+    return [start, end];
+  }
+
+  private buildStat(current: number, previous: number): MonthlyStatDto {
+    const changePercent =
+      previous === 0
+        ? current > 0
+          ? 100
+          : 0 // avoid division by zero
+        : parseFloat((((current - previous) / previous) * 100).toFixed(2));
+
+    return {
+      percentage: parseFloat(current.toFixed(2)),
+      changePercent: Math.abs(changePercent),
+      isIncrease: changePercent >= 0,
+    };
+  }
+
+  // ─── Main ───────────────────────────────────────────────────────────────────
+
+  async getDoctorStats(doctorId: string): Promise<DoctorStatsResponseDto> {
+    const doctorObjectId = new Types.ObjectId(doctorId);
+    const doctor = await this.doctorModel.findOne(doctorObjectId);
+    if (!doctor) {
+      throw new NotFoundException(`Doctor not found`);
+    }
+    const [curStart, curEnd] = this.getMonthRange(0);
+    const [prevStart, prevEnd] = this.getMonthRange(-1);
+    const [answeredRate, rejectedPostsRate, approvedPostsRate] =
+      await Promise.all([
+        this.calcAnsweredQuestionsRate(
+          doctor.authAccountId,
+          curStart,
+          curEnd,
+          prevStart,
+          prevEnd,
+        ),
+        this.calcPostStatusRate(
+          doctor.authAccountId,
+          'rejected',
+          curStart,
+          curEnd,
+          prevStart,
+          prevEnd,
+        ),
+        this.calcPostStatusRate(
+          doctor.authAccountId,
+          'approved',
+          curStart,
+          curEnd,
+          prevStart,
+          prevEnd,
+        ),
+      ]);
+
+    return {
+      data: {
+        stats: {
+          answeredQuestionsRate: answeredRate,
+          rejectedPostsRate,
+          approvedPostsRate,
+        },
+      },
+    };
+  }
+
+  // ─── Answered Questions Rate ────────────────────────────────────────────────
+
+  /**
+   * % = (questions where doctor gave ≥1 answer) / (total questions in period) * 100
+   * We join questions with answers by the doctor to count doctor-answered ones.
+   */
+  private async calcAnsweredQuestionsRate(
+    doctorId: Types.ObjectId,
+    curStart: Date,
+    curEnd: Date,
+    prevStart: Date,
+    prevEnd: Date,
+  ): Promise<MonthlyStatDto> {
+    const calcForPeriod = async (start: Date, end: Date): Promise<number> => {
+      const [result] = await this.questionModel.aggregate([
+        // All questions in the period (not deleted)
+        {
+          $match: {
+            createdAt: { $gte: start, $lte: end },
+            status: { $ne: 'deleted' },
+          },
+        },
+        {
+          $lookup: {
+            from: 'answers',
+            let: { qId: '$_id' },
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $and: [
+                      { $eq: ['$questionId', '$$qId'] },
+                      { $eq: ['$responderId', doctorId] },
+                      { $ne: ['$status', 'deleted'] },
+                    ],
+                  },
+                },
+              },
+              { $limit: 1 },
+            ],
+            as: 'doctorAnswers',
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: 1 },
+            answered: {
+              $sum: {
+                $cond: [{ $gt: [{ $size: '$doctorAnswers' }, 0] }, 1, 0],
+              },
+            },
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            rate: {
+              $cond: [
+                { $eq: ['$total', 0] },
+                0,
+                { $multiply: [{ $divide: ['$answered', '$total'] }, 100] },
+              ],
+            },
+          },
+        },
+      ]);
+
+      return result?.rate ?? 0;
+    };
+
+    const [current, previous] = await Promise.all([
+      calcForPeriod(curStart, curEnd),
+      calcForPeriod(prevStart, prevEnd),
+    ]);
+
+    return this.buildStat(current, previous);
+  }
+
+  // ─── Post Status Rate ───────────────────────────────────────────────────────
+
+  /**
+   * % = (doctor posts with given status) / (all doctor posts in period) * 100
+   */
+  private async calcPostStatusRate(
+    doctorId: Types.ObjectId,
+    status: 'approved' | 'rejected',
+    curStart: Date,
+    curEnd: Date,
+    prevStart: Date,
+    prevEnd: Date,
+  ): Promise<MonthlyStatDto> {
+    const calcForPeriod = async (start: Date, end: Date): Promise<number> => {
+      const [result] = await this.postModel.aggregate([
+        {
+          $match: {
+            authorId: doctorId,
+            authorType: UserRole.DOCTOR,
+            createdAt: { $gte: start, $lte: end },
+            status: { $ne: 'deleted' },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: 1 },
+            matched: { $sum: { $cond: [{ $eq: ['$status', status] }, 1, 0] } },
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            rate: {
+              $cond: [
+                { $eq: ['$total', 0] },
+                0,
+                { $multiply: [{ $divide: ['$matched', '$total'] }, 100] },
+              ],
+            },
+          },
+        },
+      ]);
+
+      return result?.rate ?? 0;
+    };
+
+    const [current, previous] = await Promise.all([
+      calcForPeriod(curStart, curEnd),
+      calcForPeriod(prevStart, prevEnd),
+    ]);
+
+    return this.buildStat(current, previous);
   }
 }

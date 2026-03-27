@@ -21,9 +21,7 @@ import { Roles } from '@app/common/decorator/role.decorator';
 import { DashboardService } from '../service/dashboard.service.rest';
 import { CurrentUser } from '@app/common/decorator/current-user.decorator';
 import { UserRole } from '@app/common/database/schemas/common.enums';
-import { Types } from 'mongoose';
 import { ApiResponse } from '../../common/response/api-response'; // ✅ same import as questions
-
 import {
   DashboardQueryDto,
   CalendarQueryDto,
@@ -32,6 +30,7 @@ import {
   StatsQueryDto,
   GenderStatsQueryDto,
 } from '../dto/dashboard-query.dto';
+import { DoctorStatsResponseDto } from '../dto/doctor-community-stats.dto';
 
 @ApiTags('Dashboard')
 @Controller('dashboard')
@@ -183,7 +182,7 @@ export class DashboardController {
     @Headers('accept-language') lang: 'en' | 'ar' = 'en',
   ) {
     const doctor = await this.dashboardService.resolveDoctor(accountId);
-    const doctorId = (doctor._id as Types.ObjectId).toString();
+    const doctorId = doctor._id.toString();
     const data = this.dashboardService.getCacheInfo(doctorId);
     return ApiResponse.success({ lang, messageKey: 'dashboard.FULL', data });
   }
@@ -204,6 +203,8 @@ export class DashboardController {
     return ApiResponse.success({ lang, messageKey: 'dashboard.FULL', data });
   }
   // ── Force cron refresh (dev/debug only) ──────────────────────────────────────
+  //
+  @Roles(UserRole.ADMIN)
   @Get('cache/refresh')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Manually trigger cron cache refresh (dev only)' })
@@ -220,5 +221,12 @@ export class DashboardController {
       messageKey: 'dashboard.FULL',
       data: { message: 'Cache refreshed manually' },
     });
+  }
+
+  @Get('community-stats/:doctorId')
+  async getDoctorStats(
+    @Param('doctorId') doctorId: string,
+  ): Promise<DoctorStatsResponseDto> {
+    return this.dashboardService.getDoctorStats(doctorId);
   }
 }

@@ -351,8 +351,8 @@ export class NotificationService {
   async getUnreadNotifications(
     recipientId: string,
     recipientType: UserRole,
-  ): Promise<NotificationDocument[]> {
-    return this.notificationModel
+  ): Promise<{ notifications: { data: NotificationDocument[] } }> {
+    const notifications = await this.notificationModel
       .find({
         recipientId: new Types.ObjectId(recipientId),
         recipientType,
@@ -361,6 +361,12 @@ export class NotificationService {
       .sort({ createdAt: -1 })
       .limit(50)
       .exec();
+
+    return {
+      notifications: {
+        data: notifications,
+      },
+    };
   }
 
   /**

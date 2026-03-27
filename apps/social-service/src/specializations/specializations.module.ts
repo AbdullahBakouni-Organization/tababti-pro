@@ -6,6 +6,7 @@ import {
 } from '@app/common/database/schemas/privatespecializations.schema';
 import { SpecializationsService } from './specializations.service';
 import { SpecializationsController } from './specializations.controller';
+import { CacheModule } from '@app/common/cache/cache.module';
 
 @Module({
   imports: [
@@ -15,9 +16,10 @@ import { SpecializationsController } from './specializations.controller';
         schema: PrivateSpecializationSchema,
       },
     ]),
+    CacheModule,
   ],
   providers: [SpecializationsService],
   controllers: [SpecializationsController],
-  exports: [SpecializationsService], 
+  exports: [SpecializationsService],
 })
 export class SpecializationsModule {}
