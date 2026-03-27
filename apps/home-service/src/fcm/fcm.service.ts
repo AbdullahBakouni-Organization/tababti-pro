@@ -335,6 +335,7 @@ export class FcmService {
       return false;
     }
   }
+
   /**
    * Send notification to multiple users
    */
@@ -570,6 +571,166 @@ export class FcmService {
     }
   }
 
+  async sendAdminApprovedGalleryImagesNotification(
+    fcmToken: string,
+    data: {
+      doctorId: string;
+      doctorName: string;
+      galleryIds: string[];
+    },
+  ): Promise<boolean> {
+    try {
+      const imagesCount = data.galleryIds.length;
+      const title = 'Gallery Images Approved';
+      const body =
+        imagesCount === 1
+          ? `Your gallery image has been approved by the admin.`
+          : `${imagesCount} gallery images have been approved by the admin.`;
+
+      const message: admin.messaging.Message = {
+        token: fcmToken,
+        notification: {
+          title,
+          body,
+        },
+        data: {
+          doctorId: data.doctorId,
+          doctorName: data.doctorName,
+          galleryIds: JSON.stringify(data.galleryIds),
+          imagesCount: String(imagesCount),
+          action: 'Show Gallery',
+          timestamp: new Date().toISOString(),
+        },
+        android: {
+          priority: 'high',
+          notification: {
+            channelId: 'gallery_approved',
+            priority: 'high',
+            defaultSound: true,
+            defaultVibrateTimings: true,
+            icon: 'ic_notification',
+            color: '#FF0000',
+          },
+        },
+        apns: {
+          headers: {
+            'apns-priority': '10',
+          },
+          payload: {
+            aps: {
+              alert: {
+                title,
+                body,
+              },
+              sound: 'default',
+              badge: 1,
+            },
+          },
+        },
+      };
+
+      await admin.messaging().send(message);
+      this.logger.log(
+        `FCM gallery approval notification sent successfully for doctor ${data.doctorId} — ${imagesCount} image(s)`,
+      );
+      return true;
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `Failed to send FCM gallery approval notification: ${err.message}`,
+        err.stack,
+      );
+
+      if (error.code === 'messaging/invalid-registration-token') {
+        this.logger.warn(`Invalid FCM token: ${fcmToken}`);
+      } else if (error.code === 'messaging/registration-token-not-registered') {
+        this.logger.warn(`FCM token not registered: ${fcmToken}`);
+      }
+
+      return false;
+    }
+  }
+  async sendAdminRejectedGalleryImagesNotification(
+    fcmToken: string,
+    data: {
+      doctorId: string;
+      doctorName: string;
+      rejectionReason: string;
+      galleryIds: string[];
+    },
+  ): Promise<boolean> {
+    try {
+      const imagesCount = data.galleryIds.length;
+      const title = 'Gallery Images Rejected';
+      const body =
+        imagesCount === 1
+          ? `Your gallery image has been rejected. Reason: ${data.rejectionReason}`
+          : `${imagesCount} gallery images have been rejected. Reason: ${data.rejectionReason}`;
+
+      const message: admin.messaging.Message = {
+        token: fcmToken,
+        notification: {
+          title,
+          body,
+        },
+        data: {
+          doctorId: data.doctorId,
+          doctorName: data.doctorName,
+          galleryIds: JSON.stringify(data.galleryIds),
+          imagesCount: String(imagesCount),
+          rejectionReason: data.rejectionReason,
+          action: 'Show Gallery',
+          timestamp: new Date().toISOString(),
+        },
+        android: {
+          priority: 'high',
+          notification: {
+            channelId: 'gallery_rejected',
+            priority: 'high',
+            defaultSound: true,
+            defaultVibrateTimings: true,
+            icon: 'ic_notification',
+            color: '#FF0000',
+          },
+        },
+        apns: {
+          headers: {
+            'apns-priority': '10',
+          },
+          payload: {
+            aps: {
+              alert: {
+                title,
+                body,
+              },
+              sound: 'default',
+              badge: 1,
+            },
+          },
+        },
+      };
+
+      await admin.messaging().send(message);
+      this.logger.log(
+        `FCM gallery rejection notification sent successfully for doctor ${data.doctorId} — ${imagesCount} image(s)`,
+      );
+      return true;
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `Failed to send FCM gallery rejection notification: ${err.message}`,
+        err.stack,
+      );
+
+      if (error.code === 'messaging/invalid-registration-token') {
+        this.logger.warn(`Invalid FCM token: ${fcmToken}`);
+      } else if (error.code === 'messaging/registration-token-not-registered') {
+        this.logger.warn(`FCM token not registered: ${fcmToken}`);
+      }
+
+      return false;
+    }
+  }
   /**
    * Send slot availability update notification
    */

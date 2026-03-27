@@ -361,48 +361,13 @@ export class AdminService {
 
     try {
       // Use emit for fire-and-forget events
-      this.kafkaProducer.emit(KAFKA_TOPICS.DOCTOR_REJECTED, event);
+      await this.kafkaProducer.emit(KAFKA_TOPICS.DOCTOR_REJECTED, event);
     } catch (error) {
       const err = new Error(
         `Failed to publish Rejected event: ${error.message}`,
       );
       this.logger.error(err.message);
     }
-  }
-
-  async updatePostStatus(postId: string, status: PostStatus, adminId: string) {
-    if (!Types.ObjectId.isValid(postId)) {
-      throw new NotFoundException('post.INVALID_ID');
-    }
-
-    const validStatuses = [
-      PostStatus.PENDING,
-      PostStatus.APPROVED,
-      PostStatus.REJECTED,
-      PostStatus.PUBLISHED,
-      PostStatus.DELETED,
-    ];
-
-    if (!validStatuses.includes(status)) {
-      throw new BadRequestException('post.INVALID_STATUS');
-    }
-
-    const updated = await this.postModel.findByIdAndUpdate(
-      postId,
-      {
-        $set: {
-          status,
-          updatedAt: new Date(),
-        },
-      },
-      { new: true },
-    );
-
-    if (!updated) {
-      throw new NotFoundException('post.NOT_FOUND');
-    }
-
-    return updated;
   }
 
   async approveGalleryImages(
@@ -416,6 +381,10 @@ export class AdminService {
 
     if (!Types.ObjectId.isValid(doctorId)) {
       throw new BadRequestException('Invalid doctor ID');
+    }
+    const doctor = await this.doctorModel.findById(doctorId);
+    if (!doctor) {
+      throw new NotFoundException('Doctor not found');
     }
 
     const result = await this.doctorModel.updateOne(
@@ -444,7 +413,7 @@ export class AdminService {
     if (result.modifiedCount === 0) {
       throw new BadRequestException('No images were approved');
     }
-
+    this.sendDoctorApprovedGallery(doctor, imageIds);
     this.logger.log(`${result.modifiedCount} images approved`);
   }
 
@@ -455,9 +424,10 @@ export class AdminService {
     doctorId: string,
     imageIds: string[],
     reason: string,
+    adminId: string,
   ): Promise<void> {
     this.logger.log(
-      `Rejecting ${imageIds.length} images for doctor ${doctorId}`,
+      `Rejecting ${imageIds.length} images for doctor ${doctorId} by admin ${adminId}`,
     );
 
     if (!Types.ObjectId.isValid(doctorId)) {
@@ -465,11 +435,11 @@ export class AdminService {
     }
 
     const doctor = await this.doctorModel
-      .findOne(
-        { _id: doctorId },
-        { gallery: { $elemMatch: { imageId: { $in: imageIds } } } },
-      )
+      .findOne({ _id: doctorId })
+      .select('gallery fcmToken name') // fetch full gallery, filter in JS
       .lean();
+
+    // then filter:
 
     if (!doctor) {
       throw new NotFoundException('Doctor not found');
@@ -503,7 +473,7 @@ export class AdminService {
         },
       },
     );
-
+    this.sendDoctorRejectedGallery(doctor, reason, imageIds);
     this.logger.log(`${imagesToDelete.length} images rejected and removed`);
   }
 
@@ -512,29 +482,77 @@ export class AdminService {
    */
   async getGalleryImages(
     doctorId: string,
+    page: number = 1,
+    limit: number = 20,
     status?: GalleryImageStatus,
-  ): Promise<GalleryImageWithStatus[]> {
+  ): Promise<{
+    gallery: { data: GalleryImageWithStatus[] };
+    meta: {
+      currentPage: number;
+      totalPages: number;
+      totalItems: number;
+      itemsPerPage: number;
+      hasNextPage: boolean;
+      hasPreviousPage: boolean;
+    };
+  }> {
     if (!Types.ObjectId.isValid(doctorId)) {
       throw new BadRequestException('Invalid doctor ID');
     }
 
-    const doctor = await this.doctorModel
-      .findById(doctorId)
-      .select('gallery')
-      .exec();
+    const skip = (page - 1) * limit;
 
-    if (!doctor) {
+    const pipeline: any[] = [
+      // Stage 1: match the specific doctor
+      { $match: { _id: new Types.ObjectId(doctorId) } },
+
+      // Stage 2: flatten gallery
+      { $unwind: { path: '$gallery', preserveNullAndEmptyArrays: false } },
+
+      // Stage 3: filter by status if provided
+      ...(status ? [{ $match: { 'gallery.status': status } }] : []),
+
+      // Stage 4: project only the image
+      { $project: { _id: 0, image: '$gallery' } },
+
+      // Stage 5: sort newest first
+      { $sort: { 'image.uploadedAt': -1 } },
+    ];
+
+    // Run count and data in parallel
+    const [countResult, data] = await Promise.all([
+      this.doctorModel.aggregate([...pipeline, { $count: 'total' }]),
+      this.doctorModel.aggregate([
+        ...pipeline,
+        { $skip: skip },
+        { $limit: limit },
+      ]),
+    ]);
+
+    // If doctor doesn't exist at all, catch it
+    const doctorExists = await this.doctorModel.exists({
+      _id: new Types.ObjectId(doctorId),
+    });
+    if (!doctorExists) {
       throw new NotFoundException('Doctor not found');
     }
 
-    let images = doctor.gallery || [];
+    const totalItems = countResult[0]?.total || 0;
+    const totalPages = Math.ceil(totalItems / limit);
 
-    // Filter by status if provided
-    if (status) {
-      images = images.filter((img) => img.status === status);
-    }
-
-    return images;
+    return {
+      gallery: {
+        data: data.map((d) => d.image),
+      },
+      meta: {
+        currentPage: page,
+        totalPages,
+        totalItems,
+        itemsPerPage: limit,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: page > 1,
+      },
+    };
   }
 
   async approvePost(
@@ -561,7 +579,9 @@ export class AdminService {
     }
 
     // Get doctor
-    const doctor = await this.doctorModel.findById(post.authorId).exec();
+    const doctor = await this.doctorModel
+      .findOne({ authAccountId: new Types.ObjectId(post.authorId) })
+      .exec();
     if (!doctor) {
       throw new NotFoundException('Doctor not found');
     }
@@ -620,7 +640,9 @@ export class AdminService {
     }
 
     // Get doctor
-    const doctor = await this.doctorModel.findById(post.authorId).exec();
+    const doctor = await this.doctorModel
+      .findOne({ authAccountId: new Types.ObjectId(post.authorId) })
+      .exec();
     if (!doctor) {
       throw new NotFoundException('Doctor not found');
     }
@@ -657,144 +679,159 @@ export class AdminService {
   /**
    * Get all pending gallery images (for admin review)
    */
-  async getAllPendingGalleryImages(): Promise<
-    Array<{
-      doctorId: string;
-      doctorName: string;
-      image: GalleryImageWithStatus;
-    }>
-  > {
-    this.logger.log('Fetching all pending gallery images');
+  async getAllPendingGalleryImages(
+    page: number = 1,
+    limit: number = 20,
+  ): Promise<{
+    gallery: {
+      data: Array<{
+        doctorId: string;
+        doctorName: string;
+        image: GalleryImageWithStatus;
+      }>;
+    };
+    meta: {
+      currentPage: number;
+      totalPages: number;
+      totalItems: number;
+      itemsPerPage: number;
+      hasNextPage: boolean;
+      hasPreviousPage: boolean;
+    };
+  }> {
+    this.logger.log(
+      `Fetching pending gallery images — page ${page}, limit ${limit}`,
+    );
 
-    const doctors = await this.doctorModel
-      .find({ 'gallery.status': GalleryImageStatus.PENDING })
-      .select('_id firstName lastName gallery')
-      .exec();
+    const skip = (page - 1) * limit;
 
-    const pendingImages: Array<{
-      doctorId: string;
-      doctorName: string;
-      image: GalleryImageWithStatus;
-    }> = [];
+    const pipeline: any[] = [
+      // Stage 1: only doctors that have at least one pending image
+      { $match: { 'gallery.status': GalleryImageStatus.PENDING } },
 
-    for (const doctor of doctors) {
-      const doctorName = `${doctor.firstName} ${doctor.lastName}`;
-      const pending = doctor.gallery?.filter(
-        (img) => img.status === GalleryImageStatus.PENDING,
-      );
+      // Stage 2: flatten gallery array — one doc per image
+      { $unwind: '$gallery' },
 
-      if (pending) {
-        for (const image of pending) {
-          pendingImages.push({
-            doctorId: doctor._id.toString(),
-            doctorName,
-            image,
-          });
-        }
-      }
-    }
+      // Stage 3: keep only pending images
+      { $match: { 'gallery.status': GalleryImageStatus.PENDING } },
 
-    return pendingImages;
+      // Stage 4: shape the output
+      {
+        $project: {
+          _id: 0,
+          doctorId: { $toString: '$_id' },
+          doctorName: {
+            $trim: {
+              input: { $concat: ['$firstName', ' ', '$lastName'] },
+            },
+          },
+          image: '$gallery',
+        },
+      },
+
+      // Stage 5: stable sort (newest uploaded first)
+      { $sort: { 'image.uploadedAt': -1 } },
+    ];
+
+    // Count total before pagination
+    const countResult = await this.doctorModel.aggregate([
+      ...pipeline,
+      { $count: 'total' },
+    ]);
+    const totalItems = countResult[0]?.total || 0;
+
+    // Apply pagination
+    pipeline.push({ $skip: skip });
+    pipeline.push({ $limit: limit });
+
+    const data = await this.doctorModel.aggregate(pipeline);
+
+    const totalPages = Math.ceil(totalItems / limit);
+
+    return {
+      gallery: {
+        data,
+      },
+      meta: {
+        currentPage: page,
+        totalPages,
+        totalItems,
+        itemsPerPage: limit,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: page > 1,
+      },
+    };
   }
 
   async getPosts(
     filters: GetPostsFilterDto,
   ): Promise<PaginatedPostsResponseDto> {
-    this.logger.log(`Fetching posts with filters: ${JSON.stringify(filters)}`);
-
     const page = filters.page || 1;
     const limit = filters.limit || 20;
     const skip = (page - 1) * limit;
 
-    // Build query
-    const query: any = {};
-
-    // Filter by status
-    if (filters.status) {
-      query.status = filters.status;
-    }
-
-    // Build aggregation pipeline for doctor name search
     const pipeline: any[] = [];
 
-    // Stage 1: Match posts by status
     if (filters.status) {
       pipeline.push({ $match: { status: filters.status } });
     }
 
-    // Stage 2: Lookup doctor information
-    pipeline.push({
-      $lookup: {
-        from: 'doctors',
-        localField: 'authorId',
-        foreignField: '_id',
-        as: 'doctorInfo',
-      },
-    });
-
-    pipeline.push({
-      $unwind: {
-        path: '$doctorInfo',
-        preserveNullAndEmptyArrays: true,
-      },
-    });
-
-    // Stage 3: Filter by doctor name (Arabic/English regex)
+    // Stage: Filter by doctor name requires fetching matching doctorIds first
     if (filters.doctorName) {
       const searchRegex = this.buildDoctorNameRegex(filters.doctorName);
+      const matchingDoctors = await this.doctorModel
+        .find({
+          $or: [{ firstName: searchRegex }, { lastName: searchRegex }],
+        })
+        .select('authAccountId')
+        .lean();
 
-      pipeline.push({
-        $match: {
-          $or: [
-            { 'doctorInfo.firstName': searchRegex },
-            { 'doctorInfo.lastName': searchRegex },
-            {
-              $expr: {
-                $regexMatch: {
-                  input: {
-                    $concat: [
-                      '$doctorInfo.firstName',
-                      ' ',
-                      '$doctorInfo.lastName',
-                    ],
-                  },
-                  regex: filters.doctorName,
-                  options: 'i',
-                },
-              },
-            },
-          ],
-        },
-      });
+      const matchingIds = matchingDoctors.map((d) => d.authAccountId);
+      pipeline.push({ $match: { authorId: { $in: matchingIds } } });
     }
 
-    // Stage 4: Sort by creation date (newest first)
     pipeline.push({ $sort: { createdAt: -1 } });
 
-    // Get total count before pagination
+    // Count before pagination
     const countPipeline = [...pipeline, { $count: 'total' }];
     const countResult = await this.postModel.aggregate(countPipeline);
     const totalItems = countResult[0]?.total || 0;
 
-    // Stage 5: Pagination
     pipeline.push({ $skip: skip });
     pipeline.push({ $limit: limit });
 
-    // Execute aggregation
     const posts = await this.postModel.aggregate(pipeline);
 
-    // Transform to DTOs
-    const postDtos = posts.map((post) => this.transformToPostDto(post));
+    // Collect unique authorIds from the page result
+    const authorIds = [
+      ...new Set(posts.map((p) => p.authorId?.toString()).filter(Boolean)),
+    ];
 
-    // Calculate pagination
+    // Fetch matching doctors in one query from their own DB/model
+    const doctors = await this.doctorModel
+      .find({
+        authAccountId: { $in: authorIds.map((id) => new Types.ObjectId(id)) },
+      })
+      .select('firstName lastName image authAccountId')
+      .lean();
+
+    // Build a lookup map for O(1) access
+    const doctorMap = new Map(
+      doctors.map((d) => [d.authAccountId.toString(), d]),
+    );
+
+    // Transform posts, injecting doctor info manually
+    const postDtos = posts.map((post) => {
+      const doctor = doctorMap.get(post.authorId?.toString());
+      return this.transformToPostDto({ ...post, doctorInfo: doctor ?? null });
+    });
+
     const totalPages = Math.ceil(totalItems / limit);
-
-    // Get summary statistics
     const summary = await this.getPostsSummary();
 
     return {
       posts: postDtos,
-      pagination: {
+      meta: {
         currentPage: page,
         totalPages,
         totalItems,
@@ -883,7 +920,10 @@ export class AdminService {
     }
   }
 
-  private sendDoctorApprovedGallery(doctor: Doctor, postId: string): void {
+  private sendDoctorApprovedGallery(
+    doctor: Doctor,
+    GalleryIds: string[],
+  ): void {
     if (!doctor.fcmToken) {
       this.logger.warn(
         `Doctor ${doctor._id.toString()} has no FCM token. Notification not sent.`,
@@ -900,7 +940,7 @@ export class AdminService {
         doctorId: doctor._id.toString(),
         doctorName,
         fcmToken: doctor.fcmToken,
-        postId,
+        GalleryIds,
       },
       metadata: {
         source: 'admin-service',
@@ -915,6 +955,50 @@ export class AdminService {
       );
       this.logger.log(
         `📱 Notification sent to doctor ${doctor._id.toString()} about approved post`,
+      );
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(`Failed to send doctor notification: ${err.message}`);
+    }
+  }
+
+  private sendDoctorRejectedGallery(
+    doctor: Doctor,
+    rejectionReason: string,
+    GalleryIds: string[],
+  ): void {
+    if (!doctor.fcmToken) {
+      this.logger.warn(
+        `Doctor ${doctor._id.toString()} has no FCM token. Notification not sent.`,
+      );
+      return;
+    }
+
+    const doctorName = `${doctor.firstName} ${doctor.lastName}`;
+
+    const event = {
+      eventType: 'ADMIN_REJECTED_GALLERY_IMAGES',
+      timestamp: new Date(),
+      data: {
+        doctorId: doctor._id.toString(),
+        doctorName,
+        fcmToken: doctor.fcmToken,
+        rejectionReason,
+        GalleryIds,
+      },
+      metadata: {
+        source: 'admin-service',
+        version: '1.0',
+      },
+    };
+
+    try {
+      this.kafkaProducer.emit(
+        KAFKA_TOPICS.ADMIN_REJECTED_GALLERY_IMAGES,
+        event,
+      );
+      this.logger.log(
+        `📱 Notification sent to doctor ${doctor._id.toString()} about rejected post`,
       );
     } catch (error) {
       const err = error as Error;

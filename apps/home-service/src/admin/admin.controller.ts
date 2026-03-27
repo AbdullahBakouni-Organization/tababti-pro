@@ -1,8 +1,6 @@
 import {
   Controller,
   Post,
-  Put,
-  Delete,
   Get,
   Body,
   Param,
@@ -13,7 +11,6 @@ import {
   Req,
   Patch,
   UnauthorizedException,
-  BadRequestException,
   Query,
 } from '@nestjs/common';
 import { AdminService } from './admin.service';
@@ -23,6 +20,7 @@ import { AdminSignInDto } from './dto/admin-signin.dto';
 import type { Response } from 'express';
 import {
   ApiBearerAuth,
+  ApiBody,
   ApiOperation,
   ApiParam,
   ApiQuery,
@@ -210,32 +208,6 @@ export class AdminController {
     };
   }
 
-  @Patch('posts/:postId/status')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Change status of a post (Admin)' })
-  @HttpCode(HttpStatus.OK)
-  async changePostStatus(
-    @Param('postId') postId: string,
-    @Body('status') status: PostStatus,
-    @Req() req: any,
-  ): Promise<{ success: boolean; message: string }> {
-    const adminId: string = req.user.accountId;
-
-    // Validate status
-    if (!Object.values(PostStatus).includes(status)) {
-      throw new BadRequestException('post.INVALID_STATUS');
-    }
-
-    await this.adminService.updatePostStatus(postId, status, adminId);
-
-    return {
-      success: true,
-      message: `Post status changed to ${status}`,
-    };
-  }
-
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
   @Get('gallery/pending')
@@ -274,8 +246,14 @@ export class AdminController {
       ],
     },
   })
-  async getAllPendingImages() {
-    return this.adminService.getAllPendingGalleryImages();
+  async getAllPendingImages(
+    @Query('page') page = 1,
+    @Query('limit') limit = 20,
+  ) {
+    return this.adminService.getAllPendingGalleryImages(
+      Number(page),
+      Number(limit),
+    );
   }
 
   /**
@@ -307,9 +285,16 @@ export class AdminController {
   })
   async getDoctorGallery(
     @Param('doctorId') doctorId: string,
+    @Query('page') page = 1,
+    @Query('limit') limit = 20,
     @Query('status') status?: GalleryImageStatus,
   ) {
-    return this.adminService.getGalleryImages(doctorId, status);
+    return this.adminService.getGalleryImages(
+      doctorId,
+      Number(page),
+      Number(limit),
+      status,
+    );
   }
 
   /**
@@ -318,7 +303,7 @@ export class AdminController {
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
-  @Post(':doctorId/gallery/:imageId/approve')
+  @Post(':doctorId/gallery/approve')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Approve gallery image',
@@ -349,19 +334,19 @@ export class AdminController {
   })
   async approveGalleryImage(
     @Param('doctorId') doctorId: string,
-    @Param('imageId') imageId: string[],
+    @Body('imageIds') imageIds: string[],
     @Req() req: any,
   ) {
     const adminId = new ParseMongoIdPipe().transform(
       req.user.entity._id.toString(),
     );
-    await this.adminService.approveGalleryImages(doctorId, imageId, adminId);
+    await this.adminService.approveGalleryImages(doctorId, imageIds, adminId);
 
     return {
       success: true,
-      message: 'Gallery image approved successfully',
+      message: 'Gallery images approved successfully',
       doctorId,
-      imageId,
+      imageIds,
       approvedBy: adminId,
       approvedAt: new Date(),
     };
@@ -372,7 +357,7 @@ export class AdminController {
    */
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
-  @Post(':doctorId/gallery/:imageId/reject')
+  @Post(':doctorId/gallery/reject')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Reject gallery image',
@@ -393,13 +378,24 @@ export class AdminController {
     name: 'imageId',
     description: 'Unique image ID from gallery',
   })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        reason: {
+          type: 'string',
+          example: 'Image did not meet quality standards',
+        },
+      },
+    },
+  })
   @ApiResponse({
     status: 200,
     description: 'Image rejected and deleted',
   })
   async rejectGalleryImage(
     @Param('doctorId') doctorId: string,
-    @Param('imageId') imageId: string[],
+    @Body('imageIds') imageIds: string[],
     @Body('reason') reason: string,
     @Req() req: any,
   ) {
@@ -410,13 +406,18 @@ export class AdminController {
       reason = 'Image did not meet quality standards';
     }
 
-    await this.adminService.rejectGalleryImages(doctorId, imageId, reason);
+    await this.adminService.rejectGalleryImages(
+      doctorId,
+      imageIds,
+      reason,
+      adminId,
+    );
 
     return {
       success: true,
-      message: 'Gallery image rejected and deleted',
+      message: 'Gallery images rejected and deleted',
       doctorId,
-      imageId,
+      imageIds,
       reason,
       rejectedBy: adminId,
       rejectedAt: new Date(),
@@ -428,7 +429,7 @@ export class AdminController {
    */
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
-  @Get('pending')
+  @Get('posts/pending')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Get all pending posts',
@@ -463,7 +464,7 @@ export class AdminController {
    */
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
-  @Get('approved-posts')
+  @Get('posts/approved-posts')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Get all approved posts',
@@ -487,7 +488,7 @@ export class AdminController {
    */
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
-  @Get('rejected-posts')
+  @Get('posts/rejected-posts')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Get all rejected posts',
@@ -511,7 +512,7 @@ export class AdminController {
    */
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
-  @Get('all-posts')
+  @Get('posts/all-posts')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Get all posts with filters',

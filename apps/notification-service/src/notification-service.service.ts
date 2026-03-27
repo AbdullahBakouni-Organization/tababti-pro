@@ -8,6 +8,10 @@ import {
   NotificationDocument,
 } from '@app/common/database/schemas/notification.schema';
 import {
+  AdminApprovedGalleryImagesEvent,
+  AdminApprovedPostEvent,
+  AdminRejectedGalleryImagesEvent,
+  AdminRejectedPostEvent,
   BookingCancelledNotificationEvent,
   BookingCancelledNotificationEventByUser,
   BookingCompletedNotificationEvent,
@@ -261,6 +265,265 @@ export class NotificationService {
           message: `your Appointement is RESCHEDULED from doctor ${event.data.doctorName} because of ${event.data.reason} `,
           status: NotificationStatus.FAILED,
           bookingId: event.data.bookingId,
+          doctorId: event.data.doctorId,
+        });
+      } catch (dbError) {
+        const err = dbError as Error;
+        this.logger.error(
+          `Failed to save notification to database: ${err.message}`,
+        );
+      }
+    }
+  }
+
+  async sendAdminApprovedPostNotification(
+    event: AdminApprovedPostEvent,
+  ): Promise<void> {
+    try {
+      // Send FCM notification
+      const sent = await this.fcmService.sendAdminApprovedPostNotification(
+        event.data.fcmToken,
+        event.data,
+      );
+
+      // Determine notification status
+      const notificationStatus = sent
+        ? NotificationStatus.SENT
+        : NotificationStatus.FAILED;
+
+      // Create notification in database
+      await this.createNotificationRecord({
+        recipientType: UserRole.DOCTOR, // Doctor is a DOCTOR
+        recipientId: new Types.ObjectId(event.data.doctorId),
+        notificationType: NotificationTypes.ADMIN_APPROVED_POST,
+        title: 'your post is approved',
+        message: `your post is approved by Admin`,
+        status: notificationStatus,
+        doctorId: event.data.doctorId,
+      });
+
+      if (sent) {
+        this.logger.log(
+          `✅ FCM completion notification sent to doctor ${event.data.doctorId}`,
+        );
+      } else {
+        this.logger.warn(
+          `⚠️ Failed to send FCM but notification saved doctor ${event.data.doctorId}`,
+        );
+      }
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `❌ Error sending FCM completion notification: ${err.message}`,
+        err.stack,
+      );
+
+      // Save as failed notification
+      try {
+        await this.createNotificationRecord({
+          recipientType: UserRole.DOCTOR, // Doctor is a DOCTOR
+          recipientId: new Types.ObjectId(event.data.doctorId),
+          notificationType: NotificationTypes.ADMIN_APPROVED_POST,
+          title: 'your post is approved',
+          message: `your post is approved by Admin`,
+          status: NotificationStatus.FAILED,
+          doctorId: event.data.doctorId,
+        });
+      } catch (dbError) {
+        const err = dbError as Error;
+        this.logger.error(
+          `Failed to save notification to database: ${err.message}`,
+        );
+      }
+    }
+  }
+
+  async sendAdminRejectedPostNotification(
+    event: AdminRejectedPostEvent,
+  ): Promise<void> {
+    try {
+      // Send FCM notification
+      const sent = await this.fcmService.sendAdminRejectedPostNotification(
+        event.data.fcmToken,
+        event.data,
+      );
+
+      // Determine notification status
+      const notificationStatus = sent
+        ? NotificationStatus.SENT
+        : NotificationStatus.FAILED;
+
+      // Create notification in database
+      await this.createNotificationRecord({
+        recipientType: UserRole.DOCTOR, // Doctor is a DOCTOR
+        recipientId: new Types.ObjectId(event.data.doctorId),
+        notificationType: NotificationTypes.ADMIN_REJECTED_POST,
+        title: 'your post is rejected',
+        message: `your post is rejected by Admin`,
+        status: notificationStatus,
+        doctorId: event.data.doctorId,
+      });
+
+      if (sent) {
+        this.logger.log(
+          `✅ FCM completion notification sent to doctor ${event.data.doctorId}`,
+        );
+      } else {
+        this.logger.warn(
+          `⚠️ Failed to send FCM but notification saved doctor ${event.data.doctorId}`,
+        );
+      }
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `❌ Error sending FCM completion notification: ${err.message}`,
+        err.stack,
+      );
+
+      // Save as failed notification
+      try {
+        await this.createNotificationRecord({
+          recipientType: UserRole.DOCTOR, // Doctor is a DOCTOR
+          recipientId: new Types.ObjectId(event.data.doctorId),
+          notificationType: NotificationTypes.ADMIN_REJECTED_POST,
+          title: 'your post is rejected',
+          message: `your post is rejected by Admin`,
+          status: NotificationStatus.FAILED,
+          doctorId: event.data.doctorId,
+        });
+      } catch (dbError) {
+        const err = dbError as Error;
+        this.logger.error(
+          `Failed to save notification to database: ${err.message}`,
+        );
+      }
+    }
+  }
+
+  async sendAdminApprovedGalleryNotification(
+    event: AdminApprovedGalleryImagesEvent,
+  ): Promise<void> {
+    try {
+      // Send FCM notification
+      const sent =
+        await this.fcmService.sendAdminApprovedGalleryImagesNotification(
+          event.data.fcmToken,
+          {
+            doctorId: event.data.doctorId,
+            doctorName: event.data.doctorName,
+            galleryIds: event.data.GalleryIds,
+          },
+        );
+
+      // Determine notification status
+      const notificationStatus = sent
+        ? NotificationStatus.SENT
+        : NotificationStatus.FAILED;
+
+      // Create notification in database
+      await this.createNotificationRecord({
+        recipientType: UserRole.DOCTOR, // Doctor is a DOCTOR
+        recipientId: new Types.ObjectId(event.data.doctorId),
+        notificationType: NotificationTypes.ADMIN_REJECTED_POST,
+        title: 'your gallery is approved',
+        message: `your gallery is approved by Admin`,
+        status: notificationStatus,
+        doctorId: event.data.doctorId,
+      });
+
+      if (sent) {
+        this.logger.log(
+          `✅ FCM completion notification sent to doctor ${event.data.doctorId}`,
+        );
+      } else {
+        this.logger.warn(
+          `⚠️ Failed to send FCM but notification saved doctor ${event.data.doctorId}`,
+        );
+      }
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `❌ Error sending FCM completion notification: ${err.message}`,
+        err.stack,
+      );
+
+      // Save as failed notification
+      try {
+        await this.createNotificationRecord({
+          recipientType: UserRole.DOCTOR, // Doctor is a DOCTOR
+          recipientId: new Types.ObjectId(event.data.doctorId),
+          notificationType: NotificationTypes.ADMIN_APPROVED_GALLERY_IMAGES,
+          title: 'your gallery is approved',
+          message: `your gallery is approved by Admin`,
+          status: NotificationStatus.FAILED,
+          doctorId: event.data.doctorId,
+        });
+      } catch (dbError) {
+        const err = dbError as Error;
+        this.logger.error(
+          `Failed to save notification to database: ${err.message}`,
+        );
+      }
+    }
+  }
+
+  async sendAdminRejectedGalleryNotification(
+    event: AdminRejectedGalleryImagesEvent,
+  ): Promise<void> {
+    try {
+      // Send FCM notification
+      const sent =
+        await this.fcmService.sendAdminRejectedGalleryImagesNotification(
+          event.data.fcmToken,
+          {
+            doctorId: event.data.doctorId,
+            doctorName: event.data.doctorName,
+            rejectionReason: event.data.rejectionReason,
+            galleryIds: event.data.GalleryIds,
+          },
+        );
+
+      // Determine notification status
+      const notificationStatus = sent
+        ? NotificationStatus.SENT
+        : NotificationStatus.FAILED;
+
+      // Create notification in database
+      await this.createNotificationRecord({
+        recipientType: UserRole.DOCTOR, // Doctor is a DOCTOR
+        recipientId: new Types.ObjectId(event.data.doctorId),
+        notificationType: NotificationTypes.ADMIN_REJECTED_GALLERY_IMAGES,
+        title: 'your gallery is rejected',
+        message: `your gallery is rejected by Admin`,
+        status: notificationStatus,
+        doctorId: event.data.doctorId,
+      });
+
+      if (sent) {
+        this.logger.log(
+          `✅ FCM completion notification sent to doctor ${event.data.doctorId}`,
+        );
+      } else {
+        this.logger.warn(
+          `⚠️ Failed to send FCM but notification saved doctor ${event.data.doctorId}`,
+        );
+      }
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `❌ Error sending FCM completion notification: ${err.message}`,
+        err.stack,
+      );
+
+      // Save as failed notification
+      try {
+        await this.createNotificationRecord({
+          recipientType: UserRole.DOCTOR, // Doctor is a DOCTOR
+          recipientId: new Types.ObjectId(event.data.doctorId),
+          notificationType: NotificationTypes.ADMIN_REJECTED_GALLERY_IMAGES,
+          title: 'your gallery is rejected',
+          message: `your gallery is rejected by Admin`,
+          status: NotificationStatus.FAILED,
           doctorId: event.data.doctorId,
         });
       } catch (dbError) {

@@ -417,6 +417,8 @@ export enum NotificationTypes {
 
   ADMIN_APPROVED_POST = 'admin_approved_post',
   ADMIN_REJECTED_POST = 'admin_rejected_post',
+  ADMIN_APPROVED_GALLERY_IMAGES = 'admin_approved_gallery_images',
+  ADMIN_REJECTED_GALLERY_IMAGES = 'admin_rejected_gallery_images',
 }
 export enum ApprovalStatus {
   PENDING = 'pending',

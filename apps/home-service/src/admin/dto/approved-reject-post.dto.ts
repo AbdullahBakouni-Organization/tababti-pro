@@ -171,7 +171,7 @@ export class PaginatedPostsResponseDto {
       hasPreviousPage: false,
     },
   })
-  pagination: {
+  meta: {
     currentPage: number;
     totalPages: number;
     totalItems: number;

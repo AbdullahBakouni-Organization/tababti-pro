@@ -1,5 +1,8 @@
 import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
 import type {
+  AdminApprovedGalleryImagesEvent,
+  AdminApprovedPostEvent,
+  AdminRejectedPostEvent,
   BookingCancelledNotificationEvent,
   BookingCancelledNotificationEventByUser,
   BookingCompletedNotificationEvent,
@@ -116,6 +119,73 @@ export class NotificationServiceController {
     }
   }
 
+  @EventPattern(KAFKA_TOPICS.ADMIN_APPROVED_POST)
+  async handleAdminApprovedPost(
+    @Payload() event: AdminApprovedPostEvent,
+  ): Promise<void> {
+    this.logger.log(
+      `🎯 Received ADMIN_APPROVED_POST event for post ${event.data.postId}`,
+    );
+
+    try {
+      await this.notificationService.sendAdminApprovedPostNotification(event);
+      this.logger.log(
+        `✅ Successfully sent ADMIN_APPROVED_POST notification to doctor ${event.data.doctorName}`,
+      );
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `❌ Failed to process ADMIN_APPROVED_POST notification: ${err.message}`,
+        err.stack,
+      );
+    }
+  }
+
+  @EventPattern(KAFKA_TOPICS.ADMIN_REJECTED_POST)
+  async handleAdminRejectedPost(
+    @Payload() event: AdminRejectedPostEvent,
+  ): Promise<void> {
+    this.logger.log(
+      `🎯 Received ADMIN_REJECTED_POST event for post ${event.data.postId}`,
+    );
+
+    try {
+      await this.notificationService.sendAdminRejectedPostNotification(event);
+      this.logger.log(
+        `✅ Successfully sent ADMIN_REJECTED_POST notification to doctor ${event.data.doctorName}`,
+      );
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `❌ Failed to process ADMIN_REJECTED_POST notification: ${err.message}`,
+        err.stack,
+      );
+    }
+  }
+
+  @EventPattern(KAFKA_TOPICS.ADMIN_APPROVED_GALLERY_IMAGES)
+  async handleAdminApprovedGallery(
+    @Payload() event: AdminApprovedGalleryImagesEvent,
+  ): Promise<void> {
+    this.logger.log(
+      `🎯 Received ADMIN_APPROVED_GALLERY_IMAGES event for doctor ${event.data.doctorName}`,
+    );
+
+    try {
+      await this.notificationService.sendAdminApprovedGalleryNotification(
+        event,
+      );
+      this.logger.log(
+        `✅ Successfully sent ADMIN_APPROVED_GALLERY notification to doctor ${event.data.doctorName}`,
+      );
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `❌ Failed to process ADMIN_APPROVED_GALLERY notification: ${err.message}`,
+        err.stack,
+      );
+    }
+  }
   /**
    * Get unread notifications for a user
    */
