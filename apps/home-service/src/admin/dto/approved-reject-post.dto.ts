@@ -157,8 +157,16 @@ export class PostWithDoctorDto {
  * Paginated posts response
  */
 export class PaginatedPostsResponseDto {
-  @ApiProperty({ type: [PostWithDoctorDto] })
-  posts: PostWithDoctorDto[];
+  @ApiProperty({
+    type: 'object',
+    properties: {
+      data: {
+        type: 'array',
+        items: { type: 'object' },
+      },
+    },
+  })
+  posts: { data: PostWithDoctorDto[] };
 
   @ApiProperty({
     description: 'Pagination metadata',
@@ -180,17 +188,17 @@ export class PaginatedPostsResponseDto {
     hasPreviousPage: boolean;
   };
 
-  @ApiProperty({
-    description: 'Summary statistics',
-    example: {
-      totalPending: 45,
-      totalApproved: 120,
-      totalRejected: 15,
-    },
-  })
-  summary: {
-    totalPending: number;
-    totalApproved: number;
-    totalRejected: number;
-  };
+  // @ApiProperty({
+  //   description: 'Summary statistics',
+  //   example: {
+  //     totalPending: 45,
+  //     totalApproved: 120,
+  //     totalRejected: 15,
+  //   },
+  // })
+  // summary: {
+  //   totalPending: number;
+  //   totalApproved: number;
+  //   totalRejected: number;
+  // };
 }

@@ -49,4 +49,7 @@ export const KAFKA_TOPICS = {
 
   ADMIN_APPROVED_GALLERY_IMAGES: 'admin.approved.gallery.images',
   ADMIN_REJECTED_GALLERY_IMAGES: 'admin.rejected.gallery.images',
+
+  ADMIN_APPROVED_USER_QUESTIONS: 'admin.approved.user.questions',
+  ADMIN_REJECTED_USER_QUESTIONS: 'admin.rejected.user.questions',
 };

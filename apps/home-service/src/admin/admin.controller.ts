@@ -45,6 +45,10 @@ import {
   RejectPostDto,
 } from './dto/approved-reject-post.dto';
 import { ParseMongoIdPipe } from '@app/common/pipes/parse-mongo-id.pipe';
+import { PaginatedQuestionsResponseDto } from './dto/question-response.dto';
+import { GetQuestionsFilterDto } from './dto/get-questions.filter.dto';
+import { ApproveQuestionsDto } from './dto/approve-questions.dto';
+import { RejectQuestionsDto } from './dto/reject-questions.dto';
 
 @Controller('admin')
 export class AdminController {
@@ -676,5 +680,81 @@ export class AdminController {
       req.user.entity._id.toString(),
     );
     return this.adminService.rejectPost(postId, dto, adminId);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Get('all-questions')
+  @ApiOperation({ summary: 'Get all questions with optional status filter' })
+  @ApiResponse({ status: 200, type: PaginatedQuestionsResponseDto })
+  async getQuestions(@Query() filters: GetQuestionsFilterDto) {
+    return this.adminService.getQuestions(filters);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Post('approve-questions')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Approve questions',
+    description: `
+        Approve one or more user questions.
+        **Effect:**
+        - approvalStatus: draft → approved
+        - Question becomes visible to doctors
+        - User receives FCM notification
+      `,
+  })
+  @ApiBody({ type: ApproveQuestionsDto })
+  @ApiResponse({ status: 200, description: 'Questions approved successfully' })
+  @ApiResponse({ status: 404, description: 'No matching questions found' })
+  async approveQuestions(@Body() dto: ApproveQuestionsDto, @Req() req: any) {
+    const adminId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
+    await this.adminService.approveQuestions(dto.questionIds, adminId);
+    return {
+      success: true,
+      message: `${dto.questionIds.length} question(s) approved successfully`,
+      questionIds: dto.questionIds,
+      approvedBy: adminId,
+      approvedAt: new Date(),
+    };
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Post('reject-questions')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Reject questions',
+    description: `
+        Reject one or more user questions with a reason.
+        **Effect:**
+        - approvalStatus: draft → rejected
+        - Rejection reason is stored
+        - User receives FCM notification with reason
+      `,
+  })
+  @ApiBody({ type: RejectQuestionsDto })
+  @ApiResponse({ status: 200, description: 'Questions rejected successfully' })
+  @ApiResponse({ status: 404, description: 'No matching questions found' })
+  async rejectQuestions(@Body() dto: RejectQuestionsDto, @Req() req: any) {
+    const adminId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
+    await this.adminService.rejectQuestions(
+      dto.questionIds,
+      dto.reason,
+      adminId,
+    );
+    return {
+      success: true,
+      message: `${dto.questionIds.length} question(s) rejected successfully`,
+      questionIds: dto.questionIds,
+      reason: dto.reason,
+      rejectedBy: adminId,
+      rejectedAt: new Date(),
+    };
   }
 }

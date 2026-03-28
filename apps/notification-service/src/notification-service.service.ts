@@ -10,8 +10,10 @@ import {
 import {
   AdminApprovedGalleryImagesEvent,
   AdminApprovedPostEvent,
+  AdminApprovedUserQuestionsEvent,
   AdminRejectedGalleryImagesEvent,
   AdminRejectedPostEvent,
+  AdminRejectedUserQuestionsEvent,
   BookingCancelledNotificationEvent,
   BookingCancelledNotificationEventByUser,
   BookingCompletedNotificationEvent,
@@ -525,6 +527,141 @@ export class NotificationService {
           message: `your gallery is rejected by Admin`,
           status: NotificationStatus.FAILED,
           doctorId: event.data.doctorId,
+        });
+      } catch (dbError) {
+        const err = dbError as Error;
+        this.logger.error(
+          `Failed to save notification to database: ${err.message}`,
+        );
+      }
+    }
+  }
+
+  async sendAdminApprovedUserQuestionsNotification(
+    event: AdminApprovedUserQuestionsEvent,
+  ): Promise<void> {
+    try {
+      // Send FCM notification
+      const sent =
+        await this.fcmService.sendAdminApprovedUserQuestionsNotification(
+          event.data.fcmToken,
+          {
+            userId: event.data.userId,
+            userName: event.data.userName,
+            questionIds: event.data.questionIds,
+          },
+        );
+
+      // Determine notification status
+      const notificationStatus = sent
+        ? NotificationStatus.SENT
+        : NotificationStatus.FAILED;
+
+      // Create notification in database
+      await this.createNotificationRecord({
+        recipientType: UserRole.USER, // User is a USER
+        recipientId: new Types.ObjectId(event.data.userId),
+        notificationType: NotificationTypes.ADMIN_APPROVED_USER_QUESTIONS,
+        title: 'your questions are approved',
+        message: `your questions are approved by Admin`,
+        status: notificationStatus,
+        patientId: event.data.userId,
+      });
+
+      if (sent) {
+        this.logger.log(
+          `✅ FCM completion notification sent to patient ${event.data.userId}`,
+        );
+      } else {
+        this.logger.warn(
+          `⚠️ Failed to send FCM but notification saved for patient ${event.data.userId}`,
+        );
+      }
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `❌ Error sending FCM completion notification: ${err.message}`,
+        err.stack,
+      );
+
+      // Save as failed notification
+      try {
+        await this.createNotificationRecord({
+          recipientType: UserRole.USER, // User is a USER
+          recipientId: new Types.ObjectId(event.data.userId),
+          notificationType: NotificationTypes.ADMIN_APPROVED_USER_QUESTIONS,
+          title: 'your questions are approved',
+          message: `your questions are approved by Admin`,
+          status: NotificationStatus.FAILED,
+          patientId: event.data.userId,
+        });
+      } catch (dbError) {
+        const err = dbError as Error;
+        this.logger.error(
+          `Failed to save notification to database: ${err.message}`,
+        );
+      }
+    }
+  }
+
+  async sendAdminRejectedUserQuestionsNotification(
+    event: AdminRejectedUserQuestionsEvent,
+  ): Promise<void> {
+    try {
+      // Send FCM notification
+      const sent =
+        await this.fcmService.sendAdminRejectedUserQuestionsNotification(
+          event.data.fcmToken,
+          {
+            userId: event.data.userId,
+            userName: event.data.userName,
+            questionIds: event.data.questionIds,
+            rejectionReason: event.data.rejectionReason,
+          },
+        );
+
+      // Determine notification status
+      const notificationStatus = sent
+        ? NotificationStatus.SENT
+        : NotificationStatus.FAILED;
+
+      // Create notification in database
+      await this.createNotificationRecord({
+        recipientType: UserRole.USER, // User is a USER
+        recipientId: new Types.ObjectId(event.data.userId),
+        notificationType: NotificationTypes.ADMIN_REJECTED_USER_QUESTIONS,
+        title: 'your questions are rejected',
+        message: `your questions are rejected by Admin: ${event.data.rejectionReason}`,
+        status: notificationStatus,
+        patientId: event.data.userId,
+      });
+
+      if (sent) {
+        this.logger.log(
+          `✅ FCM completion notification sent to patient ${event.data.userId}`,
+        );
+      } else {
+        this.logger.warn(
+          `⚠️ Failed to send FCM but notification saved for patient ${event.data.userId}`,
+        );
+      }
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `❌ Error sending FCM completion notification: ${err.message}`,
+        err.stack,
+      );
+
+      // Save as failed notification
+      try {
+        await this.createNotificationRecord({
+          recipientType: UserRole.USER, // User is a USER
+          recipientId: new Types.ObjectId(event.data.userId),
+          notificationType: NotificationTypes.ADMIN_REJECTED_USER_QUESTIONS,
+          title: 'your questions are rejected',
+          message: `your questions are rejected by Admin: ${event.data.rejectionReason}`,
+          status: NotificationStatus.FAILED,
+          patientId: event.data.userId,
         });
       } catch (dbError) {
         const err = dbError as Error;

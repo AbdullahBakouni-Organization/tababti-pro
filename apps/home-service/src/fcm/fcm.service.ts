@@ -731,6 +731,148 @@ export class FcmService {
       return false;
     }
   }
+
+  async sendAdminApprovedUserQuestionsNotification(
+    fcmToken: string,
+    data: {
+      userId: string;
+      userName: string;
+      questionIds: string[];
+    },
+  ): Promise<boolean> {
+    try {
+      const questionsCount = data.questionIds.length;
+      const title = 'Question Approved';
+      const body =
+        questionsCount === 1
+          ? `Your question has been approved and is now visible to doctors.`
+          : `${questionsCount} of your questions have been approved and are now visible to doctors.`;
+
+      const message: admin.messaging.Message = {
+        token: fcmToken,
+        notification: { title, body },
+        data: {
+          userId: data.userId,
+          userName: data.userName,
+          questionIds: JSON.stringify(data.questionIds),
+          questionsCount: String(questionsCount),
+          action: 'Show Questions',
+          timestamp: new Date().toISOString(),
+        },
+        android: {
+          priority: 'high',
+          notification: {
+            channelId: 'question_approved',
+            priority: 'high',
+            defaultSound: true,
+            defaultVibrateTimings: true,
+            icon: 'ic_notification',
+            color: '#FF0000',
+          },
+        },
+        apns: {
+          headers: { 'apns-priority': '10' },
+          payload: {
+            aps: {
+              alert: { title, body },
+              sound: 'default',
+              badge: 1,
+            },
+          },
+        },
+      };
+
+      await admin.messaging().send(message);
+      this.logger.log(
+        `FCM question approval notification sent successfully for user ${data.userId} — ${questionsCount} question(s)`,
+      );
+      return true;
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `Failed to send FCM question approval notification: ${err.message}`,
+        err.stack,
+      );
+      if (error.code === 'messaging/invalid-registration-token') {
+        this.logger.warn(`Invalid FCM token: ${fcmToken}`);
+      } else if (error.code === 'messaging/registration-token-not-registered') {
+        this.logger.warn(`FCM token not registered: ${fcmToken}`);
+      }
+      return false;
+    }
+  }
+
+  async sendAdminRejectedUserQuestionsNotification(
+    fcmToken: string,
+    data: {
+      userId: string;
+      userName: string;
+      questionIds: string[];
+      rejectionReason: string;
+    },
+  ): Promise<boolean> {
+    try {
+      const questionsCount = data.questionIds.length;
+      const title = 'Question Rejected';
+      const body =
+        questionsCount === 1
+          ? `Your question has been rejected. Reason: ${data.rejectionReason}`
+          : `${questionsCount} of your questions have been rejected. Reason: ${data.rejectionReason}`;
+
+      const message: admin.messaging.Message = {
+        token: fcmToken,
+        notification: { title, body },
+        data: {
+          userId: data.userId,
+          userName: data.userName,
+          questionIds: JSON.stringify(data.questionIds),
+          questionsCount: String(questionsCount),
+          rejectionReason: data.rejectionReason,
+          action: 'Show Questions',
+          timestamp: new Date().toISOString(),
+        },
+        android: {
+          priority: 'high',
+          notification: {
+            channelId: 'question_rejected',
+            priority: 'high',
+            defaultSound: true,
+            defaultVibrateTimings: true,
+            icon: 'ic_notification',
+            color: '#FF0000',
+          },
+        },
+        apns: {
+          headers: { 'apns-priority': '10' },
+          payload: {
+            aps: {
+              alert: { title, body },
+              sound: 'default',
+              badge: 1,
+            },
+          },
+        },
+      };
+
+      await admin.messaging().send(message);
+      this.logger.log(
+        `FCM question rejection notification sent successfully for user ${data.userId} — ${questionsCount} question(s)`,
+      );
+      return true;
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `Failed to send FCM question rejection notification: ${err.message}`,
+        err.stack,
+      );
+      if (error.code === 'messaging/invalid-registration-token') {
+        this.logger.warn(`Invalid FCM token: ${fcmToken}`);
+      } else if (error.code === 'messaging/registration-token-not-registered') {
+        this.logger.warn(`FCM token not registered: ${fcmToken}`);
+      }
+      return false;
+    }
+  }
   /**
    * Send slot availability update notification
    */

@@ -2,7 +2,10 @@ import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
 import type {
   AdminApprovedGalleryImagesEvent,
   AdminApprovedPostEvent,
+  AdminApprovedUserQuestionsEvent,
+  AdminRejectedGalleryImagesEvent,
   AdminRejectedPostEvent,
+  AdminRejectedUserQuestionsEvent,
   BookingCancelledNotificationEvent,
   BookingCancelledNotificationEventByUser,
   BookingCompletedNotificationEvent,
@@ -186,6 +189,79 @@ export class NotificationServiceController {
       );
     }
   }
+
+  @EventPattern(KAFKA_TOPICS.ADMIN_REJECTED_GALLERY_IMAGES)
+  async handleAdminRejectedGallery(
+    @Payload() event: AdminRejectedGalleryImagesEvent,
+  ): Promise<void> {
+    this.logger.log(
+      `🎯 Received ADMIN_REJECTED_GALLERY_IMAGES event for doctor ${event.data.doctorName}`,
+    );
+
+    try {
+      await this.notificationService.sendAdminRejectedGalleryNotification(
+        event,
+      );
+      this.logger.log(
+        `✅ Successfully sent ADMIN_REJECTED_GALLERY notification to doctor ${event.data.doctorName}`,
+      );
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `❌ Failed to process ADMIN_REJECTED_GALLERY notification: ${err.message}`,
+        err.stack,
+      );
+    }
+  }
+
+  @EventPattern(KAFKA_TOPICS.ADMIN_APPROVED_USER_QUESTIONS)
+  async handleAdminApprovedUserQuestions(
+    @Payload() event: AdminApprovedUserQuestionsEvent,
+  ): Promise<void> {
+    this.logger.log(
+      `🎯 Received ADMIN_APPROVED_USER_QUESTIONS event for user ${event.data.userName}`,
+    );
+
+    try {
+      await this.notificationService.sendAdminApprovedUserQuestionsNotification(
+        event,
+      );
+      this.logger.log(
+        `✅ Successfully sent ADMIN_APPROVED_USER_QUESTIONS notification to user ${event.data.userName}`,
+      );
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `❌ Failed to process ADMIN_APPROVED_USER_QUESTIONS notification: ${err.message}`,
+        err.stack,
+      );
+    }
+  }
+
+  @EventPattern(KAFKA_TOPICS.ADMIN_REJECTED_USER_QUESTIONS)
+  async handleAdminRejectedUserQuestions(
+    @Payload() event: AdminRejectedUserQuestionsEvent,
+  ): Promise<void> {
+    this.logger.log(
+      `🎯 Received ADMIN_REJECTED_USER_QUESTIONS event for user ${event.data.userName}`,
+    );
+
+    try {
+      await this.notificationService.sendAdminRejectedUserQuestionsNotification(
+        event,
+      );
+      this.logger.log(
+        `✅ Successfully sent ADMIN_REJECTED_USER_QUESTIONS notification to user ${event.data.userName}`,
+      );
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `❌ Failed to process ADMIN_REJECTED_USER_QUESTIONS notification: ${err.message}`,
+        err.stack,
+      );
+    }
+  }
+
   /**
    * Get unread notifications for a user
    */

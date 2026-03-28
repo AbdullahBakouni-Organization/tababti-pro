@@ -25,6 +25,7 @@ import {
   ApprovalStatus,
   GalleryImageStatus,
   PostStatus,
+  QuestionStatus,
 } from '@app/common/database/schemas/common.enums';
 import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
 import { KafkaService } from '@app/common/kafka/kafka.service';
@@ -39,6 +40,10 @@ import {
   PostWithDoctorDto,
   RejectPostDto,
 } from './dto/approved-reject-post.dto';
+import { GetQuestionsFilterDto } from './dto/get-questions.filter.dto';
+import { PaginatedQuestionsResponseDto } from './dto/question-response.dto';
+import { Question } from '@app/common/database/schemas/question.schema';
+import { User, UserDocument } from '@app/common/database/schemas/user.schema';
 
 @Injectable()
 export class AdminService {
@@ -49,6 +54,8 @@ export class AdminService {
     @InjectModel(Post.name) private readonly postModel: Model<Post>,
     @InjectModel(Hospital.name) private hospitalModel: Model<Hospital>,
     @InjectModel(Center.name) private centerModel: Model<Center>,
+    @InjectModel(Question.name) private questionModel: Model<Question>,
+    @InjectModel(User.name) private patientModel: Model<User>,
     @InjectModel(AuthAccount.name) private authAccountModel: Model<AuthAccount>,
     private kafkaProducer: KafkaService,
     private readonly minioService: MinioService,
@@ -382,7 +389,10 @@ export class AdminService {
     if (!Types.ObjectId.isValid(doctorId)) {
       throw new BadRequestException('Invalid doctor ID');
     }
-    const doctor = await this.doctorModel.findById(doctorId);
+    const doctor = await this.doctorModel
+      .findOne({ _id: doctorId })
+      .select('gallery fcmToken firstName lastName') // fetch full gallery, filter in JS
+      .lean();
     if (!doctor) {
       throw new NotFoundException('Doctor not found');
     }
@@ -436,7 +446,7 @@ export class AdminService {
 
     const doctor = await this.doctorModel
       .findOne({ _id: doctorId })
-      .select('gallery fcmToken name') // fetch full gallery, filter in JS
+      .select('gallery fcmToken firstName lastName') // fetch full gallery, filter in JS
       .lean();
 
     // then filter:
@@ -830,7 +840,9 @@ export class AdminService {
     const summary = await this.getPostsSummary();
 
     return {
-      posts: postDtos,
+      posts: {
+        data: postDtos,
+      },
       meta: {
         currentPage: page,
         totalPages,
@@ -839,7 +851,6 @@ export class AdminService {
         hasNextPage: page < totalPages,
         hasPreviousPage: page > 1,
       },
-      summary,
     };
   }
 
@@ -1003,6 +1014,291 @@ export class AdminService {
     } catch (error) {
       const err = error as Error;
       this.logger.error(`Failed to send doctor notification: ${err.message}`);
+    }
+  }
+
+  // In admin.service.ts
+
+  async getQuestions(
+    filters: GetQuestionsFilterDto,
+  ): Promise<PaginatedQuestionsResponseDto> {
+    const page = filters.page || 1;
+    const limit = filters.limit || 20;
+    const skip = (page - 1) * limit;
+
+    const matchStage: any = {};
+    if (filters.approvalStatus as ApprovalStatus) {
+      matchStage.approvalStatus = filters.approvalStatus;
+    }
+
+    const pipeline: any[] = [
+      { $match: matchStage },
+      { $sort: { createdAt: -1 } },
+    ];
+
+    const [countResult, questions] = await Promise.all([
+      this.questionModel.aggregate([...pipeline, { $count: 'total' }]),
+      this.questionModel.aggregate([
+        ...pipeline,
+        { $skip: skip },
+        { $limit: limit },
+      ]),
+    ]);
+
+    const totalItems = countResult[0]?.total || 0;
+    const totalPages = Math.ceil(totalItems / limit);
+
+    return {
+      questions: {
+        data: questions.map((q) => ({
+          questionId: q._id.toString(),
+          userId: q.userId?.toString(),
+          content: q.content,
+          images: q.images || [],
+          specializationIds:
+            q.specializationId?.map((id) => id.toString()) || [],
+          approvalStatus: q.approvalStatus,
+          hasText: q.hasText,
+          hasImages: q.hasImages,
+          createdAt: q.createdAt,
+          rejectionReason: q.rejectionReason,
+        })),
+      },
+      meta: {
+        currentPage: page,
+        totalPages,
+        totalItems,
+        itemsPerPage: limit,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: page > 1,
+      },
+    };
+  }
+
+  async approveQuestions(
+    questionIds: string[],
+    adminId: string,
+  ): Promise<void> {
+    this.logger.log(
+      `Admin ${adminId} approving ${questionIds.length} question(s)`,
+    );
+
+    const objectIds = questionIds.map((id) => {
+      if (!Types.ObjectId.isValid(id)) {
+        throw new BadRequestException(`Invalid question ID: ${id}`);
+      }
+      return new Types.ObjectId(id);
+    });
+
+    const result = await this.questionModel.updateMany(
+      {
+        _id: { $in: objectIds },
+        approvalStatus: { $ne: ApprovalStatus.APPROVED },
+      },
+      {
+        $set: {
+          approvalStatus: ApprovalStatus.APPROVED,
+          approvedAt: new Date(),
+          approvedBy: adminId,
+        },
+      },
+    );
+
+    if (result.matchedCount === 0) {
+      throw new NotFoundException('No matching questions found');
+    }
+    if (result.modifiedCount === 0) {
+      throw new BadRequestException(
+        'All selected questions are already approved',
+      );
+    }
+
+    // Fetch questions to get userIds for notifications
+    const questions = await this.questionModel
+      .find({ _id: { $in: objectIds } })
+      .select('userId')
+      .lean();
+
+    // Group questionIds by userId so each user gets one notification
+    const userQuestionMap = new Map<string, string[]>();
+
+    for (const q of questions) {
+      const userId = q.userId.toString();
+
+      if (!userQuestionMap.has(userId)) {
+        userQuestionMap.set(userId, []);
+      }
+
+      userQuestionMap.get(userId)!.push(q._id.toString());
+    }
+
+    // Send one Kafka event per user
+    for (const [userId, ids] of userQuestionMap) {
+      const user = await this.patientModel
+        .findById(userId)
+        .select('fcmToken username')
+        .lean();
+      if (user) {
+        this.sendUserApprovedQuestions(user, ids);
+      }
+    }
+
+    this.logger.log(`${result.modifiedCount} question(s) approved`);
+  }
+
+  async rejectQuestions(
+    questionIds: string[],
+    reason: string,
+    adminId: string,
+  ): Promise<void> {
+    this.logger.log(
+      `Admin ${adminId} rejecting ${questionIds.length} question(s)`,
+    );
+
+    const objectIds = questionIds.map((id) => {
+      if (!Types.ObjectId.isValid(id)) {
+        throw new BadRequestException(`Invalid question ID: ${id}`);
+      }
+      return new Types.ObjectId(id);
+    });
+
+    const result = await this.questionModel.updateMany(
+      {
+        _id: { $in: objectIds },
+        approvalStatus: { $ne: ApprovalStatus.REJECTED },
+      },
+      {
+        $set: {
+          approvalStatus: ApprovalStatus.REJECTED,
+          rejectionReason: reason,
+          rejectedAt: new Date(),
+          rejectedBy: adminId,
+        },
+      },
+    );
+
+    if (result.matchedCount === 0) {
+      throw new NotFoundException('No matching questions found');
+    }
+    if (result.modifiedCount === 0) {
+      throw new BadRequestException(
+        'All selected questions are already rejected',
+      );
+    }
+
+    const questions = await this.questionModel
+      .find({ _id: { $in: objectIds } })
+      .select('userId')
+      .lean();
+
+    const userQuestionMap = new Map<string, string[]>();
+
+    for (const q of questions) {
+      const userId = q.userId.toString();
+
+      if (!userQuestionMap.has(userId)) {
+        userQuestionMap.set(userId, []);
+      }
+
+      userQuestionMap.get(userId)!.push(q._id.toString());
+    }
+
+    for (const [userId, ids] of userQuestionMap) {
+      const user = await this.patientModel
+        .findById(userId)
+        .select('fcmToken username')
+        .lean();
+      if (user) {
+        this.sendUserRejectedQuestions(user, ids, reason);
+      }
+    }
+
+    this.logger.log(`${result.modifiedCount} question(s) rejected`);
+  }
+
+  // ─── Kafka event emitters ────────────────────────────────────────────────────
+
+  private sendUserApprovedQuestions(
+    user: UserDocument,
+    questionIds: string[],
+  ): void {
+    if (!user.fcmToken) {
+      this.logger.warn(
+        `User ${user._id.toString()} has no FCM token. Notification not sent.`,
+      );
+      return;
+    }
+
+    const event = {
+      eventType: 'ADMIN_APPROVED_USER_QUESTIONS',
+      timestamp: new Date(),
+      data: {
+        userId: user._id.toString(),
+        userName: user.username,
+        fcmToken: user.fcmToken,
+        questionIds,
+      },
+      metadata: {
+        source: 'admin-service',
+        version: '1.0',
+      },
+    };
+
+    try {
+      this.kafkaProducer.emit(
+        KAFKA_TOPICS.ADMIN_APPROVED_USER_QUESTIONS,
+        event,
+      );
+      this.logger.log(
+        `📱 Approval notification sent to user ${user._id.toString()} for ${questionIds.length} question(s)`,
+      );
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(`Failed to send approval notification: ${err.message}`);
+    }
+  }
+
+  private sendUserRejectedQuestions(
+    user: UserDocument,
+    questionIds: string[],
+    reason: string,
+  ): void {
+    if (!user.fcmToken) {
+      this.logger.warn(
+        `User ${user._id.toString()} has no FCM token. Notification not sent.`,
+      );
+      return;
+    }
+
+    const event = {
+      eventType: 'ADMIN_REJECTED_USER_QUESTIONS',
+      timestamp: new Date(),
+      data: {
+        userId: user._id.toString(),
+        userName: user.username,
+        fcmToken: user.fcmToken,
+        questionIds,
+        rejectionReason: reason,
+      },
+      metadata: {
+        source: 'admin-service',
+        version: '1.0',
+      },
+    };
+
+    try {
+      this.kafkaProducer.emit(
+        KAFKA_TOPICS.ADMIN_REJECTED_USER_QUESTIONS,
+        event,
+      );
+      this.logger.log(
+        `📱 Rejection notification sent to user ${user._id.toString()} for ${questionIds.length} question(s)`,
+      );
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `Failed to send rejection notification: ${err.message}`,
+      );
     }
   }
 

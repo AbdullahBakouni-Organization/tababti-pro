@@ -268,3 +268,28 @@ export interface AdminRejectedGalleryImagesEvent {
     version: string;
   };
 }
+
+export interface AdminApprovedUserQuestionsEvent {
+  eventType: 'ADMIN_APPROVED_USER_QUESTIONS';
+  timestamp: Date;
+  data: {
+    userId: string;
+    userName: string;
+    fcmToken: string;
+    questionIds: string[];
+  };
+  metadata: { source: string; version: string };
+}
+
+export interface AdminRejectedUserQuestionsEvent {
+  eventType: 'ADMIN_REJECTED_USER_QUESTIONS';
+  timestamp: Date;
+  data: {
+    userId: string;
+    userName: string;
+    fcmToken: string;
+    questionIds: string[];
+    rejectionReason: string;
+  };
+  metadata: { source: string; version: string };
+}

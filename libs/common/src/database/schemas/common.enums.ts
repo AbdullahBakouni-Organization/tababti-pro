@@ -419,6 +419,8 @@ export enum NotificationTypes {
   ADMIN_REJECTED_POST = 'admin_rejected_post',
   ADMIN_APPROVED_GALLERY_IMAGES = 'admin_approved_gallery_images',
   ADMIN_REJECTED_GALLERY_IMAGES = 'admin_rejected_gallery_images',
+  ADMIN_APPROVED_USER_QUESTIONS = 'admin_approved_user_questions',
+  ADMIN_REJECTED_USER_QUESTIONS = 'admin_rejected_user_questions',
 }
 export enum ApprovalStatus {
   PENDING = 'pending',
@@ -756,6 +758,7 @@ export enum QuestionStatus {
   DELETED = 'deleted',
   REJECTED = 'rejected',
   APPROVED = 'approved',
+  DRAFT = 'draft',
 }
 
 export enum AnswerStatus {
