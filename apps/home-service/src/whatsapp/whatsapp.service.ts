@@ -103,22 +103,34 @@ export class WhatsappService implements OnModuleInit {
   async sendOtp(phone: string, otp: string, lang: Lang = 'ar'): Promise<void> {
     const text =
       lang === 'ar'
-        ? `🔐 رمز تسجيل الدخول إلى حسابك في طبابتي هو:
+        ? `مرحباً بك في *طبابتي* 👨‍⚕️
 
-*${otp}*
+  رمز التحقق الخاص بك هو:
 
-هذا الرمز صالح لمدة 5 دقائق فقط.
+  ┌─────────────────┐
+        *${otp}*
+  └─────────────────┘
 
-حرصاً على أمان حسابك، يرجى عدم مشاركة هذا الرمز مع أي شخص.
-إذا لم تقم بطلب تسجيل الدخول، يمكنك تجاهل هذه الرسالة بأمان.`
-        : `🔐 Your login code for your Tababati account is:
+  ⏱ صالح لمدة *5 دقائق* فقط.
+  🔒 لا تشارك هذا الرمز مع أي شخص كان.
 
-*${otp}*
+  إذا لم تكن أنت من طلب هذا الرمز، فتجاهل هذه الرسالة وقم بتغيير كلمة مرورك فوراً.
 
-This code is valid for 5 minutes only.
+  — فريق *طبابتي* الطبي`
+        : `Welcome to *Tababti* 👨‍⚕️
 
-For your account security, please do not share this code with anyone.
-If you did not request this login, you can safely ignore this message.`;
+  Your verification code is:
+
+  ┌─────────────────┐
+        *${otp}*
+  └─────────────────┘
+
+  ⏱ Valid for *5 minutes* only.
+  🔒 Never share this code with anyone.
+
+  If you didn't request this code, ignore this message and change your password immediately.
+
+  — The *Tababti* Medical Team`;
 
     await this.sendMessage(phone, text, lang);
   }
@@ -147,5 +159,54 @@ If you did not request this login, you can safely ignore this message.`;
         }
       }
     }
+  }
+
+  // Add these three methods inside WhatsappService, alongside sendOtp
+
+  async sendDoctorWelcome(phone: string, doctorName: string): Promise<void> {
+    const text = `👋 أهلاً وسهلاً د. ${doctorName}،
+
+  شكراً لتسجيلك في منصة *طبابتي* 🩺
+
+  لقد استلمنا طلب انضمامك بنجاح، وهو الآن قيد المراجعة من قِبل فريقنا المختص.
+
+  سيتم إشعارك فور اتخاذ القرار بشأن طلبك.
+
+  نتطلع إلى شراكتك معنا في تقديم أفضل الخدمات الطبية 💙
+  — فريق *طبابتي*`;
+
+    await this.sendMessage(phone, text, 'ar');
+  }
+
+  async sendDoctorApproved(phone: string, doctorName: string): Promise<void> {
+    const text = `✅ تهانينا د. ${doctorName}!
+
+  يسعدنا إخبارك بأن طلب انضمامك إلى منصة *طبابتي* قد تمت الموافقة عليه رسمياً 🎉
+
+  حسابك الآن مفعّل ويمكنك البدء باستخدام المنصة وتقديم خدماتك الطبية للمرضى.
+
+  نتمنى لك تجربة مميزة معنا، ونحن هنا لدعمك في كل خطوة 💙
+  — فريق *طبابتي*`;
+
+    await this.sendMessage(phone, text, 'ar');
+  }
+
+  async sendDoctorRejected(
+    phone: string,
+    doctorName: string,
+    reason?: string,
+  ): Promise<void> {
+    const reasonLine = reason ? `\n📋 *السبب:* ${reason}\n` : '';
+
+    const text = `❌ د. ${doctorName}، نأسف لإبلاغك
+
+  بعد مراجعة طلب انضمامك إلى منصة *طبابتي*، لم نتمكن من قبول الطلب في الوقت الحالي.
+  ${reasonLine}
+  إذا كنت تعتقد أن هذا القرار جاء بسبب معلومات ناقصة أو خطأ ما، يمكنك التواصل مع فريق الدعم لمراجعة طلبك مجدداً.
+
+  نشكر اهتمامك بالانضمام إلينا ونتمنى لك التوفيق 🙏
+  — فريق *طبابتي*`;
+
+    await this.sendMessage(phone, text, 'ar');
   }
 }

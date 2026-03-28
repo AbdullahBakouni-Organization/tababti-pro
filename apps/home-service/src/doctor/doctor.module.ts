@@ -19,6 +19,7 @@ import { DoctorBookingsQueryService } from './doctor.service.v2';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { MinioModule } from '../minio/minio.module';
+import { WhatsappModule } from '../whatsapp/whatsapp.module';
 
 @Module({
   imports: [
@@ -81,6 +82,7 @@ import { MinioModule } from '../minio/minio.module';
     CacheModule,
     FcmModule,
     MinioModule,
+    WhatsappModule,
   ],
   providers: [
     DoctorService,

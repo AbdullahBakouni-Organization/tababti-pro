@@ -208,25 +208,18 @@ export class AdminService {
     // 🔔 SIDE EFFECTS (OUTSIDE TRANSACTION)
     // ───────────────────────────────────────────────
 
-    try {
-      const results = await Promise.allSettled([
-        this.publishDoctorApprovedEvent(approvedDoctor),
-      ]);
+    if (approvedDoctor) {
+      try {
+        const phone = approvedDoctor.phones?.[0]?.normal?.[0];
+        const doctorName = `${approvedDoctor.firstName} ${approvedDoctor.lastName}`;
 
-      results.forEach((r, idx) => {
-        if (r.status === 'rejected') {
-          this.logger.error(
-            `Post-commit side effect #${idx + 1} failed`,
-            r.reason,
-          );
-        }
-      });
-    } catch (error) {
-      // ⚠️ This catch is only for unexpected Promise.allSettled failures
-      this.logger.error(
-        'Unexpected error during post-commit side effects',
-        error,
-      );
+        this.kafkaProducer.emit(KAFKA_TOPICS.WHATSAPP_DOCTOR_APPROVED, {
+          phone,
+          doctorName,
+        });
+      } catch (error) {
+        this.logger.error('Failed to publish Kafka event', error);
+      }
     }
 
     return approvedDoctor;
@@ -289,93 +282,86 @@ export class AdminService {
     // 🔔 SIDE EFFECTS (OUTSIDE TRANSACTION)
     // ───────────────────────────────────────────────
 
-    try {
-      const results = await Promise.allSettled([
-        this.publishDoctorRejectedEvent(rejectedDoctor, reason),
-      ]);
+    if (rejectedDoctor) {
+      try {
+        const phone = rejectedDoctor.phones?.[0]?.normal?.[0];
+        const doctorName = `${rejectedDoctor.firstName} ${rejectedDoctor.lastName}`;
 
-      results.forEach((r, idx) => {
-        if (r.status === 'rejected') {
-          this.logger.error(
-            `Post-commit side effect #${idx + 1} failed`,
-            r.reason,
-          );
-        }
-      });
-    } catch (error) {
-      // ⚠️ This catch is only for unexpected Promise.allSettled failures
-      this.logger.error(
-        'Unexpected error during post-commit side effects',
-        error,
-      );
+        this.kafkaProducer.emit(KAFKA_TOPICS.WHATSAPP_DOCTOR_REJECTED, {
+          phone,
+          doctorName,
+        });
+      } catch (error) {
+        this.logger.error('Failed to publish Kafka event', error);
+      }
     }
 
     return rejectedDoctor;
   }
 
-  private async publishDoctorApprovedEvent(
-    doctor: DoctorDocument,
-  ): Promise<void> {
-    const event = {
-      eventType: 'DOCTOR_APPROVED',
-      timestamp: new Date(),
-      data: {
-        doctorId: doctor._id.toString(),
-        fullName: `${doctor.firstName} ${doctor.middleName} ${doctor.lastName}`,
-        phone: doctor.phones
-          .map((p) => p.normal || p.clinic || p.whatsup)
-          .flat()
-          .join(', '),
-      },
-      metadata: {
-        source: 'approved-service',
-        version: '1.0',
-      },
-    };
+  // private async publishDoctorApprovedEvent(
+  //   doctor: DoctorDocument,
+  // ): Promise<void> {
+  //   const event = {
+  //     eventType: 'DOCTOR_APPROVED',
+  //     timestamp: new Date(),
+  //     data: {
+  //       doctorId: doctor._id.toString(),
+  //       fullName: `${doctor.firstName} ${doctor.middleName} ${doctor.lastName}`,
+  //       phone: doctor.phones
+  //         .map((p) => p.normal || p.clinic || p.whatsup)
+  //         .flat()
+  //         .join(', '),
+  //     },
+  //     metadata: {
+  //       source: 'approved-service',
+  //       version: '1.0',
+  //     },
+  //   };
 
-    try {
-      // Use emit for fire-and-forget events
-      await this.kafkaProducer.emit(KAFKA_TOPICS.DOCTOR_APPROVED, event);
-    } catch (error) {
-      const err = new Error(
-        `Failed to publish Approved event: ${error.message}`,
-      );
-      this.logger.error(err.message);
-    }
-  }
+  //   try {
+  //     // Use emit for fire-and-forget events
+  //     await this.kafkaProducer.emit(KAFKA_TOPICS.DOCTOR_APPROVED, event);
+  //   } catch (error) {
+  //     const err = new Error(
+  //       `Failed to publish Approved event: ${error.message}`,
+  //     );
+  //     this.logger.error(err.message);
+  //   }
+  // }
 
-  private async publishDoctorRejectedEvent(
-    doctor: DoctorDocument,
-    reason: string,
-  ): Promise<void> {
-    const event = {
-      eventType: 'DOCTOR_REJECTED',
-      timestamp: new Date(),
-      data: {
-        doctorId: doctor._id.toString(),
-        fullName: `${doctor.firstName} ${doctor.middleName} ${doctor.lastName}`,
-        phone: doctor.phones
-          .map((p) => p.normal || p.clinic || p.whatsup)
-          .flat()
-          .join(', '),
-        reason,
-      },
-      metadata: {
-        source: 'rejected-service',
-        version: '1.0',
-      },
-    };
+  // private async publishDoctorRejectedEvent(
+  //   doctor: DoctorDocument,
+  //   reason: string,
+  // ): Promise<void> {
+  //   const event = {
+  //     eventType: 'DOCTOR_REJECTED',
+  //     timestamp: new Date(),
+  //     data: {
+  //       doctorId: doctor._id.toString(),
+  //       fullName: `${doctor.firstName} ${doctor.middleName} ${doctor.lastName}`,
+  //       phone: doctor.phones
+  //         .map((p) => p.normal || p.clinic || p.whatsup)
+  //         .flat()
+  //         .join(', '),
+  //       reason,
+  //     },
+  //     metadata: {
+  //       source: 'rejected-service',
+  //       version: '1.0',
+  //     },
+  //   };
 
-    try {
-      // Use emit for fire-and-forget events
-      await this.kafkaProducer.emit(KAFKA_TOPICS.DOCTOR_REJECTED, event);
-    } catch (error) {
-      const err = new Error(
-        `Failed to publish Rejected event: ${error.message}`,
-      );
-      this.logger.error(err.message);
-    }
-  }
+  //   try {
+  //     // Use emit for fire-and-forget events
+  //     await this.kafkaProducer.emit(KAFKA_TOPICS.DOCTOR_REJECTED, event);
+  //   } catch (error) {
+  //     const err = new Error(
+  //       `Failed to publish Rejected event: ${error.message}`,
+  //     );
+  //     this.logger.error(err.message);
+  //   }
+  // }
 
   async approveGalleryImages(
     doctorId: string,

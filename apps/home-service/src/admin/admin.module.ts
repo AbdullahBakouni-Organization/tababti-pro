@@ -7,6 +7,7 @@ import { AuthModule } from '../auth/auth.module';
 import { AuthValidateModule } from '@app/common/auth-validate';
 import { KafkaModule } from '@app/common/kafka/kafka.module';
 import { MinioModule } from '../minio/minio.module';
+import { WhatsappModule } from '../whatsapp/whatsapp.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { MinioModule } from '../minio/minio.module';
     AuthValidateModule,
     KafkaModule,
     MinioModule,
+    WhatsappModule,
   ],
   providers: [AdminService],
   controllers: [AdminController],

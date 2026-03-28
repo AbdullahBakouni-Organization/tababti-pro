@@ -261,7 +261,7 @@ export class DoctorService {
     const session = await this.connection.startSession();
 
     try {
-      let doctor: DoctorDocument;
+      let doctor: DoctorDocument | undefined;
 
       await session.withTransaction(async () => {
         // 1. Validate nested enums
@@ -355,11 +355,18 @@ export class DoctorService {
         // );
       });
 
-      // 7. OUTSIDE transaction (never put Kafka/WebSocket inside TX)
-      try {
-        this.publishDoctorRegisteredEvent(doctor!);
-      } catch (error) {
-        this.logger.error('Failed to publish Kafka event', error);
+      if (doctor) {
+        try {
+          const phone = doctor.phones?.[0]?.normal?.[0];
+          const doctorName = `${doctor.firstName} ${doctor.lastName}`;
+
+          this.kafkaProducer.emit(KAFKA_TOPICS.WHATSAPP_DOCTOR_WELCOME, {
+            phone,
+            doctorName,
+          });
+        } catch (error) {
+          this.logger.error('Failed to publish Kafka event', error);
+        }
       }
 
       return doctor!;
@@ -586,7 +593,11 @@ export class DoctorService {
       await session.commitTransaction();
 
       // Send OTP via SMS (outside transaction)
-      await this.smsService.sendOTP(phone, otp);
+      this.kafkaProducer.emit(KAFKA_TOPICS.WHATSAPP_SEND_OTP, {
+        phone,
+        otp,
+        lang: 'ar',
+      });
 
       return {
         success: true,

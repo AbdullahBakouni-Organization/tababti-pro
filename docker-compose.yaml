@@ -1,120 +1,566 @@
+# ============================================
+# Production Docker Compose — Tababti Platform
+# Hostinger + Coolify/Dokploy Deployment
+# ============================================
+
 networks:
   tababti-network:
     driver: bridge
-    ipam:
-      config:
-        - subnet: 172.25.0.0/24
 
 volumes:
-  mongodb_data:
-    driver: local
-  redis_data:
-    driver: local
   kafka_data:
-    driver: local
   minio_data:
-    driver: local
+  redis_data:
 
 services:
-  # ============================
-  # MongoDB – replica set (dev)
-  # ============================
-  mongodb:
-    image: mongo:7.0
-    container_name: tababti-mongodb
+  # ============================================
+  # NGINX — Primary Load Balancer (External)
+  # ============================================
+  nginx-primary:
+    image: nginx:alpine
+    container_name: tababti-nginx-primary
     restart: unless-stopped
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-root}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-root}
     ports:
-      - '${MONGO_PORT:-27017}:27017'
-    # -----------------------------------------------------------------------
-    # FIX: Added 'mkdir -p /data/config' so the destination folder exists
-    # -----------------------------------------------------------------------
-    command: >
-      bash -c "
-      mkdir -p /data/config &&
-      cp /tmp/mongo-keyfile /data/config/mongo-keyfile &&
-      chmod 400 /data/config/mongo-keyfile &&
-      chown 999:999 /data/config/mongo-keyfile &&
-      docker-entrypoint.sh mongod --bind_ip_all --replSet rs0 --keyFile /data/config/mongo-keyfile --auth
-      "
+      - '${NGINX_PRIMARY_PORT:-80}:80'
+      # - '${NGINX_PRIMARY_SSL_PORT:-443}:443'
     volumes:
-      - mongodb_data:/data/db
-      - ./mongo-keyfile:/tmp/mongo-keyfile
-    healthcheck:
-      test: echo 'db.runCommand("ping").ok' | mongosh --quiet
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      - ./nginx/nginx-primary.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      api-gateway:
+        condition: service_healthy
     networks:
-      tababti-network:
-        ipv4_address: 172.25.0.3
+      - tababti-network
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '3'
+    healthcheck:
+      test: ['CMD', 'nginx', '-t']
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
-  # ============================
+  # ============================================
+  # NGINX — Internal Load Balancer (Microservices)
+  # ============================================
+  nginx-internal:
+    image: nginx:alpine
+    container_name: tababti-nginx-internal
+    restart: unless-stopped
+    # FIX: expose internal port so api-gateway can reach it
+    expose:
+      - '8080'
+    volumes:
+      - ./nginx/nginx-internal.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      home-service-1:
+        condition: service_healthy
+      home-service-2:
+        condition: service_healthy
+      social-service-1:
+        condition: service_healthy
+      social-service-2:
+        condition: service_healthy
+      booking-service:
+        condition: service_healthy
+      notification-service:
+        condition: service_healthy
+    networks:
+      - tababti-network
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '3'
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -sf http://localhost:8080/health || exit 1']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ============================================
   # Redis
-  # ============================
+  # ============================================
   redis:
     image: redis:7-alpine
     container_name: tababti-redis
     restart: unless-stopped
     command: >
       redis-server
-      --requirepass ${REDIS_PASSWORD:-redis123}
+      --requirepass ${REDIS_PASSWORD}
       --maxmemory 512mb
       --maxmemory-policy allkeys-lru
       --appendonly yes
       --appendfsync everysec
-    ports:
-      - '${REDIS_PORT:-6379}:6379'
     volumes:
       - redis_data:/data
     networks:
-      tababti-network:
-        ipv4_address: 172.25.0.4
+      - tababti-network
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '3'
+    healthcheck:
+      test: ['CMD', 'redis-cli', '-a', '${REDIS_PASSWORD}', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  # ============================
-  # Kafka
-  # ============================
+  # ============================================
+  # API Gateway
+  # ============================================
+  api-gateway:
+    build:
+      context: .
+      dockerfile: apps/api-gateway/Dockerfile
+    container_name: tababti-api-gateway
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+
+      # Database
+      MONGO_URI: ${MONGO_URI}
+      MONGO_DB: ${MONGO_DB}
+
+      # FIX: hardcode redis hostname to match container name on network
+      REDIS_HOST: redis
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+
+      # Kafka
+      KAFKA_BROKER: kafka:29092
+
+      # MinIO
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET_DOCTORS: ${MINIO_BUCKET_DOCTORS}
+      MINIO_BUCKET_PATIENTS: ${MINIO_BUCKET_PATIENTS}
+      MINIO_BUCKET_GENERAL: ${MINIO_BUCKET_GENERAL}
+      MINIO_PUBLIC_URL_DEV: ${MINIO_PUBLIC_URL_DEV}
+      # JWT
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN:-15m}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
+
+      # FIX: point to nginx-internal which routes to microservices
+      HOME_SERVICE_URL: http://nginx-internal:8080/home
+      SOCIAL_SERVICE_URL: http://nginx-internal:8080/social
+      NOTIFICATION_SERVICE_URL: http://nginx-internal:8080/notification
+      BOOKING_SERVICE_URL: http://nginx-internal:8080/booking
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+      minio:
+        condition: service_healthy
+      nginx-internal:
+        condition: service_healthy
+    networks:
+      - tababti-network
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '3'
+    healthcheck:
+      test: ['CMD', 'wget', '--spider', '-q', 'http://localhost:3000/health']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ============================================
+  # Home Service — Instance 1
+  # ============================================
+  home-service-1:
+    build:
+      context: .
+      dockerfile: apps/home-service/Dockerfile
+    container_name: tababti-home-service-1
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      INSTANCE_ID: home-1
+      MONGO_URI: ${MONGO_URI}
+      MONGO_DB: ${MONGO_DB}
+      REDIS_HOST: redis
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      KAFKA_BROKER: kafka:29092
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID}
+      FIREBASE_CLIENT_EMAIL: ${FIREBASE_CLIENT_EMAIL}
+      FIREBASE_PRIVATE_KEY: ${FIREBASE_PRIVATE_KEY}
+      KAFKAJS_NO_PARTITIONER_WARNING: '1'
+      MINIO_BUCKET_DOCTORS: ${MINIO_BUCKET_DOCTORS}
+      MINIO_BUCKET_PATIENTS: ${MINIO_BUCKET_PATIENTS}
+      MINIO_BUCKET_GENERAL: ${MINIO_BUCKET_GENERAL}
+      MINIO_PUBLIC_URL_DEV: ${MINIO_PUBLIC_URL_DEV}
+      FLASK_API_URL: ${FLASK_API_URL}
+      OPENROUTE_API_KEY: ${OPENROUTE_API_KEY}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN:-15m}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    networks:
+      - tababti-network
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '3'
+    healthcheck:
+      test:
+        ['CMD-SHELL', 'wget -qO- http://localhost:3001/api/v1/health || exit 1']
+      interval: 15s
+      timeout: 50s
+      retries: 5
+      start_period: 120s
+  # ============================================
+  # Home Service — Instance 2
+  # ============================================
+  home-service-2:
+    build:
+      context: .
+      dockerfile: apps/home-service/Dockerfile
+    container_name: tababti-home-service-2
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      INSTANCE_ID: home-2
+      MONGO_URI: ${MONGO_URI}
+      MONGO_DB: ${MONGO_DB}
+      REDIS_HOST: redis
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      KAFKA_BROKER: kafka:29092
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID}
+      FIREBASE_CLIENT_EMAIL: ${FIREBASE_CLIENT_EMAIL}
+      FIREBASE_PRIVATE_KEY: ${FIREBASE_PRIVATE_KEY}
+      KAFKAJS_NO_PARTITIONER_WARNING: '1'
+      MINIO_BUCKET_DOCTORS: ${MINIO_BUCKET_DOCTORS}
+      MINIO_BUCKET_PATIENTS: ${MINIO_BUCKET_PATIENTS}
+      MINIO_BUCKET_GENERAL: ${MINIO_BUCKET_GENERAL}
+      MINIO_PUBLIC_URL_DEV: ${MINIO_PUBLIC_URL_DEV}
+      FLASK_API_URL: ${FLASK_API_URL}
+      OPENROUTE_API_KEY: ${OPENROUTE_API_KEY}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN:-15m}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    networks:
+      - tababti-network
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '3'
+    healthcheck:
+      test:
+        ['CMD-SHELL', 'wget -qO- http://localhost:3001/api/v1/health || exit 1']
+      interval: 15s
+      timeout: 50s
+      retries: 5
+      start_period: 120s
+
+  # ============================================
+  # Social Service — Instance 1
+  # ============================================
+  social-service-1:
+    build:
+      context: .
+      dockerfile: apps/social-service/Dockerfile
+    container_name: tababti-social-service-1
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3002
+      SOCIAL_PORT: 3002
+      INSTANCE_ID: social-1
+      MONGO_URI: ${MONGO_URI}
+      MONGO_DB: ${MONGO_DB}
+      REDIS_HOST: redis
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      KAFKA_BROKER: kafka:29092
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID}
+      FIREBASE_CLIENT_EMAIL: ${FIREBASE_CLIENT_EMAIL}
+      FIREBASE_PRIVATE_KEY: ${FIREBASE_PRIVATE_KEY}
+      KAFKAJS_NO_PARTITIONER_WARNING: '1'
+      MINIO_BUCKET_DOCTORS: ${MINIO_BUCKET_DOCTORS}
+      MINIO_BUCKET_PATIENTS: ${MINIO_BUCKET_PATIENTS}
+      MINIO_BUCKET_GENERAL: ${MINIO_BUCKET_GENERAL}
+      MINIO_PUBLIC_URL_DEV: ${MINIO_PUBLIC_URL_DEV}
+      FLASK_API_URL: ${FLASK_API_URL}
+      OPENROUTE_API_KEY: ${OPENROUTE_API_KEY}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN:-15m}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    networks:
+      - tababti-network
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '3'
+    healthcheck:
+      test:
+        ['CMD-SHELL', 'wget -qO- http://localhost:3002/api/v1/health || exit 1']
+      interval: 15s
+      timeout: 50s
+      retries: 5
+      start_period: 240s
+
+  # ============================================
+  # Social Service — Instance 2
+  # ============================================
+  social-service-2:
+    build:
+      context: .
+      dockerfile: apps/social-service/Dockerfile
+    container_name: tababti-social-service-2
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3002
+      INSTANCE_ID: social-2
+      SOCIAL_PORT: 3002
+      MONGO_URI: ${MONGO_URI}
+      MONGO_DB: ${MONGO_DB}
+      REDIS_HOST: redis
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      KAFKA_BROKER: kafka:29092
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID}
+      FIREBASE_CLIENT_EMAIL: ${FIREBASE_CLIENT_EMAIL}
+      FIREBASE_PRIVATE_KEY: ${FIREBASE_PRIVATE_KEY}
+      KAFKAJS_NO_PARTITIONER_WARNING: '1'
+      MINIO_BUCKET_DOCTORS: ${MINIO_BUCKET_DOCTORS}
+      MINIO_BUCKET_PATIENTS: ${MINIO_BUCKET_PATIENTS}
+      MINIO_BUCKET_GENERAL: ${MINIO_BUCKET_GENERAL}
+      MINIO_PUBLIC_URL_DEV: ${MINIO_PUBLIC_URL_DEV}
+      FLASK_API_URL: ${FLASK_API_URL}
+      OPENROUTE_API_KEY: ${OPENROUTE_API_KEY}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN:-15m}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    networks:
+      - tababti-network
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '3'
+    healthcheck:
+      test:
+        ['CMD-SHELL', 'wget -qO- http://localhost:3002/api/v1/health || exit 1']
+      interval: 15s
+      timeout: 50s
+      retries: 5
+      start_period: 240s
+
+  # ============================================
+  # Notification Service
+  # ============================================
+  notification-service:
+    build:
+      context: .
+      dockerfile: apps/notification-service/Dockerfile
+    container_name: tababti-notification-service
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3006
+      NOTIFICATION_PORT: 3006
+      MONGO_URI: ${MONGO_URI}
+      MONGO_DB: ${MONGO_DB}
+      REDIS_HOST: redis
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      KAFKA_BROKER: kafka:29092
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID}
+      FIREBASE_CLIENT_EMAIL: ${FIREBASE_CLIENT_EMAIL}
+      FIREBASE_PRIVATE_KEY: ${FIREBASE_PRIVATE_KEY}
+      KAFKAJS_NO_PARTITIONER_WARNING: '1'
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN:-15m}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    networks:
+      - tababti-network
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '3'
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'wget -qO- http://localhost:3006/api/v1/notifications/health || exit 1',
+        ]
+      interval: 15s
+      timeout: 50s
+      retries: 5
+      start_period: 240s
+  # ============================================
+  # Booking Service
+  # ============================================
+  booking-service:
+    build:
+      context: .
+      dockerfile: apps/booking-service/Dockerfile
+    container_name: tababti-booking-service
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3003
+      MONGO_URI: ${MONGO_URI}
+      MONGO_DB: ${MONGO_DB}
+      REDIS_HOST: redis
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      KAFKA_BROKER: kafka:29092
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID}
+      FIREBASE_CLIENT_EMAIL: ${FIREBASE_CLIENT_EMAIL}
+      FIREBASE_PRIVATE_KEY: ${FIREBASE_PRIVATE_KEY}
+      KAFKAJS_NO_PARTITIONER_WARNING: '1'
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET_DOCTORS: ${MINIO_BUCKET_DOCTORS}
+      MINIO_BUCKET_PATIENTS: ${MINIO_BUCKET_PATIENTS}
+      MINIO_BUCKET_GENERAL: ${MINIO_BUCKET_GENERAL}
+      MINIO_PUBLIC_URL_DEV: ${MINIO_PUBLIC_URL_DEV}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN:-15m}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    networks:
+      - tababti-network
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '3'
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'wget -qO- http://localhost:3003/api/v1/bookings/health || exit 1',
+        ]
+      interval: 15s
+      timeout: 50s
+      retries: 5
+      start_period: 240s
+
+  # ============================================
+  # Kafka (KRaft mode — no Zookeeper)
+  # ============================================
   kafka:
     image: confluentinc/cp-kafka:7.5.0
     container_name: tababti-kafka
     restart: unless-stopped
-
     environment:
-      # === KRaft settings ===
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-
-      # === Listeners ===
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092
+      # FIX: must include CONTROLLER in the protocol map
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-
-      # === Single-node safe settings ===
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_MIN_INSYNC_REPLICAS: 1
-
-      # === Required for KRaft ===
       KAFKA_LOG_DIRS: /var/lib/kafka/data
-      CLUSTER_ID: pZC0K2d9Q9mXyQb9sX3Fvw
-
-    ports:
-      - '${KAFKA_PORT:-9092}:9092'
-      - '29092:29092'
-
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID:-tababti-cluster-prod}
     volumes:
       - kafka_data:/var/lib/kafka/data
-
     networks:
-      tababti-network:
-        ipv4_address: 172.25.0.6
+      - tababti-network
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '3'
+    healthcheck:
+      # FIX: correct port — listeners are on 29092, not 9092
+      test:
+        [
+          'CMD',
+          'kafka-broker-api-versions',
+          '--bootstrap-server',
+          'localhost:29092',
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
 
+  # ============================================
+  # MinIO
+  # ============================================
   minio:
     image: minio/minio:latest
     container_name: tababti-minio
@@ -123,21 +569,29 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    # FIX: bind to localhost only — MinIO should NOT be exposed to the internet
     ports:
-      - '${MINIO_API_PORT:-9000}:9000'
-      - '${MINIO_CONSOLE_PORT:-9001}:9001'
+      - '127.0.0.1:${MINIO_API_PORT:-9000}:9000'
+      - '127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001'
     volumes:
       - minio_data:/data
+    networks:
+      - tababti-network
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '3'
     healthcheck:
       test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
       interval: 30s
       timeout: 20s
       retries: 3
-    networks:
-      tababti-network:
-        ipv4_address: 172.25.0.10
 
-  minio-create-buckets:
+  # ============================================
+  # MinIO Init — runs once to create buckets
+  # ============================================
+  minio-init:
     image: minio/mc:latest
     container_name: tababti-minio-init
     depends_on:
@@ -147,65 +601,99 @@ services:
       /bin/sh -c "
       sleep 5;
       /usr/bin/mc alias set myminio http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD};
-      /usr/bin/mc mb myminio/${MINIO_BUCKET_DOCTORS} --ignore-existing;
-      /usr/bin/mc mb myminio/${MINIO_BUCKET_PATIENTS} --ignore-existing;
-      /usr/bin/mc mb myminio/${MINIO_BUCKET_GENERAL} --ignore-existing;
-      /usr/bin/mc anonymous set download myminio/${MINIO_BUCKET_DOCTORS};
-      /usr/bin/mc anonymous set download myminio/${MINIO_BUCKET_PATIENTS};
-      /usr/bin/mc anonymous set download myminio/${MINIO_BUCKET_GENERAL};
-      echo 'Buckets created successfully';
+      /usr/bin/mc mb myminio/${MINIO_BUCKET_DOCTORS:-tababti-doctors} --ignore-existing;
+      /usr/bin/mc mb myminio/${MINIO_BUCKET_PATIENTS:-tababti-patients} --ignore-existing;
+      /usr/bin/mc mb myminio/${MINIO_BUCKET_GENERAL:-tababti-general} --ignore-existing;
+      /usr/bin/mc anonymous set download myminio/${MINIO_BUCKET_DOCTORS:-tababti-doctors};
+      /usr/bin/mc anonymous set download myminio/${MINIO_BUCKET_PATIENTS:-tababti-patients};
+      /usr/bin/mc anonymous set download myminio/${MINIO_BUCKET_GENERAL:-tababti-general};
+      echo 'Buckets ready.';
       exit 0;
       "
     networks:
-      tababti-network:
+      - tababti-network
 
+  # ============================================
+  # Kafka UI — protected with login
+  # ============================================
   kafka-ui:
-    image: provectuslabs/kafka-ui:latest
+    image: provectuslabs/kafka-ui
     container_name: tababti-kafka-ui
     restart: unless-stopped
     depends_on:
-      - kafka
-
-    environment:
-      KAFKA_CLUSTERS_0_NAME: tababti-cluster
-      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
-
-    ports:
-      - '${KAFKA_UI_PORT:-8080}:8080'
-
-    networks:
-      tababti-network:
-        ipv4_address: 172.25.0.7
-
-  redis-commander:
-    image: rediscommander/redis-commander:latest
-    container_name: tababti-redis-commander
-    restart: unless-stopped
-    depends_on:
-      redis:
+      kafka:
         condition: service_healthy
     environment:
-      REDIS_HOSTS: local:redis:6379:0:${REDIS_PASSWORD:-redis123}
+      KAFKA_CLUSTERS_0_NAME: tababti
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      # FIX: require login — never expose kafka-ui without auth in production
+      AUTH_TYPE: LOGIN_FORM
+      SPRING_SECURITY_USER_NAME: ${KAFKA_UI_USER:-admin}
+      SPRING_SECURITY_USER_PASSWORD: ${KAFKA_UI_PASSWORD}
+    # FIX: bind to localhost only
     ports:
-      - '${REDIS_COMMANDER_PORT:-8081}:8081'
+      - '127.0.0.1:${KAFKA_UI_PORT:-8090}:8080'
     networks:
-      tababti-network:
-        ipv4_address: 172.25.0.8
+      - tababti-network
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '3'
 
-  mongo-express:
-    image: mongo-express:latest
-    container_name: tababti-mongo-express
-    restart: unless-stopped
+  kafka-init:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: tababti-kafka-init
     depends_on:
-      - mongodb
-    environment:
-      # Use connection URL instead of separate SERVER/PORT
-      ME_CONFIG_MONGODB_URL: mongodb://abdullah_bakouni_admin_mongo:0944284644abdullahbakouniadminmongodb@172.25.0.3:27017/tababti_social?authSource=admin&replicaSet=rs0&directConnection=true
-      ME_CONFIG_MONGODB_ENABLE_ADMIN: 'true'
-      ME_CONFIG_BASICAUTH_USERNAME: admin
-      ME_CONFIG_BASICAUTH_PASSWORD: admin123
-    ports:
-      - '8082:8081'
+      kafka:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      echo 'Creating Kafka topics...';
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic booking.created --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic booking.cancelled.by.user --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic booking.cancelled.by.doctor --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic booking.cancelled.by.system --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic booking.completed --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic booking.reminder --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic booking.rescheduled.notification --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic booking.cancelled.notification --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic doctor.profile.updated --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic doctor.working.hours.updated --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic doctor.inspection.time.updated --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic doctor.holiday.added --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic doctor.approved --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic doctor.rejected --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic doctor.ads.created --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic doctor.offers.created --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic doctor.registered --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic hospital.profile.updated --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic hospital.approved --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic center.profile.updated --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic center.approved --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic question.created --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic question.answered --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic rating.created --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic cache.invalidate --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic slots.generate --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic slots.generate.for.today --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic slots.generate.for.future --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic slots.refreshed --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic working.hours.added --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic working.hours.updated --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic whatsapp.send.message --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic whatsapp.send.otp --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic admin.approved.post --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic admin.rejected.post --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic admin.approved.gallery.images --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic admin.rejected.gallery.images --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic admin.approved.user.questions --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic admin.rejected.user.questions --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic whatsapp.doctor-welcome --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic whatsapp.doctor-approved --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic whatsapp.doctor-rejected --partitions 1 --replication-factor 1;
+      echo 'All 35 topics created.';
+      exit 0;
+      "
     networks:
-      tababti-network:
-        ipv4_address: 172.25.0.9
+      - tababti-network

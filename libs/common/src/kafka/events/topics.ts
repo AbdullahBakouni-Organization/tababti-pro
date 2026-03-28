@@ -52,4 +52,7 @@ export const KAFKA_TOPICS = {
 
   ADMIN_APPROVED_USER_QUESTIONS: 'admin.approved.user.questions',
   ADMIN_REJECTED_USER_QUESTIONS: 'admin.rejected.user.questions',
+  WHATSAPP_DOCTOR_WELCOME: 'whatsapp.doctor-welcome',
+  WHATSAPP_DOCTOR_APPROVED: 'whatsapp.doctor-approved',
+  WHATSAPP_DOCTOR_REJECTED: 'whatsapp.doctor-rejected',
 };

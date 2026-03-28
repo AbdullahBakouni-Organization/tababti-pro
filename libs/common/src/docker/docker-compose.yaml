@@ -1,0 +1,211 @@
+networks:
+  tababti-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.25.0.0/24
+
+volumes:
+  mongodb_data:
+    driver: local
+  redis_data:
+    driver: local
+  kafka_data:
+    driver: local
+  minio_data:
+    driver: local
+
+services:
+  # ============================
+  # MongoDB – replica set (dev)
+  # ============================
+  mongodb:
+    image: mongo:7.0
+    container_name: tababti-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-root}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-root}
+    ports:
+      - '${MONGO_PORT:-27017}:27017'
+    # -----------------------------------------------------------------------
+    # FIX: Added 'mkdir -p /data/config' so the destination folder exists
+    # -----------------------------------------------------------------------
+    command: >
+      bash -c "
+      mkdir -p /data/config &&
+      cp /tmp/mongo-keyfile /data/config/mongo-keyfile &&
+      chmod 400 /data/config/mongo-keyfile &&
+      chown 999:999 /data/config/mongo-keyfile &&
+      docker-entrypoint.sh mongod --bind_ip_all --replSet rs0 --keyFile /data/config/mongo-keyfile --auth
+      "
+    volumes:
+      - mongodb_data:/data/db
+      - ./mongo-keyfile:/tmp/mongo-keyfile
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      tababti-network:
+        ipv4_address: 172.25.0.3
+
+  # ============================
+  # Redis
+  # ============================
+  redis:
+    image: redis:7-alpine
+    container_name: tababti-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD:-redis123}
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+      --appendfsync everysec
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
+    volumes:
+      - redis_data:/data
+    networks:
+      tababti-network:
+        ipv4_address: 172.25.0.4
+
+  # ============================
+  # Kafka
+  # ============================
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: tababti-kafka
+    restart: unless-stopped
+
+    environment:
+      # === KRaft settings ===
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+
+      # === Listeners ===
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+
+      # === Single-node safe settings ===
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_MIN_INSYNC_REPLICAS: 1
+
+      # === Required for KRaft ===
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      CLUSTER_ID: pZC0K2d9Q9mXyQb9sX3Fvw
+
+    ports:
+      - '${KAFKA_PORT:-9092}:9092'
+      - '29092:29092'
+
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+
+    networks:
+      tababti-network:
+        ipv4_address: 172.25.0.6
+
+  minio:
+    image: minio/minio:latest
+    container_name: tababti-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - '${MINIO_API_PORT:-9000}:9000'
+      - '${MINIO_CONSOLE_PORT:-9001}:9001'
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      tababti-network:
+        ipv4_address: 172.25.0.10
+
+  minio-create-buckets:
+    image: minio/mc:latest
+    container_name: tababti-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      sleep 5;
+      /usr/bin/mc alias set myminio http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD};
+      /usr/bin/mc mb myminio/${MINIO_BUCKET_DOCTORS} --ignore-existing;
+      /usr/bin/mc mb myminio/${MINIO_BUCKET_PATIENTS} --ignore-existing;
+      /usr/bin/mc mb myminio/${MINIO_BUCKET_GENERAL} --ignore-existing;
+      /usr/bin/mc anonymous set download myminio/${MINIO_BUCKET_DOCTORS};
+      /usr/bin/mc anonymous set download myminio/${MINIO_BUCKET_PATIENTS};
+      /usr/bin/mc anonymous set download myminio/${MINIO_BUCKET_GENERAL};
+      echo 'Buckets created successfully';
+      exit 0;
+      "
+    networks:
+      tababti-network:
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: tababti-kafka-ui
+    restart: unless-stopped
+    depends_on:
+      - kafka
+
+    environment:
+      KAFKA_CLUSTERS_0_NAME: tababti-cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+
+    ports:
+      - '${KAFKA_UI_PORT:-8080}:8080'
+
+    networks:
+      tababti-network:
+        ipv4_address: 172.25.0.7
+
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: tababti-redis-commander
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      REDIS_HOSTS: local:redis:6379:0:${REDIS_PASSWORD:-redis123}
+    ports:
+      - '${REDIS_COMMANDER_PORT:-8081}:8081'
+    networks:
+      tababti-network:
+        ipv4_address: 172.25.0.8
+
+  mongo-express:
+    image: mongo-express:latest
+    container_name: tababti-mongo-express
+    restart: unless-stopped
+    depends_on:
+      - mongodb
+    environment:
+      # Use connection URL instead of separate SERVER/PORT
+      ME_CONFIG_MONGODB_URL: mongodb://abdullah_bakouni_admin_mongo:0944284644abdullahbakouniadminmongodb@172.25.0.3:27017/tababti_social?authSource=admin&replicaSet=rs0&directConnection=true
+      ME_CONFIG_MONGODB_ENABLE_ADMIN: 'true'
+      ME_CONFIG_BASICAUTH_USERNAME: admin
+      ME_CONFIG_BASICAUTH_PASSWORD: admin123
+    ports:
+      - '8082:8081'
+    networks:
+      tababti-network:
+        ipv4_address: 172.25.0.9
