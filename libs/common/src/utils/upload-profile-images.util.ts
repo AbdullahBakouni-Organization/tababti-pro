@@ -1,7 +1,5 @@
-import {
-  MinioService,
-  UploadResult,
-} from 'apps/home-service/src/minio/minio.service';
+import { MinioService } from '../file-storage';
+import type { UploadResult } from '../file-storage';
 
 export async function uploadDoctorProfileImage(
   minioService: MinioService,

@@ -21,7 +21,8 @@ import {
 import type { Response } from 'express';
 import { AuthValidateService } from '@app/common/auth-validate';
 import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
-import { MinioService, UploadResult } from '../minio/minio.service';
+import { MinioService } from '@app/common/file-storage';
+import type { UploadResult } from '@app/common/file-storage';
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);

@@ -21,7 +21,7 @@ import {
 } from '@app/common/kafka/interfaces/kafka-event.interface';
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { FcmService } from 'apps/home-service/src/fcm/fcm.service';
+import { FcmService } from '@app/common/fcm';
 import { Model, Types } from 'mongoose';
 @Injectable()
 export class NotificationService {

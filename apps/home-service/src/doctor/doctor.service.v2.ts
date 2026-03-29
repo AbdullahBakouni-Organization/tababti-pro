@@ -40,7 +40,8 @@ import {
   GalleryImagesResponseDto,
   ProfileImageResponseDto,
 } from './dto/images.dto';
-import { MinioService, UploadResult } from '../minio/minio.service';
+import { MinioService } from '@app/common/file-storage';
+import type { UploadResult } from '@app/common/file-storage';
 import { uploadDoctorProfileImage } from '@app/common/utils/upload-profile-images.util';
 import { Post } from '@app/common/database/schemas/post.schema';
 import { SearchDoctorsDto } from './dto/search-of-another-doctor.dto';
@@ -1078,7 +1079,7 @@ export class DoctorBookingsQueryService {
       this.doctorModel
         .find(query)
         .select(
-          'firstName middleName lastName image publicSpecialization privateSpecialization',
+          'firstName middleName lastName image publicSpecialization privateSpecialization gender',
         )
         .skip(skip)
         .limit(limit)
@@ -1095,6 +1096,7 @@ export class DoctorBookingsQueryService {
         image: doctor.image ?? null,
         publicSpecialization: doctor.publicSpecialization,
         privateSpecialization: doctor.privateSpecialization,
+        gender: doctor.gender,
       };
     });
 

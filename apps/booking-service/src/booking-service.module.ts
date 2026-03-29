@@ -8,9 +8,9 @@ import { SlotModule } from './slot/slot.module';
 import { CacheModule } from '@app/common/cache/cache.module';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { BullModule } from '@nestjs/bull';
-import { UsersService } from 'apps/home-service/src/users/users.service';
-import { MinioModule } from 'apps/home-service/src/minio/minio.module';
+import { MinioModule } from '@app/common/file-storage';
 import { AuthValidateModule } from '@app/common/auth-validate';
+import { BookingValidationModule } from '@app/common/booking-validation';
 
 @Module({
   imports: [
@@ -55,8 +55,9 @@ import { AuthValidateModule } from '@app/common/auth-validate';
     SlotModule,
     MinioModule,
     AuthValidateModule,
+    BookingValidationModule,
   ],
   controllers: [BookingController],
-  providers: [BookingService, UsersService],
+  providers: [BookingService],
 })
 export class BookingServiceModule {}

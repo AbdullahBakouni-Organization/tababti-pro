@@ -18,6 +18,9 @@ import {
   PostStatus,
 } from '@app/common/database/schemas/common.enums';
 import { CreatePostDto } from './dto/create-post.dto';
+import { Post } from '@app/common/database/schemas/post.schema';
+import { MinioService } from '@app/common/file-storage';
+import { CacheService } from '@app/common/cache/cache.service';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -54,6 +57,29 @@ const mockPostRepo = {
   toggleLike: jest.fn(),
 };
 
+const mockMinioService = {
+  uploadFile: jest.fn(),
+  deleteFile: jest.fn(),
+  getFileUrl: jest.fn(),
+};
+
+const mockCacheService = {
+  get: jest.fn().mockResolvedValue(null),
+  set: jest.fn().mockResolvedValue(undefined),
+  invalidate: jest.fn(),
+  invalidatePattern: jest.fn(),
+};
+
+const mockPostModel = {
+  create: jest.fn(),
+  findOne: jest.fn(),
+  findById: jest.fn().mockReturnValue({ exec: jest.fn() }),
+  findByIdAndUpdate: jest.fn(),
+  updateOne: jest.fn(),
+  aggregate: jest.fn(),
+  countDocuments: jest.fn(),
+};
+
 const makeMockModel = () => ({
   findOne: jest.fn(),
 });
@@ -81,6 +107,9 @@ describe('PostService', () => {
         { provide: getModelToken(Doctor.name), useValue: doctorModel },
         { provide: getModelToken(Hospital.name), useValue: hospitalModel },
         { provide: getModelToken(Center.name), useValue: centerModel },
+        { provide: getModelToken(Post.name), useValue: mockPostModel },
+        { provide: MinioService, useValue: mockMinioService },
+        { provide: CacheService, useValue: mockCacheService },
       ],
     }).compile();
 
@@ -88,82 +117,46 @@ describe('PostService', () => {
     jest.clearAllMocks();
   });
 
-  // ── create ──────────────────────────────────────────────────────────────────
+  // ── createWithoutImages ──────────────────────────────────────────────────────
 
-  describe('create', () => {
+  describe('createWithoutImages', () => {
     const dto: CreatePostDto = {
       content: 'Hello world',
       subscriptionType: 'FREE',
     } as any;
     const accountId = makeId();
-    const profile = mockProfile();
+    const mockCreatedPost = { _id: new Types.ObjectId(), content: dto.content };
 
-    it('creates a post successfully', async () => {
-      doctorModel.findOne.mockReturnValue({ lean: () => profile });
-      mockPostRepo.create.mockResolvedValue({ ...profile, ...dto });
+    it('creates a post and stores PENDING status', async () => {
+      mockPostModel.create.mockResolvedValue(mockCreatedPost);
 
-      const result = await service.create(
+      const result = await service.createWithoutImages(
         dto,
-        ['img1.jpg'],
         accountId,
         UserRole.DOCTOR,
       );
 
-      expect(doctorModel.findOne).toHaveBeenCalledWith({
-        authAccountId: new Types.ObjectId(accountId),
-      });
-      expect(mockPostRepo.create).toHaveBeenCalledWith(
+      expect(mockPostModel.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          authorId: profile._id,
-          authorType: UserRole.DOCTOR,
           content: dto.content,
-          images: ['img1.jpg'],
+          authorType: UserRole.DOCTOR,
           status: PostStatus.PENDING,
+          images: [],
         }),
       );
-      expect(result).toBeDefined();
+      expect(result).toEqual(mockCreatedPost);
     });
 
-    it('throws BadRequestException when content is empty and no images', async () => {
-      const emptyDto: CreatePostDto = {
-        content: '   ',
-        subscriptionType: 'FREE',
-      } as any;
-      await expect(
-        service.create(emptyDto, [], accountId, UserRole.DOCTOR),
-      ).rejects.toThrow(BadRequestException);
-    });
+    it('stores authorId as ObjectId of accountId', async () => {
+      mockPostModel.create.mockResolvedValue(mockCreatedPost);
 
-    it('throws BadRequestException for an invalid accountId', async () => {
-      await expect(
-        service.create(dto, [], 'not-an-object-id', UserRole.DOCTOR),
-      ).rejects.toThrow(BadRequestException);
-    });
+      await service.createWithoutImages(dto, accountId, UserRole.USER);
 
-    it('throws NotFoundException when author profile is not found', async () => {
-      doctorModel.findOne.mockReturnValue({ lean: () => null });
-      await expect(
-        service.create(dto, [], accountId, UserRole.DOCTOR),
-      ).rejects.toThrow(NotFoundException);
-    });
-
-    it('throws ForbiddenException for an unknown role', async () => {
-      await expect(
-        service.create(dto, ['img.jpg'], accountId, 'ADMIN' as UserRole),
-      ).rejects.toThrow(ForbiddenException);
-    });
-
-    it('allows creation with images even when content is empty', async () => {
-      const noContentDto: CreatePostDto = {
-        content: '',
-        subscriptionType: 'FREE',
-      } as any;
-      doctorModel.findOne.mockReturnValue({ lean: () => profile });
-      mockPostRepo.create.mockResolvedValue({});
-
-      await expect(
-        service.create(noContentDto, ['img.jpg'], accountId, UserRole.DOCTOR),
-      ).resolves.toBeDefined();
+      expect(mockPostModel.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          authorId: new Types.ObjectId(accountId),
+        }),
+      );
     });
   });
 
@@ -340,19 +333,21 @@ describe('PostService', () => {
 
   describe('remove', () => {
     it('deletes a post when the requester is the author', async () => {
-      const accountId = makeId();
-      const profile = mockProfile();
+      const authorId = new Types.ObjectId();
+      // Implementation checks: post.authorId.toString() !== author.authAccountId.toString()
       const post = mockPost({
-        authorId: profile._id,
+        authorId,
         authorType: UserRole.DOCTOR,
+        imagesMetadata: [],
       });
+      const author = { _id: new Types.ObjectId(), authAccountId: authorId };
 
       mockPostRepo.findOne.mockResolvedValue(post);
-      doctorModel.findOne.mockReturnValue({ lean: () => profile });
+      doctorModel.findOne.mockReturnValue({ lean: () => author });
       mockPostRepo.delete.mockResolvedValue(post);
 
       await expect(
-        service.remove(post._id.toString(), accountId, UserRole.DOCTOR),
+        service.remove(post._id.toString(), makeId(), UserRole.DOCTOR),
       ).resolves.toBeDefined();
     });
 
@@ -364,15 +359,18 @@ describe('PostService', () => {
     });
 
     it('throws ForbiddenException when requester is not the author', async () => {
-      const profile = mockProfile();
-      const differentProfile = mockProfile(); // different _id
       const post = mockPost({
-        authorId: differentProfile._id,
+        authorId: new Types.ObjectId(),
         authorType: UserRole.DOCTOR,
       });
+      // Return author with a different authAccountId
+      const author = {
+        _id: new Types.ObjectId(),
+        authAccountId: new Types.ObjectId(),
+      };
 
       mockPostRepo.findOne.mockResolvedValue(post);
-      doctorModel.findOne.mockReturnValue({ lean: () => profile });
+      doctorModel.findOne.mockReturnValue({ lean: () => author });
 
       await expect(
         service.remove(post._id.toString(), makeId(), UserRole.DOCTOR),

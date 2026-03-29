@@ -225,7 +225,7 @@ export class WorkingHoursUpdateProcessorV2 {
           session,
         );
       }
-
+      await invalidateBookingCaches(this.cacheService, doctorId.toString());
       await session.commitTransaction();
 
       if (affectedBookings.length > 0) {

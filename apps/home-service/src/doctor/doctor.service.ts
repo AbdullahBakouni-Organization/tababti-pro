@@ -83,8 +83,9 @@ import {
   DoctorPatientStatsDto,
   GenderBreakdownDto,
 } from './dto/doctor-patient-stats.dto';
-import { UploadResult } from '../minio/minio.service';
+import type { UploadResult } from '@app/common/file-storage';
 import { invalidateBookingCaches } from '@app/common/utils/cache-invalidation.util';
+
 // ============================================
 // Kafka Events
 // ============================================
@@ -1346,18 +1347,20 @@ export class DoctorService {
     doctorId: string,
     dto: GetAllSlotsDto,
   ): Promise<AllSlotsResponseDto[]> {
-    this.logger.log(`Getting all slots for doctor ${doctorId} on ${dto.date}`);
+    if (!dto.date && !dto.dayName) {
+      throw new BadRequestException('Either date or dayName must be provided');
+    }
 
     if (!Types.ObjectId.isValid(doctorId)) {
       throw new BadRequestException('Invalid doctor ID');
     }
 
-    // Cache key
-    const cacheKey = `slots:available:${doctorId}:${dto.date}`;
+    // Cache key differs per filter type
+    const cacheKey = dto.date
+      ? `slots:available:${doctorId}:date:${dto.date}`
+      : `slots:available:${doctorId}:day:${dto.dayName}`;
 
-    // Try cache first
     const cached = await this.cacheManager.get<AllSlotsResponseDto[]>(cacheKey);
-
     if (cached) {
       this.logger.debug(`Slots cache hit: ${cacheKey}`);
       return cached;
@@ -1370,21 +1373,34 @@ export class DoctorService {
       throw new NotFoundException('Doctor not found');
     }
 
-    const date = new Date(dto.date);
+    // Build query dynamically
+    const query: Record<string, any> = {
+      doctorId: new Types.ObjectId(doctorId),
+      status: { $ne: SlotStatus.INVALIDATED },
+    };
 
-    const startOfDay = new Date(date);
-    startOfDay.setHours(0, 0, 0, 0);
+    if (dto.date) {
+      const date = new Date(dto.date);
+      const startOfDay = new Date(date);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(date);
+      endOfDay.setHours(23, 59, 59, 999);
 
-    const endOfDay = new Date(date);
-    endOfDay.setHours(23, 59, 59, 999);
+      query.date = { $gte: startOfDay, $lte: endOfDay };
+    } else if (dto.dayName) {
+      query.dayOfWeek = dto.dayName;
+
+      // Optionally: only future slots when filtering by day name
+      query.date = { $gte: new Date() };
+    }
+
+    this.logger.log(
+      `Getting slots for doctor ${doctorId} — ${dto.date ? `date: ${dto.date}` : `day: ${dto.dayName}`}`,
+    );
 
     const slots = await this.slotModel
-      .find({
-        doctorId: new Types.ObjectId(doctorId),
-        status: { $ne: SlotStatus.INVALIDATED },
-        date: { $gte: startOfDay, $lte: endOfDay },
-      })
-      .sort({ startTime: 1 })
+      .find(query)
+      .sort({ date: 1, startTime: 1 }) // sort by date first when querying by day
       .lean()
       .exec();
 
@@ -1409,11 +1425,10 @@ export class DoctorService {
 
         if (booking && typeof booking.patientId !== 'string') {
           const patient = booking.patientId as unknown as User;
-
           slotData.existingBooking = {
             bookingId: booking._id.toString(),
             patientId: patient._id.toString(),
-            patientName: `${patient.username}`,
+            patientName: patient.username,
             patientPhone: patient.phone,
             bookingStatus: booking.status,
           };
@@ -1428,7 +1443,6 @@ export class DoctorService {
     );
 
     await this.cacheManager.set(cacheKey, slotsWithBookings, 60, 7200);
-
     return slotsWithBookings;
   }
 

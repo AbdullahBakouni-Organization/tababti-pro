@@ -18,7 +18,7 @@ import {
   CITY_SUBCITY_MAP,
   UpdateDoctorProfileDto,
 } from './dto/update-doctor-profile.dto';
-import { MinioService } from 'apps/home-service/src/minio/minio.service';
+import { MinioService } from '@app/common/file-storage';
 import { calculateYearsOfExperience } from '@app/common/utils/calculate-experience.util';
 import { uploadDoctorProfileImage } from '@app/common/utils/upload-profile-images.util';
 import { CacheService } from '@app/common/cache/cache.service';

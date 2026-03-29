@@ -1,22 +1,38 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BookingServiceController } from './booking-service.controller';
-import { BookingServiceService } from './booking-service.service';
+import { Types } from 'mongoose';
+import { BookingController } from './booking-service.controller';
+import { BookingService } from './booking-service.service';
 
-describe('BookingServiceController', () => {
-  let bookingServiceController: BookingServiceController;
+const realPatientId = new Types.ObjectId();
+
+const mockBookingService = {
+  createBooking: jest.fn().mockResolvedValue({ bookingId: new Types.ObjectId().toString(), status: 'PENDING' }),
+};
+
+describe('BookingController', () => {
+  let controller: BookingController;
 
   beforeEach(async () => {
-    const app: TestingModule = await Test.createTestingModule({
-      controllers: [BookingServiceController],
-      providers: [BookingServiceService],
+    const module: TestingModule = await Test.createTestingModule({
+      controllers: [BookingController],
+      providers: [{ provide: BookingService, useValue: mockBookingService }],
     }).compile();
 
-    bookingServiceController = app.get<BookingServiceController>(BookingServiceController);
+    controller = module.get<BookingController>(BookingController);
+    jest.clearAllMocks();
   });
 
-  describe('root', () => {
-    it('should return "Hello World!"', () => {
-      expect(bookingServiceController.getHello()).toBe('Hello World!');
-    });
+  it('should be defined', () => {
+    expect(controller).toBeDefined();
+  });
+
+  it('createBooking() calls bookingService.createBooking with dto and patientId from req', async () => {
+    const dto = { doctorId: new Types.ObjectId().toString(), slotId: new Types.ObjectId().toString() } as any;
+    const req = { user: { entity: { _id: { toString: () => realPatientId.toString() } } } } as any;
+
+    const result = await controller.createBooking(dto, req);
+
+    expect(mockBookingService.createBooking).toHaveBeenCalledWith(dto, realPatientId.toString());
+    expect(result).toBeDefined();
   });
 });

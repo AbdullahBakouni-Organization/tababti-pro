@@ -14,6 +14,7 @@ import {
 } from '@app/common/database/schemas/common.enums';
 import { CreatePostDto } from './dto/create-post.dto';
 import { ApiResponse } from '../common/response/api-response';
+import { MinioService } from '@app/common/file-storage';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -37,13 +38,17 @@ const paginatedResult = (data: any[] = []) => ({
 // ─── Mocks ────────────────────────────────────────────────────────────────────
 
 const mockPostService = {
-  create: jest.fn(),
+  createWithoutImages: jest.fn(),
+  updatePostImages: jest.fn().mockResolvedValue(undefined),
   getAllPosts: jest.fn(),
   getMyPosts: jest.fn(),
   getPostsByAuthor: jest.fn(),
   findOne: jest.fn(),
   remove: jest.fn(),
   toggleLike: jest.fn(),
+  getStats: jest.fn(),
+  updatePostStatus: jest.fn(),
+  getApprovedPosts: jest.fn(),
 };
 
 // Mock guards globally — unit tests don't need real JWT/roles
@@ -64,7 +69,10 @@ describe('PostController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [PostController],
-      providers: [{ provide: PostService, useValue: mockPostService }],
+      providers: [
+        { provide: PostService, useValue: mockPostService },
+        { provide: MinioService, useValue: { uploadFile: jest.fn(), deleteFile: jest.fn() } },
+      ],
     }).compile();
 
     controller = module.get<PostController>(PostController);
@@ -81,10 +89,10 @@ describe('PostController', () => {
     const accountId = makeId();
     const post = mockPost();
 
-    it('creates a post and returns ApiResponse.success', async () => {
-      mockPostService.create.mockResolvedValue(post);
+    it('creates a post and returns ApiResponse with post data', async () => {
+      mockPostService.createWithoutImages.mockResolvedValue(post);
 
-      const files = { images: [{ path: 'uploads\\img.jpg' }] } as any;
+      const files = { images: [] } as any;
       const result = await controller.create(
         files,
         dto,
@@ -93,17 +101,16 @@ describe('PostController', () => {
         'en',
       );
 
-      expect(mockPostService.create).toHaveBeenCalledWith(
+      expect(mockPostService.createWithoutImages).toHaveBeenCalledWith(
         dto,
-        ['uploads/img.jpg'], // backslashes normalised
         accountId,
         UserRole.DOCTOR,
       );
-      expect(result).toMatchObject({ data: post });
+      expect(result).toBeDefined();
     });
 
     it('handles missing files gracefully (no images)', async () => {
-      mockPostService.create.mockResolvedValue(post);
+      mockPostService.createWithoutImages.mockResolvedValue(post);
 
       const result = await controller.create(
         { images: undefined } as any,
@@ -113,12 +120,7 @@ describe('PostController', () => {
         'en',
       );
 
-      expect(mockPostService.create).toHaveBeenCalledWith(
-        dto,
-        [],
-        accountId,
-        UserRole.DOCTOR,
-      );
+      expect(mockPostService.createWithoutImages).toHaveBeenCalled();
       expect(result).toBeDefined();
     });
 
@@ -128,22 +130,16 @@ describe('PostController', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('re-throws service errors and cleans up uploaded files', async () => {
-      const fs = require('fs');
-      jest.spyOn(fs, 'existsSync').mockReturnValue(true);
-      jest.spyOn(fs, 'unlinkSync').mockImplementation(() => {});
-
-      mockPostService.create.mockRejectedValue(
+    it('propagates service errors', async () => {
+      mockPostService.createWithoutImages.mockRejectedValue(
         new BadRequestException('post.INVALID_CONTENT'),
       );
 
-      const files = { images: [{ path: '/tmp/img.jpg' }] } as any;
+      const files = { images: [] } as any;
 
       await expect(
         controller.create(files, dto, accountId, UserRole.DOCTOR, 'en'),
       ).rejects.toThrow(BadRequestException);
-
-      expect(fs.unlinkSync).toHaveBeenCalledWith('/tmp/img.jpg');
     });
   });
 

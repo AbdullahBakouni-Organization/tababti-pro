@@ -25,12 +25,11 @@ import {
   ApprovalStatus,
   GalleryImageStatus,
   PostStatus,
-  QuestionStatus,
 } from '@app/common/database/schemas/common.enums';
 import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
 import { KafkaService } from '@app/common/kafka/kafka.service';
 import { Post } from '@app/common/database/schemas/post.schema';
-import { MinioService } from '../minio/minio.service';
+import { MinioService } from '@app/common/file-storage';
 import { GalleryImageWithStatus } from '../doctor/doctor.service.v2';
 import {
   ApprovePostDto,
@@ -44,6 +43,11 @@ import { GetQuestionsFilterDto } from './dto/get-questions.filter.dto';
 import { PaginatedQuestionsResponseDto } from './dto/question-response.dto';
 import { Question } from '@app/common/database/schemas/question.schema';
 import { User, UserDocument } from '@app/common/database/schemas/user.schema';
+import { GetDoctorsFilterDto } from './dto/get-doctors.filter.dto';
+import {
+  DoctorListItemDto,
+  PaginatedDoctorsResponseDto,
+} from './dto/doctor-response.dto';
 
 @Injectable()
 export class AdminService {
@@ -1353,6 +1357,166 @@ export class AdminService {
       createdAt: post.createdAt,
       rejectionReason: post.rejectionReason,
       adminNotes: post.adminNotes,
+    };
+  }
+  async getDoctors(
+    filters: GetDoctorsFilterDto,
+  ): Promise<PaginatedDoctorsResponseDto> {
+    this.logger.log(
+      `Fetching doctors with filters: ${JSON.stringify(filters)}`,
+    );
+
+    const page = filters.page || 1;
+    const limit = filters.limit || 20;
+    const skip = (page - 1) * limit;
+
+    const matchStage: any = {};
+
+    if (filters.status) {
+      matchStage.status = filters.status;
+    }
+
+    if (filters.gender) {
+      matchStage.gender = filters.gender;
+    }
+
+    if (filters.city) {
+      matchStage.city = { $regex: filters.city, $options: 'i' };
+    }
+    if (filters.subCity) {
+      matchStage.subCity = { $regex: filters.city, $options: 'i' };
+    }
+    if (filters.publicSpecialization) {
+      matchStage.publicSpecialization = {
+        $regex: filters.publicSpecialization,
+        $options: 'i',
+      };
+    }
+
+    if (filters.privateSpecialization) {
+      matchStage.privateSpecialization = {
+        $regex: filters.privateSpecialization,
+        $options: 'i',
+      };
+    }
+
+    if (filters.name) {
+      const searchRegex = this.buildDoctorNameRegex(filters.name);
+      matchStage.$or = [
+        { firstName: searchRegex },
+        { middleName: searchRegex },
+        { lastName: searchRegex },
+        {
+          $expr: {
+            $regexMatch: {
+              input: {
+                $concat: ['$firstName', ' ', '$middleName', ' ', '$lastName'],
+              },
+              regex: filters.name,
+              options: 'i',
+            },
+          },
+        },
+      ];
+    }
+
+    const pipeline: any[] = [
+      { $match: matchStage },
+      { $sort: { createdAt: -1 } },
+    ];
+
+    const [countResult, doctors] = await Promise.all([
+      this.doctorModel.aggregate([...pipeline, { $count: 'total' }]),
+      this.doctorModel.aggregate([
+        ...pipeline,
+        { $skip: skip },
+        { $limit: limit },
+        {
+          $project: {
+            _id: 1,
+            firstName: 1,
+            middleName: 1,
+            lastName: 1,
+            gender: 1,
+            status: 1,
+            city: 1,
+            subcity: 1,
+            publicSpecialization: 1,
+            privateSpecialization: 1,
+            image: 1,
+            phones: 1,
+            rejectionReason: 1,
+            approvedAt: 1,
+            rejectedAt: 1,
+            registeredAt: 1,
+            lastLoginAt: 1,
+            createdAt: 1,
+          },
+        },
+      ]),
+    ]);
+
+    const totalItems = countResult[0]?.total || 0;
+    const totalPages = Math.ceil(totalItems / limit);
+
+    return {
+      doctors: {
+        data: doctors.map((d) => this.transformToDoctorDto(d)),
+      },
+      meta: {
+        currentPage: page,
+        totalPages,
+        totalItems,
+        itemsPerPage: limit,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: page > 1,
+      },
+    };
+  }
+
+  private transformToDoctorDto(doctor: any): DoctorListItemDto {
+    return {
+      doctorId: doctor._id.toString(),
+      firstName: doctor.firstName,
+      middleName: doctor.middleName,
+      lastName: doctor.lastName,
+      fullName:
+        `${doctor.firstName} ${doctor.middleName} ${doctor.lastName}`.trim(),
+      gender: doctor.gender,
+      status: doctor.status,
+      city: doctor.city,
+      subcity: doctor.subcity,
+      publicSpecialization: doctor.publicSpecialization,
+      privateSpecialization: doctor.privateSpecialization,
+      image: doctor.image,
+      phones: doctor.phones || [],
+      isSubscribed: doctor.isSubscribed,
+      rejectionReason: doctor.rejectionReason,
+      approvedAt: doctor.approvedAt,
+      rejectedAt: doctor.rejectedAt,
+      registeredAt: doctor.registeredAt,
+      lastLoginAt: doctor.lastLoginAt,
+      createdAt: doctor.createdAt,
+    } as DoctorListItemDto;
+  }
+  async getDoctorById(
+    doctorId: string,
+  ): Promise<{ doctor: DoctorListItemDto }> {
+    if (!Types.ObjectId.isValid(doctorId)) {
+      throw new BadRequestException('Invalid doctor ID');
+    }
+
+    const doctor = await this.doctorModel
+      .findById(doctorId)
+      .select('-password -twoFactorSecret -sessions -deviceTokens')
+      .lean();
+
+    if (!doctor) {
+      throw new NotFoundException('Doctor not found');
+    }
+
+    return {
+      doctor: this.transformToDoctorDto(doctor),
     };
   }
 }

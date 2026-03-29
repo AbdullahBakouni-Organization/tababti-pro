@@ -18,7 +18,7 @@ import {
   CenterSchema,
 } from '@app/common/database/schemas/center.schema';
 
-import { MinioModule } from 'apps/home-service/src/minio/minio.module';
+import { MinioModule } from '@app/common/file-storage';
 import { CacheModule } from '@app/common/cache/cache.module';
 
 @Module({

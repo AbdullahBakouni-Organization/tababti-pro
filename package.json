@@ -28,7 +28,7 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./apps/tababti-micro-back/test/jest-e2e.json"
+    "test:e2e": "jest --config ./test/jest-e2e.json"
   },
   "dependencies": {
     "@apollo/server": "^5.4.0",
@@ -129,16 +129,32 @@
       "^.+\\.(t|j)s$": "ts-jest"
     },
     "collectCoverageFrom": [
-      "**/*.(t|j)s"
+      "apps/**/*.ts",
+      "libs/**/*.ts",
+      "!**/*.module.ts",
+      "!**/*.spec.ts",
+      "!**/main.ts",
+      "!**/index.ts",
+      "!**/node_modules/**",
+      "!**/dist/**"
     ],
     "coverageDirectory": "./coverage",
+    "coverageThreshold": {
+      "global": {
+        "statements": 90,
+        "branches": 85,
+        "functions": 90,
+        "lines": 90
+      }
+    },
     "testEnvironment": "node",
     "roots": [
       "<rootDir>/apps/",
       "<rootDir>/libs/"
     ],
     "moduleNameMapper": {
-      "^@app/common(|/.*)$": "<rootDir>/libs/common/src/$1"
+      "^@app/common(|/.*)$": "<rootDir>/libs/common/src/$1",
+      "^libs/common/dtos(|/.*)$": "<rootDir>/libs/common/dtos/$1"
     }
   }
 }

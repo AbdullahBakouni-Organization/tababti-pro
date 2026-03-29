@@ -9,7 +9,7 @@ import { ConfigModule } from '@nestjs/config';
 import { SmsService } from '../sms/sms.service';
 import { CacheModule } from '@app/common/cache/cache.module';
 import { BullModule } from '@nestjs/bull';
-import { FcmModule } from '../fcm/fcm.module';
+import { FcmModule } from '@app/common/fcm';
 import { PauseSlotsProcessor } from './processors/Pause slots.processor';
 import { VIPBookingProcessor } from './processors/VibBooking.processor';
 import { HolidayBlockProcessor } from './processors/holidayblock.processor';
@@ -18,7 +18,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { DoctorBookingsQueryService } from './doctor.service.v2';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
-import { MinioModule } from '../minio/minio.module';
+import { MinioModule } from '@app/common/file-storage';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
 
 @Module({

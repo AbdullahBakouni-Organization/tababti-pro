@@ -41,7 +41,7 @@ import {
   UpdateUserDto,
   UpdateUserResponseDto,
 } from './dto/update-user-info.dto';
-import { MinioService } from '../minio/minio.service';
+import { MinioService } from '@app/common/file-storage';
 import { uploadUserProfileImage } from '@app/common/utils/upload-profile-images.util';
 import { invalidateBookingCaches } from '@app/common/utils/cache-invalidation.util';
 

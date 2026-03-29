@@ -57,7 +57,9 @@ export class MinioService {
         }
       }
     } catch (error) {
-      this.logger.error(`Failed to ensure buckets exist: ${error.message}`);
+      this.logger.error(
+        `Failed to ensure buckets exist: ${(error as Error).message}`,
+      );
     }
   }
 
@@ -103,7 +105,10 @@ export class MinioService {
         etag: uploadInfo.etag,
       };
     } catch (error) {
-      this.logger.error(`File upload failed: ${error.message}`, error.stack);
+      this.logger.error(
+        `File upload failed: ${(error as Error).message}`,
+        (error as Error).stack,
+      );
       throw new InternalServerErrorException('Failed to upload file');
     }
   }
@@ -125,6 +130,16 @@ export class MinioService {
    * Get public URL for a file
    */
   getPublicUrl(bucket: string, fileName: string): string {
+    const publicUrl = this.configService.get<string>(
+      'MINIO_PUBLIC_URL_DEV',
+      '',
+    );
+
+    if (publicUrl) {
+      return `${publicUrl}/${bucket}/${fileName}`;
+    }
+
+    // Fallback to internal URL (for development without proxy)
     const endpoint = this.configService.get<string>(
       'MINIO_ENDPOINT',
       'localhost',
@@ -132,7 +147,6 @@ export class MinioService {
     const port = this.configService.get<string>('MINIO_PORT', '9000');
     const useSSL =
       this.configService.get<string>('MINIO_USE_SSL', 'false') === 'true';
-
     const protocol = useSSL ? 'https' : 'http';
     const portSuffix =
       (useSSL && port === '443') || (!useSSL && port === '80')
@@ -157,7 +171,9 @@ export class MinioService {
         expirySeconds,
       );
     } catch (error) {
-      this.logger.error(`Failed to generate presigned URL: ${error.message}`);
+      this.logger.error(
+        `Failed to generate presigned URL: ${(error as Error).message}`,
+      );
       throw new InternalServerErrorException('Failed to generate file URL');
     }
   }
@@ -170,7 +186,7 @@ export class MinioService {
       await this.minioClient.removeObject(bucket, fileName);
       this.logger.log(`File deleted: ${fileName} from bucket ${bucket}`);
     } catch (error) {
-      this.logger.error(`File deletion failed: ${error.message}`);
+      this.logger.error(`File deletion failed: ${(error as Error).message}`);
       throw new InternalServerErrorException('Failed to delete file');
     }
   }
@@ -185,7 +201,9 @@ export class MinioService {
         `${fileNames.length} files deleted from bucket ${bucket}`,
       );
     } catch (error) {
-      this.logger.error(`Batch file deletion failed: ${error.message}`);
+      this.logger.error(
+        `Batch file deletion failed: ${(error as Error).message}`,
+      );
       throw new InternalServerErrorException('Failed to delete files');
     }
   }
@@ -197,7 +215,7 @@ export class MinioService {
     try {
       await this.minioClient.statObject(bucket, fileName);
       return true;
-    } catch (error) {
+    } catch {
       return false;
     }
   }
@@ -205,11 +223,16 @@ export class MinioService {
   /**
    * Get file metadata
    */
-  async getFileMetadata(bucket: string, fileName: string): Promise<any> {
+  async getFileMetadata(
+    bucket: string,
+    fileName: string,
+  ): Promise<Minio.BucketItemStat> {
     try {
       return await this.minioClient.statObject(bucket, fileName);
     } catch (error) {
-      this.logger.error(`Failed to get file metadata: ${error.message}`);
+      this.logger.error(
+        `Failed to get file metadata: ${(error as Error).message}`,
+      );
       throw new InternalServerErrorException('Failed to get file metadata');
     }
   }

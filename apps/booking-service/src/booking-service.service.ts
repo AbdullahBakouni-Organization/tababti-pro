@@ -27,7 +27,7 @@ import {
 } from '@app/common/database/schemas/common.enums';
 import { CreateBookingDto, BookingResponseDto } from './dto/create-booking.dto';
 import { CacheService } from '@app/common/cache/cache.service';
-import { UsersService } from 'apps/home-service/src/users/users.service';
+import { BookingValidationService } from '@app/common/booking-validation';
 import { invalidateBookingCaches } from '@app/common/utils/cache-invalidation.util';
 
 @Injectable()
@@ -41,7 +41,7 @@ export class BookingService {
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     @InjectModel(Doctor.name) private doctorModel: Model<DoctorDocument>,
     private readonly cacheService: CacheService,
-    private readonly patientBookingService: UsersService,
+    private readonly patientBookingService: BookingValidationService,
   ) {}
 
   /**

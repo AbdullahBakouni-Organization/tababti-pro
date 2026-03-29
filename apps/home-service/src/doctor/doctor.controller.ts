@@ -94,7 +94,8 @@ import { DoctorBookingsQueryService } from './doctor.service.v2';
 import { RescheduleBookingDto } from './dto/resechedula-booking.dto,';
 import { ParseMongoIdPipe } from '../../../../libs/common/src/pipes/parse-mongo-id.pipe';
 import { Throttle } from '@nestjs/throttler';
-import { UploadResult, MinioService } from '../minio/minio.service';
+import { MinioService } from '@app/common/file-storage';
+import type { UploadResult } from '@app/common/file-storage';
 import {
   GalleryImagesResponseDto,
   ProfileImageResponseDto,

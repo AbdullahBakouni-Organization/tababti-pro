@@ -30,7 +30,7 @@ import { Types } from 'mongoose';
 import { UpdatePostStatusDto } from './dto/update-post-status.dto';
 import { ApiOperation } from '@nestjs/swagger';
 import multer from 'multer';
-import { MinioService } from 'apps/home-service/src/minio/minio.service';
+import { MinioService } from '@app/common/file-storage';
 const postImagesMemoryConfig = {
   storage: multer.memoryStorage(),
   limits: {

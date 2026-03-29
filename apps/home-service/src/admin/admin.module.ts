@@ -6,7 +6,7 @@ import { DatabaseModule } from '@app/common/database/database.module';
 import { AuthModule } from '../auth/auth.module';
 import { AuthValidateModule } from '@app/common/auth-validate';
 import { KafkaModule } from '@app/common/kafka/kafka.module';
-import { MinioModule } from '../minio/minio.module';
+import { MinioModule } from '@app/common/file-storage';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
 
 @Module({

@@ -49,6 +49,11 @@ import { PaginatedQuestionsResponseDto } from './dto/question-response.dto';
 import { GetQuestionsFilterDto } from './dto/get-questions.filter.dto';
 import { ApproveQuestionsDto } from './dto/approve-questions.dto';
 import { RejectQuestionsDto } from './dto/reject-questions.dto';
+import {
+  DoctorListItemDto,
+  PaginatedDoctorsResponseDto,
+} from './dto/doctor-response.dto';
+import { GetDoctorsFilterDto } from './dto/get-doctors.filter.dto';
 
 @Controller('admin')
 export class AdminController {
@@ -756,5 +761,37 @@ export class AdminController {
       rejectedBy: adminId,
       rejectedAt: new Date(),
     };
+  }
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Get('doctors')
+  @ApiOperation({
+    summary: 'Get all doctors',
+    description: `
+      Returns paginated list of doctors with optional filters.
+      **Filters:**
+      - approvalStatus: pending | draft | approved | rejected | suspended | active | deleted
+      - name: search by first or last name (Arabic/English)
+      - specializationId: filter by specialization MongoDB ObjectId
+    `,
+  })
+  @ApiResponse({ status: 200, type: PaginatedDoctorsResponseDto })
+  async getDoctors(@Query() filters: GetDoctorsFilterDto) {
+    return this.adminService.getDoctors(filters);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Get('doctors/:doctorId')
+  @ApiOperation({
+    summary: 'Get doctor by ID',
+    description: 'Returns full doctor profile by MongoDB ObjectId.',
+  })
+  @ApiParam({ name: 'doctorId', description: 'Doctor MongoDB ObjectId' })
+  @ApiResponse({ status: 200, type: DoctorListItemDto })
+  @ApiResponse({ status: 404, description: 'Doctor not found' })
+  @ApiResponse({ status: 400, description: 'Invalid doctor ID' })
+  async getDoctorById(@Param('doctorId') doctorId: string) {
+    return this.adminService.getDoctorById(doctorId);
   }
 }

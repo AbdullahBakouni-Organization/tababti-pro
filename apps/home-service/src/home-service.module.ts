@@ -12,9 +12,9 @@ import { AuthModule } from './auth/auth.module';
 import { WorkingHoursModule } from './working-hours/working-hours.module';
 import { BullModule } from '@nestjs/bull';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { FcmModule } from './fcm/fcm.module';
+import { FcmModule } from '@app/common/fcm';
 import { UsersModule } from './users/users.module';
-import { MinioModule } from './minio/minio.module';
+import { MinioModule } from '@app/common/file-storage';
 import { CacheModule } from '@app/common/cache/cache.module';
 
 @Module({
