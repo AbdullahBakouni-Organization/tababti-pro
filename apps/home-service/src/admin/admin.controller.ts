@@ -256,12 +256,16 @@ export class AdminController {
     },
   })
   async getAllPendingImages(
-    @Query('page') page = 1,
-    @Query('limit') limit = 20,
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 20,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
   ) {
     return this.adminService.getAllPendingGalleryImages(
-      Number(page),
-      Number(limit),
+      page,
+      limit,
+      dateFrom,
+      dateTo,
     );
   }
 

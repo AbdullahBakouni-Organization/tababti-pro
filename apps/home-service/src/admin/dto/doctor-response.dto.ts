@@ -29,6 +29,7 @@ export class DoctorListItemDto {
   @ApiPropertyOptional() yearsOfExperience?: number;
   @ApiPropertyOptional() inspectionPrice?: number;
   @ApiPropertyOptional() inspectionDuration?: number;
+  @ApiPropertyOptional() profileCompletionPercentage?: number;
   @ApiPropertyOptional() bio?: string;
   @ApiPropertyOptional() address?: string;
   @ApiPropertyOptional({ type: [DoctorPhoneDto] }) phones?: DoctorPhoneDto[];

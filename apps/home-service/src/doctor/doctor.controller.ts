@@ -1420,6 +1420,8 @@ export class DoctorController {
     };
   }
 
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR, UserRole.ADMIN)
   @Get('search')
   async searchDoctors(@Query() dto: SearchDoctorsDto) {
     return this.DoctorServiceV2.searchDoctorsByName(dto);

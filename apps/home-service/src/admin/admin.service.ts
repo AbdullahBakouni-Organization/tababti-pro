@@ -682,11 +682,16 @@ export class AdminService {
   async getAllPendingGalleryImages(
     page: number = 1,
     limit: number = 20,
+    dateFrom?: string, // ← أضف هذا
+    dateTo?: string, // ← أضف هذا
   ): Promise<{
     gallery: {
       data: Array<{
         doctorId: string;
         doctorName: string;
+        doctorImage: string; // ← أضف
+        publicSpecialization: string; // ← أضف
+        privateSpecialization: string; // ← أضف
         image: GalleryImageWithStatus;
       }>;
     };
@@ -702,20 +707,35 @@ export class AdminService {
     this.logger.log(
       `Fetching pending gallery images — page ${page}, limit ${limit}`,
     );
-
     const skip = (page - 1) * limit;
 
     const pipeline: any[] = [
       // Stage 1: only doctors that have at least one pending image
       { $match: { 'gallery.status': GalleryImageStatus.PENDING } },
-
       // Stage 2: flatten gallery array — one doc per image
       { $unwind: '$gallery' },
-
       // Stage 3: keep only pending images
       { $match: { 'gallery.status': GalleryImageStatus.PENDING } },
+    ];
 
-      // Stage 4: shape the output
+    // Stage 4: filter by uploadedAt date range  ← أضف هذا
+    if (dateFrom || dateTo) {
+      const dateMatch: any = {};
+      if (dateFrom) {
+        const from = new Date(dateFrom);
+        from.setHours(0, 0, 0, 0);
+        dateMatch.$gte = from;
+      }
+      if (dateTo) {
+        const to = new Date(dateTo);
+        to.setHours(23, 59, 59, 999);
+        dateMatch.$lte = to;
+      }
+      pipeline.push({ $match: { 'gallery.uploadedAt': dateMatch } });
+    }
+
+    pipeline.push(
+      // Stage 5: shape the output
       {
         $project: {
           _id: 0,
@@ -725,13 +745,15 @@ export class AdminService {
               input: { $concat: ['$firstName', ' ', '$lastName'] },
             },
           },
+          doctorImage: '$image', // ← أضف
+          publicSpecialization: '$publicSpecialization', // ← أضف
+          privateSpecialization: '$privateSpecialization', // ← أضف
           image: '$gallery',
         },
       },
-
-      // Stage 5: stable sort (newest uploaded first)
+      // Stage 6: stable sort (newest uploaded first)
       { $sort: { 'image.uploadedAt': -1 } },
-    ];
+    );
 
     // Count total before pagination
     const countResult = await this.doctorModel.aggregate([
@@ -745,7 +767,6 @@ export class AdminService {
     pipeline.push({ $limit: limit });
 
     const data = await this.doctorModel.aggregate(pipeline);
-
     const totalPages = Math.ceil(totalItems / limit);
 
     return {
@@ -772,11 +793,29 @@ export class AdminService {
 
     const pipeline: any[] = [];
 
+    // ==================== FILTERS ====================
+
     if (filters.status) {
       pipeline.push({ $match: { status: filters.status } });
     }
 
-    // Stage: Filter by doctor name requires fetching matching doctorIds first
+    // Filter by date range
+    if (filters.dateFrom || filters.dateTo) {
+      const dateMatch: any = {};
+      if (filters.dateFrom) {
+        const from = new Date(filters.dateFrom);
+        from.setHours(0, 0, 0, 0);
+        dateMatch.$gte = from;
+      }
+      if (filters.dateTo) {
+        const to = new Date(filters.dateTo);
+        to.setHours(23, 59, 59, 999);
+        dateMatch.$lte = to;
+      }
+      pipeline.push({ $match: { createdAt: dateMatch } });
+    }
+
+    // Filter by doctor name requires fetching matching doctorIds first
     if (filters.doctorName) {
       const searchRegex = this.buildDoctorNameRegex(filters.doctorName);
       const matchingDoctors = await this.doctorModel
@@ -785,46 +824,51 @@ export class AdminService {
         })
         .select('authAccountId')
         .lean();
-
       const matchingIds = matchingDoctors.map((d) => d.authAccountId);
       pipeline.push({ $match: { authorId: { $in: matchingIds } } });
     }
 
     pipeline.push({ $sort: { createdAt: -1 } });
 
-    // Count before pagination
+    // ==================== COUNT ====================
+
     const countPipeline = [...pipeline, { $count: 'total' }];
     const countResult = await this.postModel.aggregate(countPipeline);
     const totalItems = countResult[0]?.total || 0;
+
+    // ==================== PAGINATION ====================
 
     pipeline.push({ $skip: skip });
     pipeline.push({ $limit: limit });
 
     const posts = await this.postModel.aggregate(pipeline);
 
-    // Collect unique authorIds from the page result
+    // ==================== DOCTOR ENRICHMENT ====================
+
     const authorIds = [
       ...new Set(posts.map((p) => p.authorId?.toString()).filter(Boolean)),
     ];
 
-    // Fetch matching doctors in one query from their own DB/model
+    // ↓ أضفنا publicSpecialization و privateSpecialization هنا
     const doctors = await this.doctorModel
       .find({
         authAccountId: { $in: authorIds.map((id) => new Types.ObjectId(id)) },
       })
-      .select('firstName lastName image authAccountId')
+      .select(
+        'firstName lastName image authAccountId publicSpecialization privateSpecialization',
+      )
       .lean();
 
-    // Build a lookup map for O(1) access
     const doctorMap = new Map(
       doctors.map((d) => [d.authAccountId.toString(), d]),
     );
 
-    // Transform posts, injecting doctor info manually
     const postDtos = posts.map((post) => {
       const doctor = doctorMap.get(post.authorId?.toString());
       return this.transformToPostDto({ ...post, doctorInfo: doctor ?? null });
     });
+
+    // ==================== RESPONSE ====================
 
     const totalPages = Math.ceil(totalItems / limit);
     const summary = await this.getPostsSummary();
@@ -1017,9 +1061,27 @@ export class AdminService {
     const skip = (page - 1) * limit;
 
     const matchStage: any = {};
+
     if (filters.approvalStatus as ApprovalStatus) {
       matchStage.approvalStatus = filters.approvalStatus;
     }
+
+    // ==================== DATE FILTER ====================
+    if (filters.dateFrom || filters.dateTo) {
+      const dateMatch: any = {};
+      if (filters.dateFrom) {
+        const from = new Date(filters.dateFrom);
+        from.setHours(0, 0, 0, 0);
+        dateMatch.$gte = from;
+      }
+      if (filters.dateTo) {
+        const to = new Date(filters.dateTo);
+        to.setHours(23, 59, 59, 999);
+        dateMatch.$lte = to;
+      }
+      matchStage.createdAt = dateMatch;
+    }
+    // =====================================================
 
     const pipeline: any[] = [
       { $match: matchStage },
@@ -1038,21 +1100,41 @@ export class AdminService {
     const totalItems = countResult[0]?.total || 0;
     const totalPages = Math.ceil(totalItems / limit);
 
+    // ==================== USER ENRICHMENT ====================
+    const userIds = [
+      ...new Set(questions.map((q) => q.userId?.toString()).filter(Boolean)),
+    ];
+
+    const users = await this.patientModel
+      .find({
+        _id: { $in: userIds.map((id) => new Types.ObjectId(id)) },
+      })
+      .select('username profileImage')
+      .lean();
+
+    const userMap = new Map(users.map((u) => [u._id.toString(), u]));
+    // =========================================================
+
     return {
       questions: {
-        data: questions.map((q) => ({
-          questionId: q._id.toString(),
-          userId: q.userId?.toString(),
-          content: q.content,
-          images: q.images || [],
-          specializationIds:
-            q.specializationId?.map((id) => id.toString()) || [],
-          approvalStatus: q.approvalStatus,
-          hasText: q.hasText,
-          hasImages: q.hasImages,
-          createdAt: q.createdAt,
-          rejectionReason: q.rejectionReason,
-        })),
+        data: questions.map((q) => {
+          const user = userMap.get(q.userId?.toString());
+          return {
+            questionId: q._id.toString(),
+            userId: q.userId?.toString(),
+            username: user?.username ?? null, // ← أضف
+            userImage: user?.profileImage ?? null, // ← أضف
+            content: q.content,
+            images: q.images || [],
+            specializationIds:
+              q.specializationId?.map((id) => id.toString()) || [],
+            approvalStatus: q.approvalStatus,
+            hasText: q.hasText,
+            hasImages: q.hasImages,
+            createdAt: q.createdAt,
+            rejectionReason: q.rejectionReason,
+          };
+        }),
       },
       meta: {
         currentPage: page,
@@ -1341,7 +1423,7 @@ export class AdminService {
    * Transform aggregation result to DTO
    */
   private transformToPostDto(post: any): PostWithDoctorDto {
-    const doctor = post.doctorInfo;
+    // const doctorInfo = post.doctorInfo;
 
     return {
       postId: post._id.toString(),
@@ -1349,15 +1431,19 @@ export class AdminService {
       title: post.title,
       images: post.images || [],
       status: post.status,
-      doctor: {
-        doctorId: doctor?._id.toString(),
-        fullName: `${doctor?.firstName || ''} ${doctor?.lastName || ''}`.trim(),
-        image: doctor?.image,
-      },
+      doctorInfo: post.doctorInfo
+        ? {
+            fullName: `${post.doctorInfo.firstName} ${post.doctorInfo.lastName}`,
+            image: post.doctorInfo.image ?? null,
+            publicSpecialization: post.doctorInfo.publicSpecialization ?? null,
+            privateSpecialization:
+              post.doctorInfo.privateSpecialization ?? null,
+          }
+        : undefined,
       createdAt: post.createdAt,
       rejectionReason: post.rejectionReason,
       adminNotes: post.adminNotes,
-    };
+    } as PostWithDoctorDto;
   }
   async getDoctors(
     filters: GetDoctorsFilterDto,
@@ -1375,11 +1461,9 @@ export class AdminService {
     if (filters.status) {
       matchStage.status = filters.status;
     }
-
     if (filters.gender) {
       matchStage.gender = filters.gender;
     }
-
     if (filters.city) {
       matchStage.city = { $regex: filters.city, $options: 'i' };
     }
@@ -1392,14 +1476,12 @@ export class AdminService {
         $options: 'i',
       };
     }
-
     if (filters.privateSpecialization) {
       matchStage.privateSpecialization = {
         $regex: filters.privateSpecialization,
         $options: 'i',
       };
     }
-
     if (filters.name) {
       const searchRegex = this.buildDoctorNameRegex(filters.name);
       matchStage.$or = [
@@ -1420,10 +1502,63 @@ export class AdminService {
       ];
     }
 
+    // ==================== PROFILE COMPLETION ====================
+    // Adjust these fields to match your actual Doctor schema
+    const profileFields = [
+      '$firstName',
+      '$middleName',
+      '$lastName',
+      '$gender',
+      '$city',
+      '$subCity',
+      '$publicSpecialization',
+      '$privateSpecialization',
+      '$image',
+      '$phones',
+      '$bio',
+      '$dateOfBirth',
+      '$inspectionDuration',
+      '$inspectionPrice',
+      '$experienceStartDate',
+      '$yearsOfExperience',
+      '$workingHours',
+    ];
+
+    const totalFields = profileFields.length;
+
+    const completionFields = profileFields.map((field) => ({
+      $cond: [{ $gt: [field, null] }, 1, 0],
+    }));
+    // ============================================================
+
     const pipeline: any[] = [
       { $match: matchStage },
       { $sort: { createdAt: -1 } },
+      {
+        $addFields: {
+          profileCompletionScore: {
+            $add: completionFields,
+          },
+        },
+      },
+      {
+        $addFields: {
+          profileCompletionPercentage: {
+            $round: [
+              {
+                $multiply: [
+                  { $divide: ['$profileCompletionScore', totalFields] },
+                  100,
+                ],
+              },
+              1,
+            ],
+          },
+        },
+      },
     ];
+
+    console.log(matchStage);
 
     const [countResult, doctors] = await Promise.all([
       this.doctorModel.aggregate([...pipeline, { $count: 'total' }]),
@@ -1451,6 +1586,7 @@ export class AdminService {
             registeredAt: 1,
             lastLoginAt: 1,
             createdAt: 1,
+            profileCompletionPercentage: 1,
           },
         },
       ]),
@@ -1488,6 +1624,7 @@ export class AdminService {
       subcity: doctor.subcity,
       publicSpecialization: doctor.publicSpecialization,
       privateSpecialization: doctor.privateSpecialization,
+      profileCompletionPercentage: doctor.profileCompletionPercentage ?? 0,
       image: doctor.image,
       phones: doctor.phones || [],
       isSubscribed: doctor.isSubscribed,

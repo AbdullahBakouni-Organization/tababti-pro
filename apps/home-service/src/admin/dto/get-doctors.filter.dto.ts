@@ -6,8 +6,8 @@ import {
   ApprovalStatus,
   City,
   Gender,
+  GeneralSpecialty,
 } from '@app/common/database/schemas/common.enums';
-import { SubCities } from '@app/common/database/schemas/sub-cities.schema';
 
 export class GetDoctorsFilterDto {
   @ApiPropertyOptional({ default: 1 })
@@ -37,11 +37,11 @@ export class GetDoctorsFilterDto {
   name?: string;
 
   @ApiPropertyOptional({
-    description: 'Filter by public specialization string',
+    enum: GeneralSpecialty,
   })
   @IsOptional()
-  @IsString()
-  publicSpecialization?: string;
+  @IsEnum(GeneralSpecialty)
+  publicSpecialization?: GeneralSpecialty;
 
   @ApiPropertyOptional({
     description: 'Filter by private specialization string',
@@ -55,10 +55,12 @@ export class GetDoctorsFilterDto {
   @IsEnum(City)
   city?: City;
 
-  @ApiPropertyOptional({ enum: SubCities })
+  @ApiPropertyOptional({
+    description: 'Filter by subCities',
+  })
   @IsOptional()
-  @IsEnum(SubCities)
-  subCity?: SubCities;
+  @IsString()
+  subCity?: string;
 
   @ApiPropertyOptional({ enum: Gender })
   @IsOptional()

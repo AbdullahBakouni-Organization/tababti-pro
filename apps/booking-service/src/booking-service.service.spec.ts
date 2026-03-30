@@ -19,6 +19,7 @@ import {
   BookingStatus,
   SlotStatus,
 } from '@app/common/database/schemas/common.enums';
+import { invalidateBookingCaches } from '@app/common/utils/cache-invalidation.util';
 
 // Mock the cache-invalidation utility
 jest.mock('@app/common/utils/cache-invalidation.util', () => ({
@@ -62,12 +63,15 @@ describe('BookingService', () => {
     _id: new Types.ObjectId(doctorId),
     inspectionPrice: 2500,
   };
+  const mockBookingId = new Types.ObjectId();
   const mockBooking = {
-    _id: new Types.ObjectId(),
+    _id: mockBookingId,
     status: BookingStatus.PENDING,
   };
 
   beforeEach(async () => {
+    jest.clearAllMocks();
+
     bookingModel = createMockModel();
     slotModel = createMockModel();
     userModel = createMockModel();
@@ -77,8 +81,10 @@ describe('BookingService', () => {
       validateBooking: jest.fn().mockResolvedValue({ canBook: true }),
     };
 
-    mockSession.commitTransaction.mockResolvedValue(undefined);
-    mockSession.abortTransaction.mockResolvedValue(undefined);
+    mockSession.startTransaction.mockClear();
+    mockSession.commitTransaction.mockReset().mockResolvedValue(undefined);
+    mockSession.abortTransaction.mockReset().mockResolvedValue(undefined);
+    mockSession.endSession.mockReset().mockResolvedValue(undefined);
 
     // Inject db.startSession into bookingModel
     (bookingModel as any).db = {
@@ -107,37 +113,52 @@ describe('BookingService', () => {
     expect(service).toBeDefined();
   });
 
+  // ─── Helper to set up happy-path mocks ──────────────────────────────────
+
+  function setupHappyPathMocks(
+    overrides: {
+      slot?: Record<string, unknown>;
+      doctor?: Record<string, unknown>;
+    } = {},
+  ) {
+    const slot = { ...mockSlot, ...overrides.slot };
+    const doctor = { ...mockDoctor, ...overrides.doctor };
+
+    slotModel.findById.mockReturnValue({
+      exec: jest.fn().mockResolvedValue(slot),
+    });
+    userModel.findById.mockReturnValue({
+      session: jest.fn().mockReturnThis(),
+      exec: jest.fn().mockResolvedValue(mockPatient),
+    });
+    doctorModel.findById.mockReturnValue({
+      session: jest.fn().mockReturnThis(),
+      exec: jest.fn().mockResolvedValue(doctor),
+    });
+    slotModel.findOneAndUpdate.mockReturnValue({
+      exec: jest.fn().mockResolvedValue(slot),
+    });
+    bookingModel.findOne.mockReturnValue({
+      session: jest.fn().mockReturnThis(),
+      exec: jest.fn().mockResolvedValue(null),
+    });
+    bookingModel.create.mockResolvedValue([mockBooking]);
+  }
+
   // ─── Happy path ───────────────────────────────────────────────────────────
 
-  describe('createBooking() — success', () => {
-    const dto = { doctorId, slotId, createdBy: 'patient', note: '' };
+  describe('createBooking() - success', () => {
+    const dto = { doctorId, slotId, createdBy: 'patient', note: 'First visit' };
 
     beforeEach(() => {
-      slotModel.findById.mockReturnValue({
-        exec: jest.fn().mockResolvedValue(mockSlot),
-      });
-      userModel.findById.mockReturnValue({
-        session: jest.fn().mockReturnThis(),
-        exec: jest.fn().mockResolvedValue(mockPatient),
-      });
-      doctorModel.findById.mockReturnValue({
-        session: jest.fn().mockReturnThis(),
-        exec: jest.fn().mockResolvedValue(mockDoctor),
-      });
-      slotModel.findOneAndUpdate.mockReturnValue({
-        exec: jest.fn().mockResolvedValue(mockSlot),
-      });
-      bookingModel.findOne.mockReturnValue({
-        session: jest.fn().mockReturnThis(),
-        exec: jest.fn().mockResolvedValue(null),
-      });
-      bookingModel.create.mockResolvedValue([mockBooking]);
+      setupHappyPathMocks();
     });
 
     it('creates booking and returns success response', async () => {
       const result = await service.createBooking(dto as any, patientId);
 
       expect(result.success).toBe(true);
+      expect(result.message).toContain('Booking created successfully');
       expect(bookingModel.create).toHaveBeenCalled();
       expect(mockSession.commitTransaction).toHaveBeenCalled();
     });
@@ -164,16 +185,97 @@ describe('BookingService', () => {
       );
     });
 
+    it('passes correct booking fields to create', async () => {
+      await service.createBooking(dto as any, patientId);
+
+      const createArgs = bookingModel.create.mock.calls[0][0][0];
+      expect(createArgs).toEqual(
+        expect.objectContaining({
+          patientId: expect.any(Types.ObjectId),
+          doctorId: expect.any(Types.ObjectId),
+          slotId: expect.any(Types.ObjectId),
+          status: BookingStatus.PENDING,
+          bookingDate: mockSlot.date,
+          bookingTime: mockSlot.startTime,
+          bookingEndTime: mockSlot.endTime,
+          location: mockSlot.location,
+          price: mockSlot.price,
+          createdBy: 'patient',
+          note: 'First visit',
+        }),
+      );
+    });
+
     it('commits transaction on success', async () => {
       await service.createBooking(dto as any, patientId);
       expect(mockSession.commitTransaction).toHaveBeenCalled();
       expect(mockSession.abortTransaction).not.toHaveBeenCalled();
     });
+
+    it('always ends session even on success', async () => {
+      await service.createBooking(dto as any, patientId);
+      expect(mockSession.endSession).toHaveBeenCalled();
+    });
+
+    it('calls invalidateBookingCaches with correct args after commit', async () => {
+      await service.createBooking(dto as any, patientId);
+
+      expect(invalidateBookingCaches).toHaveBeenCalledWith(
+        cacheService,
+        doctorId,
+        patientId,
+        expect.anything(), // logger
+      );
+    });
+
+    it('uses slot.price when available', async () => {
+      setupHappyPathMocks({ slot: { price: 3000 } });
+      await service.createBooking(dto as any, patientId);
+
+      const createArgs = bookingModel.create.mock.calls[0][0][0];
+      expect(createArgs.price).toBe(3000);
+    });
+
+    it('falls back to doctor.inspectionPrice when slot.price is falsy', async () => {
+      setupHappyPathMocks({
+        slot: { price: 0 },
+        doctor: { inspectionPrice: 1500 },
+      });
+      await service.createBooking(dto as any, patientId);
+
+      const createArgs = bookingModel.create.mock.calls[0][0][0];
+      expect(createArgs.price).toBe(1500);
+    });
+
+    it('falls back to 0 when both slot.price and doctor.inspectionPrice are falsy', async () => {
+      setupHappyPathMocks({
+        slot: { price: 0 },
+        doctor: { inspectionPrice: 0 },
+      });
+      await service.createBooking(dto as any, patientId);
+
+      const createArgs = bookingModel.create.mock.calls[0][0][0];
+      expect(createArgs.price).toBe(0);
+    });
+
+    it('reserves slot with atomic findOneAndUpdate using AVAILABLE status', async () => {
+      await service.createBooking(dto as any, patientId);
+
+      expect(slotModel.findOneAndUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          _id: expect.any(Types.ObjectId),
+          doctorId: expect.any(Types.ObjectId),
+          status: SlotStatus.AVAILABLE,
+        }),
+        { $set: { status: SlotStatus.BOOKED } },
+        { new: true, session: mockSession },
+      );
+    });
   });
 
   // ─── Input validation ─────────────────────────────────────────────────────
 
-  describe('createBooking() — input validation', () => {
+  describe('createBooking() - input validation', () => {
     it('throws BadRequestException for invalid doctorId', async () => {
       await expect(
         service.createBooking({ doctorId: 'bad-id', slotId } as any, patientId),
@@ -210,6 +312,20 @@ describe('BookingService', () => {
       ).rejects.toThrow(ForbiddenException);
     });
 
+    it('includes validation reason in ForbiddenException message', async () => {
+      slotModel.findById.mockReturnValue({
+        exec: jest.fn().mockResolvedValue(mockSlot),
+      });
+      bookingValidationService.validateBooking.mockResolvedValue({
+        canBook: false,
+        reason: 'Max bookings per day exceeded',
+      });
+
+      await expect(
+        service.createBooking({ doctorId, slotId } as any, patientId),
+      ).rejects.toThrow('Max bookings per day exceeded');
+    });
+
     it('throws NotFoundException when patient does not exist', async () => {
       slotModel.findById.mockReturnValue({
         exec: jest.fn().mockResolvedValue(mockSlot),
@@ -222,6 +338,20 @@ describe('BookingService', () => {
       await expect(
         service.createBooking({ doctorId, slotId } as any, patientId),
       ).rejects.toThrow(NotFoundException);
+    });
+
+    it('throws NotFoundException with patient ID in message', async () => {
+      slotModel.findById.mockReturnValue({
+        exec: jest.fn().mockResolvedValue(mockSlot),
+      });
+      userModel.findById.mockReturnValue({
+        session: jest.fn().mockReturnThis(),
+        exec: jest.fn().mockResolvedValue(null),
+      });
+
+      await expect(
+        service.createBooking({ doctorId, slotId } as any, patientId),
+      ).rejects.toThrow(patientId);
     });
 
     it('throws NotFoundException when doctor does not exist', async () => {
@@ -241,11 +371,29 @@ describe('BookingService', () => {
         service.createBooking({ doctorId, slotId } as any, patientId),
       ).rejects.toThrow(NotFoundException);
     });
+
+    it('throws NotFoundException with doctor ID in message', async () => {
+      slotModel.findById.mockReturnValue({
+        exec: jest.fn().mockResolvedValue(mockSlot),
+      });
+      userModel.findById.mockReturnValue({
+        session: jest.fn().mockReturnThis(),
+        exec: jest.fn().mockResolvedValue(mockPatient),
+      });
+      doctorModel.findById.mockReturnValue({
+        session: jest.fn().mockReturnThis(),
+        exec: jest.fn().mockResolvedValue(null),
+      });
+
+      await expect(
+        service.createBooking({ doctorId, slotId } as any, patientId),
+      ).rejects.toThrow(doctorId);
+    });
   });
 
   // ─── Transaction & race condition handling ────────────────────────────────
 
-  describe('createBooking() — transactions & race conditions', () => {
+  describe('createBooking() - transactions & race conditions', () => {
     const dto = { doctorId, slotId } as any;
 
     it('aborts transaction and rethrows on any error', async () => {
@@ -265,6 +413,21 @@ describe('BookingService', () => {
         'DB connection lost',
       );
       expect(mockSession.abortTransaction).toHaveBeenCalled();
+    });
+
+    it('always ends session even on error', async () => {
+      slotModel.findById.mockReturnValue({
+        exec: jest.fn().mockResolvedValue(mockSlot),
+      });
+      userModel.findById.mockReturnValue({
+        session: jest.fn().mockReturnThis(),
+        exec: jest.fn().mockRejectedValue(new Error('boom')),
+      });
+
+      await expect(service.createBooking(dto, patientId)).rejects.toThrow(
+        'boom',
+      );
+      expect(mockSession.endSession).toHaveBeenCalled();
     });
 
     it('throws ConflictException on duplicate booking (same time)', async () => {
@@ -293,14 +456,41 @@ describe('BookingService', () => {
       );
     });
 
-    it('throws ConflictException when slot was grabbed concurrently', async () => {
+    it('duplicate booking error includes descriptive message', async () => {
+      slotModel.findById.mockReturnValue({
+        exec: jest.fn().mockResolvedValue(mockSlot),
+      });
+      userModel.findById.mockReturnValue({
+        session: jest.fn().mockReturnThis(),
+        exec: jest.fn().mockResolvedValue(mockPatient),
+      });
+      doctorModel.findById.mockReturnValue({
+        session: jest.fn().mockReturnThis(),
+        exec: jest.fn().mockResolvedValue(mockDoctor),
+      });
+      slotModel.findOneAndUpdate.mockReturnValue({
+        exec: jest.fn().mockResolvedValue(mockSlot),
+      });
+      bookingModel.findOne.mockReturnValue({
+        session: jest.fn().mockReturnThis(),
+        exec: jest.fn().mockResolvedValue(mockBooking),
+      });
+
+      await expect(service.createBooking(dto, patientId)).rejects.toThrow(
+        'You already have a booking with this doctor at this time',
+      );
+    });
+
+    it('throws ConflictException when slot was grabbed concurrently (already booked)', async () => {
+      const bookedSlot = { ...mockSlot, status: SlotStatus.BOOKED };
+
       slotModel.findById
-        .mockReturnValueOnce({ exec: jest.fn().mockResolvedValue(mockSlot) }) // pre-transaction check
+        .mockReturnValueOnce({
+          exec: jest.fn().mockResolvedValue(mockSlot),
+        }) // pre-transaction check
         .mockReturnValue({
           session: jest.fn().mockReturnThis(),
-          exec: jest
-            .fn()
-            .mockResolvedValue({ ...mockSlot, status: SlotStatus.BOOKED }),
+          exec: jest.fn().mockResolvedValue(bookedSlot),
         });
 
       userModel.findById.mockReturnValue({
@@ -311,7 +501,7 @@ describe('BookingService', () => {
         session: jest.fn().mockReturnThis(),
         exec: jest.fn().mockResolvedValue(mockDoctor),
       });
-      // Atomic update returns null — slot was grabbed
+      // Atomic update returns null -- slot was grabbed
       slotModel.findOneAndUpdate.mockReturnValue({
         exec: jest.fn().mockResolvedValue(null),
       });
@@ -319,6 +509,178 @@ describe('BookingService', () => {
       await expect(service.createBooking(dto, patientId)).rejects.toThrow(
         ConflictException,
       );
+    });
+
+    it('throws NotFoundException when slot disappears during reserveSlot', async () => {
+      slotModel.findById
+        .mockReturnValueOnce({
+          exec: jest.fn().mockResolvedValue(mockSlot),
+        }) // pre-transaction check
+        .mockReturnValue({
+          session: jest.fn().mockReturnThis(),
+          exec: jest.fn().mockResolvedValue(null),
+        }); // slot deleted between checks
+
+      userModel.findById.mockReturnValue({
+        session: jest.fn().mockReturnThis(),
+        exec: jest.fn().mockResolvedValue(mockPatient),
+      });
+      doctorModel.findById.mockReturnValue({
+        session: jest.fn().mockReturnThis(),
+        exec: jest.fn().mockResolvedValue(mockDoctor),
+      });
+      slotModel.findOneAndUpdate.mockReturnValue({
+        exec: jest.fn().mockResolvedValue(null),
+      });
+
+      await expect(service.createBooking(dto, patientId)).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('includes slot ID in NotFoundException message when slot disappears', async () => {
+      slotModel.findById
+        .mockReturnValueOnce({
+          exec: jest.fn().mockResolvedValue(mockSlot),
+        })
+        .mockReturnValue({
+          session: jest.fn().mockReturnThis(),
+          exec: jest.fn().mockResolvedValue(null),
+        });
+
+      userModel.findById.mockReturnValue({
+        session: jest.fn().mockReturnThis(),
+        exec: jest.fn().mockResolvedValue(mockPatient),
+      });
+      doctorModel.findById.mockReturnValue({
+        session: jest.fn().mockReturnThis(),
+        exec: jest.fn().mockResolvedValue(mockDoctor),
+      });
+      slotModel.findOneAndUpdate.mockReturnValue({
+        exec: jest.fn().mockResolvedValue(null),
+      });
+
+      await expect(service.createBooking(dto, patientId)).rejects.toThrow(
+        `Slot with ID ${slotId} not found`,
+      );
+    });
+
+    it('throws BadRequestException when slot belongs to a different doctor', async () => {
+      const otherDoctorId = new Types.ObjectId();
+      const slotWithOtherDoctor = {
+        ...mockSlot,
+        status: SlotStatus.AVAILABLE,
+        doctorId: otherDoctorId,
+      };
+
+      slotModel.findById
+        .mockReturnValueOnce({
+          exec: jest.fn().mockResolvedValue(mockSlot),
+        }) // pre-transaction
+        .mockReturnValue({
+          session: jest.fn().mockReturnThis(),
+          exec: jest.fn().mockResolvedValue(slotWithOtherDoctor),
+        });
+
+      userModel.findById.mockReturnValue({
+        session: jest.fn().mockReturnThis(),
+        exec: jest.fn().mockResolvedValue(mockPatient),
+      });
+      doctorModel.findById.mockReturnValue({
+        session: jest.fn().mockReturnThis(),
+        exec: jest.fn().mockResolvedValue(mockDoctor),
+      });
+      slotModel.findOneAndUpdate.mockReturnValue({
+        exec: jest.fn().mockResolvedValue(null),
+      });
+
+      await expect(service.createBooking(dto, patientId)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('includes doctor ID in error when slot belongs to different doctor', async () => {
+      const otherDoctorId = new Types.ObjectId();
+      const slotWithOtherDoctor = {
+        ...mockSlot,
+        status: SlotStatus.AVAILABLE,
+        doctorId: otherDoctorId,
+      };
+
+      slotModel.findById
+        .mockReturnValueOnce({
+          exec: jest.fn().mockResolvedValue(mockSlot),
+        })
+        .mockReturnValue({
+          session: jest.fn().mockReturnThis(),
+          exec: jest.fn().mockResolvedValue(slotWithOtherDoctor),
+        });
+
+      userModel.findById.mockReturnValue({
+        session: jest.fn().mockReturnThis(),
+        exec: jest.fn().mockResolvedValue(mockPatient),
+      });
+      doctorModel.findById.mockReturnValue({
+        session: jest.fn().mockReturnThis(),
+        exec: jest.fn().mockResolvedValue(mockDoctor),
+      });
+      slotModel.findOneAndUpdate.mockReturnValue({
+        exec: jest.fn().mockResolvedValue(null),
+      });
+
+      await expect(service.createBooking(dto, patientId)).rejects.toThrow(
+        `Slot does not belong to doctor ${doctorId}`,
+      );
+    });
+
+    it('does not call invalidateBookingCaches when transaction fails', async () => {
+      slotModel.findById.mockReturnValue({
+        exec: jest.fn().mockResolvedValue(mockSlot),
+      });
+      userModel.findById.mockReturnValue({
+        session: jest.fn().mockReturnThis(),
+        exec: jest.fn().mockRejectedValue(new Error('fail')),
+      });
+
+      await expect(service.createBooking(dto, patientId)).rejects.toThrow();
+      expect(invalidateBookingCaches).not.toHaveBeenCalled();
+    });
+
+    it('does not commit transaction when booking create fails', async () => {
+      setupHappyPathMocks();
+      bookingModel.create.mockRejectedValue(new Error('Write concern error'));
+
+      await expect(service.createBooking(dto, patientId)).rejects.toThrow(
+        'Write concern error',
+      );
+      expect(mockSession.commitTransaction).not.toHaveBeenCalled();
+      expect(mockSession.abortTransaction).toHaveBeenCalled();
+    });
+  });
+
+  // ─── Duplicate booking query validation ──────────────────────────────────
+
+  describe('createBooking() - duplicate booking check', () => {
+    const dto = { doctorId, slotId, createdBy: 'patient' } as any;
+
+    it('queries for PENDING and CONFIRMED statuses only', async () => {
+      setupHappyPathMocks();
+      await service.createBooking(dto, patientId);
+
+      expect(bookingModel.findOne).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: { $in: [BookingStatus.PENDING, BookingStatus.CONFIRMED] },
+        }),
+      );
+    });
+
+    it('queries with correct patient and doctor IDs', async () => {
+      setupHappyPathMocks();
+      await service.createBooking(dto, patientId);
+
+      const findOneArgs = bookingModel.findOne.mock.calls[0][0];
+      expect(findOneArgs.patientId.toString()).toBe(patientId);
+      expect(findOneArgs.doctorId.toString()).toBe(doctorId);
     });
   });
 });

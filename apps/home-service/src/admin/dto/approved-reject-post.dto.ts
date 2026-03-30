@@ -1,4 +1,12 @@
-import { IsOptional, IsString, IsEnum, IsInt, Min, Max } from 'class-validator';
+import {
+  IsOptional,
+  IsString,
+  IsEnum,
+  IsInt,
+  Min,
+  Max,
+  IsDateString,
+} from 'class-validator';
 import { ApiPropertyOptional, ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { PostStatus } from '@app/common/database/schemas/common.enums';
@@ -47,6 +55,22 @@ export class GetPostsFilterDto {
   @Min(1)
   @Max(100)
   limit?: number = 20;
+
+  @ApiPropertyOptional({
+    description: 'Filter posts from this date (YYYY-MM-DD)',
+    example: '2026-01-01',
+  })
+  @IsOptional()
+  @IsDateString()
+  dateFrom?: string;
+
+  @ApiPropertyOptional({
+    description: 'Filter posts to this date (YYYY-MM-DD)',
+    example: '2026-03-30',
+  })
+  @IsOptional()
+  @IsDateString()
+  dateTo?: string;
 }
 
 /**
@@ -137,10 +161,12 @@ export class PostWithDoctorDto {
   status: PostStatus;
 
   @ApiProperty({ description: 'Doctor information' })
-  doctor: {
+  doctorInfo: {
     doctorId: string;
     fullName: string;
     image?: string;
+    publicSpecialization: string;
+    privateSpecialization: string;
   };
 
   @ApiProperty({ description: 'Created at' })

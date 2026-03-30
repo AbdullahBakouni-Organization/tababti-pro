@@ -1,0 +1,131 @@
+name: PR Check
+
+on:
+  pull_request:
+    branches: [main, develop]
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────────────
+  # Quick PR validation — fail fast before heavier CI stages run
+  # ──────────────────────────────────────────────────────────────────────────
+  pr-guard:
+    name: PR Guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline
+
+      # ── Lint ────────────────────────────────────────────────────────────────
+      - name: Lint (fail on any warning)
+        run: npx eslint "{apps,libs}/**/*.ts" --max-warnings 0
+
+      # ── Type check ──────────────────────────────────────────────────────────
+      - name: TypeScript type check
+        run: npx tsc --noEmit -p tsconfig.json
+
+      # ── Unit tests + coverage enforcement ───────────────────────────────────
+      - name: Run unit tests with coverage
+        run: npm run test:cov -- --ci --forceExit --passWithNoTests
+        env:
+          NODE_ENV: test
+          FIREBASE_PROJECT_ID: test-project
+          FIREBASE_CLIENT_EMAIL: test@test-project.iam.gserviceaccount.com
+          FIREBASE_PRIVATE_KEY: '-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA0Z3VS5JJcds3xHn/ygWep4OF7+E=\n-----END RSA PRIVATE KEY-----'
+
+      # ── Coverage report as PR comment ────────────────────────────────────────
+      - name: Post coverage summary
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = 'coverage/coverage-summary.json';
+            if (!fs.existsSync(path)) {
+              console.log('No coverage summary found, skipping comment.');
+              return;
+            }
+            const summary = JSON.parse(fs.readFileSync(path, 'utf8'));
+            const total = summary.total;
+            const fmt = (v) => `${v.pct.toFixed(1)}% (${v.covered}/${v.total})`;
+            const threshold = { statements: 90, branches: 85, functions: 90, lines: 90 };
+            const icon = (pct, min) => pct >= min ? '✅' : '❌';
+
+            const body = [
+              '## 📊 Coverage Report',
+              '',
+              '| Metric | Coverage | Threshold | Status |',
+              '|--------|----------|-----------|--------|',
+              `| Statements | ${fmt(total.statements)} | ${threshold.statements}% | ${icon(total.statements.pct, threshold.statements)} |`,
+              `| Branches   | ${fmt(total.branches)}   | ${threshold.branches}%   | ${icon(total.branches.pct, threshold.branches)} |`,
+              `| Functions  | ${fmt(total.functions)}  | ${threshold.functions}%  | ${icon(total.functions.pct, threshold.functions)} |`,
+              `| Lines      | ${fmt(total.lines)}      | ${threshold.lines}%      | ${icon(total.lines.pct, threshold.lines)} |`,
+            ].join('\n');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const existing = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes('📊 Coverage Report')
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pr-coverage-${{ github.event.pull_request.number }}
+          path: coverage/
+          retention-days: 3
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Conventional Commits check
+  # ──────────────────────────────────────────────────────────────────────────
+  commit-lint:
+    name: Commit Message Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check conventional commit format
+        uses: wagoid/commitlint-action@v5
+        with:
+          configFile: .commitlintrc.json
+        continue-on-error: true

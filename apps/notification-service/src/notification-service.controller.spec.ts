@@ -1,290 +1,462 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { getModelToken } from '@nestjs/mongoose';
 import { Types } from 'mongoose';
+import { NotificationServiceController } from './notification-service.controller';
 import { NotificationService } from './notification-service.service';
-import { Notification } from '@app/common/database/schemas/notification.schema';
-import { FcmService } from '@app/common/fcm';
-import { createMockFcmService, createMockModel } from '@app/common/testing';
-import {
-  NotificationStatus,
-  UserRole,
-} from '@app/common/database/schemas/common.enums';
+import { UserRole } from '@app/common/database/schemas/common.enums';
 
-describe('NotificationService', () => {
-  let service: NotificationService;
-  let fcmService: ReturnType<typeof createMockFcmService>;
-  let notificationModel: ReturnType<typeof createMockModel>;
+describe('NotificationServiceController', () => {
+  let controller: NotificationServiceController;
+  let notificationService: Record<string, jest.Mock>;
 
   const patientId = new Types.ObjectId().toString();
   const doctorId = new Types.ObjectId().toString();
   const bookingId = new Types.ObjectId().toString();
 
-  const baseEvent = {
-    data: {
-      patientId,
-      doctorId,
-      bookingId,
-      doctorName: 'Dr. Ahmad',
-      patientName: 'Ali Hassan',
-      fcmToken: 'test-fcm-token',
-      appointmentDate: new Date().toISOString(),
-      appointmentTime: '10:00',
-      reason: 'Doctor requested',
-      type: 'DOCTOR_CANCELLED' as const,
-    },
-  };
-
   beforeEach(async () => {
-    fcmService = createMockFcmService();
-    notificationModel = createMockModel();
-
-    notificationModel.create.mockResolvedValue({
-      _id: new Types.ObjectId(),
-      isRead: false,
-    });
+    notificationService = {
+      sendCancelledNotification: jest.fn().mockResolvedValue(undefined),
+      sendCancelledNotificationToDoctor: jest.fn().mockResolvedValue(undefined),
+      sendCompletedNotificationToPatient: jest.fn().mockResolvedValue(undefined),
+      sendRescheduledNotificationToPatient: jest
+        .fn()
+        .mockResolvedValue(undefined),
+      sendAdminApprovedPostNotification: jest
+        .fn()
+        .mockResolvedValue(undefined),
+      sendAdminRejectedPostNotification: jest
+        .fn()
+        .mockResolvedValue(undefined),
+      sendAdminApprovedGalleryNotification: jest
+        .fn()
+        .mockResolvedValue(undefined),
+      sendAdminRejectedGalleryNotification: jest
+        .fn()
+        .mockResolvedValue(undefined),
+      sendAdminApprovedUserQuestionsNotification: jest
+        .fn()
+        .mockResolvedValue(undefined),
+      sendAdminRejectedUserQuestionsNotification: jest
+        .fn()
+        .mockResolvedValue(undefined),
+      getUnreadNotifications: jest.fn().mockResolvedValue({
+        notifications: { data: [] },
+      }),
+      getUnreadCount: jest.fn().mockResolvedValue(3),
+      markAsRead: jest.fn().mockResolvedValue(undefined),
+      markAllAsRead: jest.fn().mockResolvedValue(undefined),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
+      controllers: [NotificationServiceController],
       providers: [
-        NotificationService,
-        { provide: FcmService, useValue: fcmService },
-        {
-          provide: getModelToken(Notification.name),
-          useValue: notificationModel,
-        },
+        { provide: NotificationService, useValue: notificationService },
       ],
     }).compile();
 
-    service = module.get<NotificationService>(NotificationService);
+    controller = module.get<NotificationServiceController>(
+      NotificationServiceController,
+    );
   });
 
   it('should be defined', () => {
-    expect(service).toBeDefined();
+    expect(controller).toBeDefined();
   });
 
-  // ─── sendCancelledNotification ────────────────────────────────────────────
+  // ─── Kafka Event Handlers ─────────────────────────────────────────────────
 
-  describe('sendCancelledNotification()', () => {
-    it('sends FCM and saves SENT record to database', async () => {
-      fcmService.sendBookingCancellationNotification.mockResolvedValue(true);
-
-      await service.sendCancelledNotification(baseEvent as any);
-
-      expect(
-        fcmService.sendBookingCancellationNotification,
-      ).toHaveBeenCalledWith('test-fcm-token', baseEvent.data);
-      expect(notificationModel.create).toHaveBeenCalledWith(
-        expect.objectContaining({ status: NotificationStatus.SENT }),
-      );
-    });
-
-    it('saves FAILED record when FCM returns false', async () => {
-      fcmService.sendBookingCancellationNotification.mockResolvedValue(false);
-
-      await service.sendCancelledNotification(baseEvent as any);
-
-      expect(notificationModel.create).toHaveBeenCalledWith(
-        expect.objectContaining({ status: NotificationStatus.FAILED }),
-      );
-    });
-
-    it('saves FAILED record to database even when FCM throws', async () => {
-      fcmService.sendBookingCancellationNotification.mockRejectedValue(
-        new Error('FCM service unavailable'),
-      );
-
-      await expect(
-        service.sendCancelledNotification(baseEvent as any),
-      ).resolves.not.toThrow();
-
-      expect(notificationModel.create).toHaveBeenCalledWith(
-        expect.objectContaining({ status: NotificationStatus.FAILED }),
-      );
-    });
-
-    it('saves notification with correct recipientType USER', async () => {
-      fcmService.sendBookingCancellationNotification.mockResolvedValue(true);
-
-      await service.sendCancelledNotification(baseEvent as any);
-
-      expect(notificationModel.create).toHaveBeenCalledWith(
-        expect.objectContaining({ recipientType: UserRole.USER }),
-      );
-    });
-  });
-
-  // ─── sendCancelledNotificationToDoctor ───────────────────────────────────
-
-  describe('sendCancelledNotificationToDoctor()', () => {
-    it('sends FCM to doctor and saves record with DOCTOR recipientType', async () => {
-      fcmService.sendBookingCancellationNotificationToDoctor.mockResolvedValue(
-        true,
-      );
-
-      await service.sendCancelledNotificationToDoctor(baseEvent as any);
-
-      expect(
-        fcmService.sendBookingCancellationNotificationToDoctor,
-      ).toHaveBeenCalled();
-      expect(notificationModel.create).toHaveBeenCalledWith(
-        expect.objectContaining({ recipientType: UserRole.DOCTOR }),
-      );
-    });
-
-    it('saves FAILED record when FCM throws', async () => {
-      fcmService.sendBookingCancellationNotificationToDoctor.mockRejectedValue(
-        new Error('FCM error'),
-      );
-
-      await expect(
-        service.sendCancelledNotificationToDoctor(baseEvent as any),
-      ).resolves.not.toThrow();
-
-      expect(notificationModel.create).toHaveBeenCalledWith(
-        expect.objectContaining({ status: NotificationStatus.FAILED }),
-      );
-    });
-  });
-
-  // ─── sendCompletedNotificationToPatient ──────────────────────────────────
-
-  describe('sendCompletedNotificationToPatient()', () => {
-    const completedEvent = {
+  describe('handleBookingCancelledNotification()', () => {
+    const event = {
       data: {
-        ...baseEvent.data,
-        notes: 'Take medication X',
-        type: 'BOOKING_COMPLETED',
+        patientId,
+        doctorId,
+        bookingId,
+        doctorName: 'Dr. Ahmad',
+        fcmToken: 'token',
+        appointmentDate: new Date().toISOString(),
+        appointmentTime: '10:00',
+        reason: 'Doctor unavailable',
+        type: 'DOCTOR_CANCELLED' as const,
       },
     };
 
-    it('sends FCM and saves SENT record', async () => {
-      fcmService.sendBookingCompletionNotification.mockResolvedValue(true);
+    it('delegates to notificationService.sendCancelledNotification', async () => {
+      await controller.handleBookingCancelledNotification(event as any);
 
-      await service.sendCompletedNotificationToPatient(completedEvent as any);
-
-      expect(fcmService.sendBookingCompletionNotification).toHaveBeenCalled();
-      expect(notificationModel.create).toHaveBeenCalledWith(
-        expect.objectContaining({ status: NotificationStatus.SENT }),
-      );
+      expect(
+        notificationService.sendCancelledNotification,
+      ).toHaveBeenCalledWith(event);
     });
 
-    it('saves FAILED record when FCM throws', async () => {
-      fcmService.sendBookingCompletionNotification.mockRejectedValue(
-        new Error('error'),
+    it('does not throw when service throws', async () => {
+      notificationService.sendCancelledNotification.mockRejectedValue(
+        new Error('service error'),
       );
 
       await expect(
-        service.sendCompletedNotificationToPatient(completedEvent as any),
+        controller.handleBookingCancelledNotification(event as any),
       ).resolves.not.toThrow();
-
-      expect(notificationModel.create).toHaveBeenCalledWith(
-        expect.objectContaining({ status: NotificationStatus.FAILED }),
-      );
     });
   });
 
-  // ─── sendAdminApprovedPostNotification ───────────────────────────────────
+  describe('handleBookingCancelledNotificationByUser()', () => {
+    const event = {
+      data: {
+        doctorId,
+        doctorName: 'Dr. Ahmad',
+        patientName: 'Ali',
+        fcmToken: 'token',
+        bookingId,
+        appointmentDate: new Date().toISOString(),
+        appointmentTime: '14:00',
+        reason: 'Patient request',
+        type: 'USER_CANCELLED' as const,
+      },
+    };
 
-  describe('sendAdminApprovedPostNotification()', () => {
-    const adminPostEvent = {
+    it('delegates to notificationService.sendCancelledNotificationToDoctor', async () => {
+      await controller.handleBookingCancelledNotificationByUser(event as any);
+
+      expect(
+        notificationService.sendCancelledNotificationToDoctor,
+      ).toHaveBeenCalledWith(event);
+    });
+
+    it('does not throw when service throws', async () => {
+      notificationService.sendCancelledNotificationToDoctor.mockRejectedValue(
+        new Error('service error'),
+      );
+
+      await expect(
+        controller.handleBookingCancelledNotificationByUser(event as any),
+      ).resolves.not.toThrow();
+    });
+  });
+
+  describe('handleBookingCompleted()', () => {
+    const event = {
+      data: {
+        patientId,
+        doctorId,
+        bookingId,
+        doctorName: 'Dr. Ahmad',
+        patientName: 'Ali',
+        fcmToken: 'token',
+        notes: 'All good',
+      },
+    };
+
+    it('delegates to notificationService.sendCompletedNotificationToPatient', async () => {
+      await controller.handleBookingCompleted(event as any);
+
+      expect(
+        notificationService.sendCompletedNotificationToPatient,
+      ).toHaveBeenCalledWith(event);
+    });
+
+    it('does not throw when service throws', async () => {
+      notificationService.sendCompletedNotificationToPatient.mockRejectedValue(
+        new Error('service error'),
+      );
+
+      await expect(
+        controller.handleBookingCompleted(event as any),
+      ).resolves.not.toThrow();
+    });
+  });
+
+  describe('handleBookingRescheduled()', () => {
+    const event = {
+      data: {
+        patientId,
+        doctorId,
+        bookingId,
+        doctorName: 'Dr. Ahmad',
+        patientName: 'Ali',
+        fcmToken: 'token',
+        reason: 'Schedule conflict',
+      },
+    };
+
+    it('delegates to notificationService.sendRescheduledNotificationToPatient', async () => {
+      await controller.handleBookingRescheduled(event as any);
+
+      expect(
+        notificationService.sendRescheduledNotificationToPatient,
+      ).toHaveBeenCalledWith(event);
+    });
+
+    it('does not throw when service throws', async () => {
+      notificationService.sendRescheduledNotificationToPatient.mockRejectedValue(
+        new Error('service error'),
+      );
+
+      await expect(
+        controller.handleBookingRescheduled(event as any),
+      ).resolves.not.toThrow();
+    });
+  });
+
+  describe('handleAdminApprovedPost()', () => {
+    const event = {
       data: {
         doctorId,
         doctorName: 'Dr. Ahmad',
         fcmToken: 'token',
         postId: new Types.ObjectId().toString(),
-        eventType: 'ADMIN_APPROVED_POST',
       },
     };
 
-    it('sends FCM and saves record with DOCTOR recipientType', async () => {
-      fcmService.sendAdminApprovedPostNotification.mockResolvedValue(true);
+    it('delegates to notificationService.sendAdminApprovedPostNotification', async () => {
+      await controller.handleAdminApprovedPost(event as any);
 
-      await service.sendAdminApprovedPostNotification(adminPostEvent as any);
+      expect(
+        notificationService.sendAdminApprovedPostNotification,
+      ).toHaveBeenCalledWith(event);
+    });
 
-      expect(fcmService.sendAdminApprovedPostNotification).toHaveBeenCalled();
-      expect(notificationModel.create).toHaveBeenCalledWith(
-        expect.objectContaining({ recipientType: UserRole.DOCTOR }),
+    it('does not throw when service throws', async () => {
+      notificationService.sendAdminApprovedPostNotification.mockRejectedValue(
+        new Error('service error'),
       );
+
+      await expect(
+        controller.handleAdminApprovedPost(event as any),
+      ).resolves.not.toThrow();
     });
   });
 
-  // ─── getUnreadNotifications ───────────────────────────────────────────────
+  describe('handleAdminRejectedPost()', () => {
+    const event = {
+      data: {
+        doctorId,
+        doctorName: 'Dr. Ahmad',
+        fcmToken: 'token',
+        postId: new Types.ObjectId().toString(),
+      },
+    };
+
+    it('delegates to notificationService.sendAdminRejectedPostNotification', async () => {
+      await controller.handleAdminRejectedPost(event as any);
+
+      expect(
+        notificationService.sendAdminRejectedPostNotification,
+      ).toHaveBeenCalledWith(event);
+    });
+
+    it('does not throw when service throws', async () => {
+      notificationService.sendAdminRejectedPostNotification.mockRejectedValue(
+        new Error('service error'),
+      );
+
+      await expect(
+        controller.handleAdminRejectedPost(event as any),
+      ).resolves.not.toThrow();
+    });
+  });
+
+  describe('handleAdminApprovedGallery()', () => {
+    const event = {
+      data: {
+        doctorId,
+        doctorName: 'Dr. Ahmad',
+        fcmToken: 'token',
+        GalleryIds: [new Types.ObjectId().toString()],
+      },
+    };
+
+    it('delegates to notificationService.sendAdminApprovedGalleryNotification', async () => {
+      await controller.handleAdminApprovedGallery(event as any);
+
+      expect(
+        notificationService.sendAdminApprovedGalleryNotification,
+      ).toHaveBeenCalledWith(event);
+    });
+
+    it('does not throw when service throws', async () => {
+      notificationService.sendAdminApprovedGalleryNotification.mockRejectedValue(
+        new Error('service error'),
+      );
+
+      await expect(
+        controller.handleAdminApprovedGallery(event as any),
+      ).resolves.not.toThrow();
+    });
+  });
+
+  describe('handleAdminRejectedGallery()', () => {
+    const event = {
+      data: {
+        doctorId,
+        doctorName: 'Dr. Ahmad',
+        fcmToken: 'token',
+        GalleryIds: [new Types.ObjectId().toString()],
+        rejectionReason: 'Inappropriate content',
+      },
+    };
+
+    it('delegates to notificationService.sendAdminRejectedGalleryNotification', async () => {
+      await controller.handleAdminRejectedGallery(event as any);
+
+      expect(
+        notificationService.sendAdminRejectedGalleryNotification,
+      ).toHaveBeenCalledWith(event);
+    });
+
+    it('does not throw when service throws', async () => {
+      notificationService.sendAdminRejectedGalleryNotification.mockRejectedValue(
+        new Error('service error'),
+      );
+
+      await expect(
+        controller.handleAdminRejectedGallery(event as any),
+      ).resolves.not.toThrow();
+    });
+  });
+
+  describe('handleAdminApprovedUserQuestions()', () => {
+    const event = {
+      data: {
+        userId: patientId,
+        userName: 'Ali',
+        fcmToken: 'token',
+        questionIds: [new Types.ObjectId().toString()],
+      },
+    };
+
+    it('delegates to notificationService.sendAdminApprovedUserQuestionsNotification', async () => {
+      await controller.handleAdminApprovedUserQuestions(event as any);
+
+      expect(
+        notificationService.sendAdminApprovedUserQuestionsNotification,
+      ).toHaveBeenCalledWith(event);
+    });
+
+    it('does not throw when service throws', async () => {
+      notificationService.sendAdminApprovedUserQuestionsNotification.mockRejectedValue(
+        new Error('service error'),
+      );
+
+      await expect(
+        controller.handleAdminApprovedUserQuestions(event as any),
+      ).resolves.not.toThrow();
+    });
+  });
+
+  describe('handleAdminRejectedUserQuestions()', () => {
+    const event = {
+      data: {
+        userId: patientId,
+        userName: 'Ali',
+        fcmToken: 'token',
+        questionIds: [new Types.ObjectId().toString()],
+        rejectionReason: 'Spam',
+      },
+    };
+
+    it('delegates to notificationService.sendAdminRejectedUserQuestionsNotification', async () => {
+      await controller.handleAdminRejectedUserQuestions(event as any);
+
+      expect(
+        notificationService.sendAdminRejectedUserQuestionsNotification,
+      ).toHaveBeenCalledWith(event);
+    });
+
+    it('does not throw when service throws', async () => {
+      notificationService.sendAdminRejectedUserQuestionsNotification.mockRejectedValue(
+        new Error('service error'),
+      );
+
+      await expect(
+        controller.handleAdminRejectedUserQuestions(event as any),
+      ).resolves.not.toThrow();
+    });
+  });
+
+  // ─── HTTP Endpoints ───────────────────────────────────────────────────────
 
   describe('getUnreadNotifications()', () => {
-    it('returns unread notifications sorted by createdAt desc', async () => {
-      const mockNotifications = [
-        { _id: new Types.ObjectId(), isRead: false, createdAt: new Date() },
-      ];
+    it('calls service with parsed recipientId and recipientType', async () => {
+      const mockReq = {
+        user: {
+          entity: { _id: new Types.ObjectId(patientId) },
+          role: UserRole.USER,
+        },
+      };
 
-      notificationModel.find.mockReturnValue({
-        sort: jest.fn().mockReturnThis(),
-        limit: jest.fn().mockReturnThis(),
-        exec: jest.fn().mockResolvedValue(mockNotifications),
-      });
+      const result = await controller.getUnreadNotifications(mockReq);
 
-      const result = await service.getUnreadNotifications(
+      expect(
+        notificationService.getUnreadNotifications,
+      ).toHaveBeenCalledWith(patientId, UserRole.USER);
+      expect(result).toEqual({ notifications: { data: [] } });
+    });
+
+    it('works for DOCTOR role', async () => {
+      const mockReq = {
+        user: {
+          entity: { _id: new Types.ObjectId(doctorId) },
+          role: UserRole.DOCTOR,
+        },
+      };
+
+      await controller.getUnreadNotifications(mockReq);
+
+      expect(
+        notificationService.getUnreadNotifications,
+      ).toHaveBeenCalledWith(doctorId, UserRole.DOCTOR);
+    });
+  });
+
+  describe('getUnreadCount()', () => {
+    it('returns count wrapped in object', async () => {
+      const mockReq = {
+        user: {
+          entity: { _id: new Types.ObjectId(patientId) },
+          role: UserRole.USER,
+        },
+      };
+
+      const result = await controller.getUnreadCount(mockReq);
+
+      expect(notificationService.getUnreadCount).toHaveBeenCalledWith(
         patientId,
         UserRole.USER,
       );
-
-      expect(result.notifications.data).toEqual(mockNotifications);
-      expect(notificationModel.find).toHaveBeenCalledWith(
-        expect.objectContaining({
-          recipientType: UserRole.USER,
-          isRead: false,
-        }),
-      );
+      expect(result).toEqual({ count: 3 });
     });
   });
-
-  // ─── markAsRead ───────────────────────────────────────────────────────────
 
   describe('markAsRead()', () => {
-    it('sets isRead to true on the notification', async () => {
-      const notifId = new Types.ObjectId().toString();
-      notificationModel.findByIdAndUpdate.mockResolvedValue(undefined);
+    it('marks a notification as read and returns success message', async () => {
+      const notificationId = new Types.ObjectId().toString();
 
-      await service.markAsRead(notifId);
+      const result = await controller.markAsRead(notificationId);
 
-      expect(notificationModel.findByIdAndUpdate).toHaveBeenCalledWith(
-        notifId,
-        { $set: { isRead: true } },
+      expect(notificationService.markAsRead).toHaveBeenCalledWith(
+        notificationId,
       );
+      expect(result).toEqual({ message: 'Notification marked as read' });
     });
   });
-
-  // ─── markAllAsRead ────────────────────────────────────────────────────────
 
   describe('markAllAsRead()', () => {
-    it('marks all unread notifications as read for recipient', async () => {
-      notificationModel.updateMany.mockResolvedValue({ modifiedCount: 5 });
+    it('marks all notifications as read and returns success message', async () => {
+      const mockReq = {
+        user: {
+          entity: { _id: new Types.ObjectId(patientId) },
+          role: UserRole.USER,
+        },
+      };
 
-      await service.markAllAsRead(patientId, UserRole.USER);
+      const result = await controller.markAllAsRead(mockReq);
 
-      expect(notificationModel.updateMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          recipientType: UserRole.USER,
-          isRead: false,
-        }),
-        { $set: { isRead: true } },
+      expect(notificationService.markAllAsRead).toHaveBeenCalledWith(
+        patientId,
+        UserRole.USER,
       );
-    });
-  });
-
-  // ─── getUnreadCount ───────────────────────────────────────────────────────
-
-  describe('getUnreadCount()', () => {
-    it('returns count of unread notifications', async () => {
-      notificationModel.countDocuments.mockResolvedValue(7);
-
-      const count = await service.getUnreadCount(patientId, UserRole.USER);
-
-      expect(count).toBe(7);
-      expect(notificationModel.countDocuments).toHaveBeenCalledWith(
-        expect.objectContaining({
-          recipientType: UserRole.USER,
-          isRead: false,
-        }),
-      );
+      expect(result).toEqual({
+        message: 'All notifications marked as read',
+      });
     });
   });
 });

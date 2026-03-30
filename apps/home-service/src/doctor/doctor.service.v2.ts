@@ -192,13 +192,11 @@ export class DoctorBookingsQueryService {
 
     // Date filters
     if (dto.date) {
-      // Specific date
-      const date = new Date(dto.date);
-      const startOfDay = new Date(date);
-      startOfDay.setHours(0, 0, 0, 0);
-      const endOfDay = new Date(date);
-      endOfDay.setHours(23, 59, 59, 999);
-
+      const [year, month, day] = dto.date.split('-').map(Number);
+      const startOfDay = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+      const endOfDay = new Date(
+        Date.UTC(year, month - 1, day, 23, 59, 59, 999),
+      );
       filters.bookingDate = {
         $gte: startOfDay,
         $lte: endOfDay,
