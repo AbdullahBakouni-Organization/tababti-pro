@@ -66,4 +66,4 @@ async function bootstrap() {
   logger.log(`🔷 GraphQL → http://localhost:${port}/graphql`);
 }
 
-bootstrap();
+void bootstrap();

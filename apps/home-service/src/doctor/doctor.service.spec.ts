@@ -417,7 +417,7 @@ describe('DoctorService', () => {
 
   describe('checkPauseConflicts()', () => {
     const slotId1 = new Types.ObjectId().toString();
-    const slotId2 = new Types.ObjectId().toString();
+    const _slotId2 = new Types.ObjectId().toString();
 
     it('throws BadRequestException for invalid doctor ID', async () => {
       await expect(

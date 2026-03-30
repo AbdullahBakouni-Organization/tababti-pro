@@ -247,7 +247,7 @@ export class DoctorProfileService {
 
     const skip = (page - 1) * limit;
     const doctor = await this.doctorRepo.findById(doctorId);
-    const [posts, totalPosts] = await Promise.all([
+    const [posts, _totalPosts] = await Promise.all([
       this.postModel
         .find({
           authorId: new Types.ObjectId(doctor?.authAccountId),

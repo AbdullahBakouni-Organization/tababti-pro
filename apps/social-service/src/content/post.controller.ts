@@ -38,6 +38,7 @@ const postImagesMemoryConfig = {
   },
   fileFilter: (req: any, file: Express.Multer.File, cb: any) => {
     const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
     allowedTypes.includes(file.mimetype)
       ? cb(null, true)
       : cb(

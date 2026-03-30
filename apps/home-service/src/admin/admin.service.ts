@@ -232,7 +232,7 @@ export class AdminService {
   async rejectedDoctor(
     doctorId: string,
     adminId: string,
-    reason: string,
+    _reason: string,
   ): Promise<DoctorDocument> {
     const session = await this.doctorModel.db.startSession();
 
@@ -871,7 +871,7 @@ export class AdminService {
     // ==================== RESPONSE ====================
 
     const totalPages = Math.ceil(totalItems / limit);
-    const summary = await this.getPostsSummary();
+    const _summary = await this.getPostsSummary();
 
     return {
       posts: {

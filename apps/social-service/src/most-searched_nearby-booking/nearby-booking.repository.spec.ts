@@ -128,7 +128,7 @@ describe('NearbyBookingRepository', () => {
         { data: bookings, totalCount: [{ count: 1 }] },
       ]);
 
-      const result = await repo.findNextBookingsForDoctor(doctorId, 1, 10);
+      const _result = await repo.findNextBookingsForDoctor(doctorId, 1, 10);
       expect(mockBookingModel.aggregate).toHaveBeenCalled();
     });
   });
@@ -140,7 +140,7 @@ describe('NearbyBookingRepository', () => {
         { data: bookings, totalCount: [{ count: 1 }] },
       ]);
 
-      const result = await repo.findNextBookingsForUser(patientId);
+      const _result = await repo.findNextBookingsForUser(patientId);
       expect(mockBookingModel.aggregate).toHaveBeenCalled();
     });
 
@@ -177,7 +177,7 @@ describe('NearbyBookingRepository', () => {
         { data: [], totalCount: [] },
       ]);
 
-      const result = await repo.findDoctorPatients(doctorId, {} as any);
+      const _result = await repo.findDoctorPatients(doctorId, {} as any);
       expect(mockBookingModel.aggregate).toHaveBeenCalled();
     });
   });
@@ -188,7 +188,7 @@ describe('NearbyBookingRepository', () => {
         { data: [], totalCount: [] },
       ]);
 
-      const result = await repo.findMyAppointments(doctorId, {} as any);
+      const _result = await repo.findMyAppointments(doctorId, {} as any);
       expect(mockBookingModel.aggregate).toHaveBeenCalled();
     });
   });

@@ -106,9 +106,9 @@ export class UserService implements OnModuleInit {
     filters: NearbyFilters,
     startTime: number,
   ): Promise<PaginatedNearbyResponse> {
-    let doctorCount = 0,
-      hospitalCount = 0,
-      centerCount = 0;
+    let _doctorCount = 0,
+      _hospitalCount = 0,
+      _centerCount = 0;
     const doctors: NearbyEntity[] = [];
     const hospitals: NearbyEntity[] = [];
     const centers: NearbyEntity[] = [];
@@ -121,7 +121,7 @@ export class UserService implements OnModuleInit {
         radiusKm,
         filters,
       );
-      doctorCount = raw.length;
+      _doctorCount = raw.length;
       if (raw.length) {
         const enriched = await this.routing.enrichWithMatrix(
           raw,
@@ -143,7 +143,7 @@ export class UserService implements OnModuleInit {
         radiusKm,
         filters,
       );
-      hospitalCount = raw.length;
+      _hospitalCount = raw.length;
       if (raw.length) {
         const enriched = await this.routing.enrichWithMatrix(
           raw,
@@ -165,7 +165,7 @@ export class UserService implements OnModuleInit {
         radiusKm,
         filters,
       );
-      centerCount = raw.length;
+      _centerCount = raw.length;
       if (raw.length) {
         const enriched = await this.routing.enrichWithMatrix(
           raw,

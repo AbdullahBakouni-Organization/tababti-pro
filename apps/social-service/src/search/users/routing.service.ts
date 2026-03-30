@@ -91,7 +91,7 @@ export class RoutingService {
     entities: any[],
     matrix: MatrixResponse,
     travelMode: TravelMode,
-    entityType: 'doctor' | 'hospital' | 'center',
+    _entityType: 'doctor' | 'hospital' | 'center',
   ): any[] {
     const durations = matrix.durations?.[0] ?? [];
     const distances = matrix.distances?.[0] ?? [];
@@ -565,6 +565,7 @@ export class RoutingService {
     }
     const promise = fetch(url, options).finally(() => {
       const i = this.requestQueue.indexOf(promise);
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises
       if (i > -1) this.requestQueue.splice(i, 1);
     });
     this.requestQueue.push(promise);

@@ -454,6 +454,7 @@ export class WorkingHoursUpdateProcessorV2 {
     return slots;
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async sendPersonalizedNotifications(
     affectedBookings: Array<{
       bookingId: string;
@@ -478,9 +479,9 @@ export class WorkingHoursUpdateProcessorV2 {
     for (let i = 0; i < affectedBookings.length; i += PARALLEL_LIMIT) {
       const batch = affectedBookings.slice(i, i + PARALLEL_LIMIT);
 
-      const promises = batch.map(async (booking) => {
+      const promises = batch.map((booking) => {
         try {
-          const sent = await this.sendDisplacementNotification({
+          const sent = this.sendDisplacementNotification({
             patientId: booking.patientId,
             fcmToken: booking.fcmToken,
             bookingId: booking.bookingId,
@@ -501,7 +502,7 @@ export class WorkingHoursUpdateProcessorV2 {
         }
       });
 
-      const results = await Promise.all(promises);
+      const results = promises;
 
       results.forEach((result) => {
         if (result.success) {
@@ -526,7 +527,7 @@ export class WorkingHoursUpdateProcessorV2 {
     }
   }
 
-  private async sendDisplacementNotification(data: {
+  private sendDisplacementNotification(data: {
     patientId: string;
     fcmToken: string;
     bookingId: string;
@@ -535,7 +536,7 @@ export class WorkingHoursUpdateProcessorV2 {
     appointmentDate: Date;
     appointmentTime: string;
     reason: string;
-  }): Promise<boolean> {
+  }): boolean {
     if (!data.fcmToken) {
       this.logger.warn(
         `Patient ${data.patientId} has no FCM token. Notification not sent.`,
@@ -564,7 +565,7 @@ export class WorkingHoursUpdateProcessorV2 {
     };
 
     try {
-      await this.kafkaProducer.emit(
+      this.kafkaProducer.emit(
         KAFKA_TOPICS.BOOKING_CANCELLED_NOTIFICATION,
         event,
       );

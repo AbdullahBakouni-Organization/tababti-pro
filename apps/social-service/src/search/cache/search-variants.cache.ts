@@ -45,7 +45,7 @@ export class SearchVariantsCache {
     return this.cache.size;
   }
 
-  async hydrate(terms: string[]) {
+  hydrate(terms: string[]) {
     for (const term of terms) {
       if (!this.has(term)) this.set(term, [term]);
     }

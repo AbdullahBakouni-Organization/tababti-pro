@@ -221,7 +221,7 @@ export class LegalAdviceService {
           statusChangedAt: new Date(),
         });
         updated++;
-      } catch (error) {
+      } catch {
         failed++;
       }
     }

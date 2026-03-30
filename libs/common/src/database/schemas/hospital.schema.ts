@@ -10,8 +10,8 @@ import {
 @Schema({ timestamps: true, collection: 'hospital' })
 export class Hospital extends Document {
   updateMany(
-    arg0: { _id: { $in: any } },
-    arg1: { $inc: { searchCount: number } },
+    _arg0: { _id: { $in: any } },
+    _arg1: { $inc: { searchCount: number } },
   ) {
     throw new Error('Method not implemented.');
   }
@@ -24,7 +24,7 @@ export class Hospital extends Document {
     trim: true,
     minlength: 3,
     maxlength: 100,
-    match: /^[\p{L}\p{N}\s\.\-_\(\)]+$/u,
+    match: /^[\p{L}\p{N}\s.\-_()+]+$/u,
   })
   name: string;
 
@@ -34,7 +34,7 @@ export class Hospital extends Document {
     trim: true,
     minlength: 3,
     maxlength: 200,
-    match: /^[\p{L}\p{N}\s\.\-_\(\)]+$/u,
+    match: /^[\p{L}\p{N}\s.\-_()+]+$/u,
   })
   address: string;
 

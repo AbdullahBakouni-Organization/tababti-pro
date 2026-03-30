@@ -41,7 +41,7 @@ export class MinioService {
     });
 
     this.logger.log('MinIO client initialized');
-    this.ensureBucketsExist();
+    void this.ensureBucketsExist();
   }
 
   /**
@@ -49,7 +49,7 @@ export class MinioService {
    */
   private async ensureBucketsExist(): Promise<void> {
     try {
-      for (const [key, bucketName] of Object.entries(this.buckets)) {
+      for (const [_key, bucketName] of Object.entries(this.buckets)) {
         const exists = await this.minioClient.bucketExists(bucketName);
         if (!exists) {
           await this.minioClient.makeBucket(bucketName, 'us-east-1');

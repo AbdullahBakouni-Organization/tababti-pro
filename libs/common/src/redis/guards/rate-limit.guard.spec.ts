@@ -1,11 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { Reflector } from '@nestjs/core';
-import { HttpException, HttpStatus } from '@nestjs/common';
-import {
-  RateLimitGuard,
-  RateLimitOptions,
-  RATE_LIMIT_KEY,
-} from './rate-limit.guard';
+import { HttpException } from '@nestjs/common';
+import { RateLimitGuard, RateLimitOptions } from './rate-limit.guard';
 import { RedisService } from '../redis.service';
 import { createMockRedisService } from '@app/common/testing';
 
@@ -21,8 +17,8 @@ describe('RateLimitGuard', () => {
 
   const makeContext = (
     request = mockRequest,
-    handlerOptions?: RateLimitOptions,
-    classOptions?: RateLimitOptions,
+    _handlerOptions?: RateLimitOptions,
+    _classOptions?: RateLimitOptions,
   ) => ({
     getHandler: jest.fn().mockReturnValue({}),
     getClass: jest.fn().mockReturnValue({}),

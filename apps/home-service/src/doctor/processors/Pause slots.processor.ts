@@ -49,7 +49,7 @@ export class PauseSlotsProcessor {
       doctorId,
       slotIds,
       reason,
-      pauseDate,
+      pauseDate: _pauseDate,
       affectedBookingIds,
       doctorInfo,
     } = job.data;
@@ -76,7 +76,7 @@ export class PauseSlotsProcessor {
 
       // Step 3: Send FCM notifications to affected patients
       if (cancelledBookings.length > 0) {
-        await this.sendFCMNotifications(
+        this.sendFCMNotifications(
           cancelledBookings,
           doctorId,
           doctorInfo.fullName,
@@ -170,12 +170,12 @@ export class PauseSlotsProcessor {
   /**
    * Send FCM notifications to all affected patients
    */
-  private async sendFCMNotifications(
+  private sendFCMNotifications(
     cancelledBookings: PopulatedBookingDocument[],
     doctorId: string,
     doctorName: string,
     reason: string,
-  ): Promise<void> {
+  ): void {
     const notifications = cancelledBookings
       .map((booking) => {
         const patient = booking.patientId;
@@ -219,7 +219,7 @@ export class PauseSlotsProcessor {
         //   notification.fcmToken,
         //   notification.data,
         // );
-        const sent = await this.sendDisplacementNotification({
+        const sent = this.sendDisplacementNotification({
           patientId: notification.data.patientId,
           fcmToken: notification.fcmToken,
           bookingId: notification.data.bookingId!,
@@ -286,7 +286,7 @@ export class PauseSlotsProcessor {
     }
   }
 
-  private async sendDisplacementNotification(data: {
+  private sendDisplacementNotification(data: {
     patientId: string;
     fcmToken: string;
     bookingId: string;
@@ -295,7 +295,7 @@ export class PauseSlotsProcessor {
     appointmentDate: Date;
     appointmentTime: string;
     reason: string;
-  }): Promise<boolean> {
+  }): boolean {
     if (!data.fcmToken) {
       this.logger.warn(
         `Patient ${data.patientId} has no FCM token. Notification not sent.`,
@@ -324,7 +324,7 @@ export class PauseSlotsProcessor {
     };
 
     try {
-      await this.kafkaService.emit(
+      this.kafkaService.emit(
         KAFKA_TOPICS.BOOKING_CANCELLED_NOTIFICATION,
         event,
       );

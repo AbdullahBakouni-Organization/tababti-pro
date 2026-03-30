@@ -1,9 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import {
-  BadRequestException,
-  ForbiddenException,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { MedicalEquipmentService } from './medical.equipment.service';
 import { MedicalEquipmentRepository } from '../repositories/medical-equipment.repository';
 import {

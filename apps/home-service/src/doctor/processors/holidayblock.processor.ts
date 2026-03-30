@@ -113,7 +113,7 @@ export class HolidayBlockProcessor {
       this.logger.log(`[Holiday Block Job] ✅ Transaction committed`);
 
       // Step 4: Send PERSONALIZED FCM notifications
-      await this.sendPersonalizedNotifications(
+      this.sendPersonalizedNotifications(
         bookings,
         doctorName,
         doctorId,
@@ -156,12 +156,12 @@ export class HolidayBlockProcessor {
    * Send PERSONALIZED FCM notifications to each affected patient
    * Each patient gets their specific appointment time in the notification
    */
-  private async sendPersonalizedNotifications(
+  private sendPersonalizedNotifications(
     bookings: PopulatedBookingDocument[],
     doctorName: string,
     doctorId: string,
     reason: string,
-  ): Promise<void> {
+  ): void {
     this.logger.log(
       `[Holiday Block Job] 📱 Sending personalized notifications to ${bookings.length} patients`,
     );
@@ -176,7 +176,7 @@ export class HolidayBlockProcessor {
     for (let i = 0; i < bookings.length; i += PARALLEL_LIMIT) {
       const batch = bookings.slice(i, i + PARALLEL_LIMIT);
 
-      const promises = batch.map(async (booking) => {
+      const promises = batch.map((booking) => {
         const patient = booking.patientId; // patientId is now typed as User due to PopulatedBookingDocument
 
         if (!patient?.fcmToken) {
@@ -200,7 +200,7 @@ export class HolidayBlockProcessor {
           //     },
           //   );
           //
-          const sent = await this.sendDisplacementNotification({
+          const sent = this.sendDisplacementNotification({
             patientId: patient._id.toString(),
             fcmToken: patient.fcmToken,
             bookingId: booking._id!.toString(),
@@ -221,7 +221,7 @@ export class HolidayBlockProcessor {
         }
       });
 
-      const results = await Promise.all(promises);
+      const results = promises;
 
       results.forEach((result) => {
         if (result.success) {
@@ -287,7 +287,7 @@ export class HolidayBlockProcessor {
     }
   }
 
-  private async sendDisplacementNotification(data: {
+  private sendDisplacementNotification(data: {
     patientId: string;
     fcmToken: string;
     bookingId: string;
@@ -296,7 +296,7 @@ export class HolidayBlockProcessor {
     appointmentDate: Date;
     appointmentTime: string;
     reason: string;
-  }): Promise<boolean> {
+  }): boolean {
     if (!data.fcmToken) {
       this.logger.warn(
         `Patient ${data.patientId} has no FCM token. Notification not sent.`,
@@ -325,7 +325,7 @@ export class HolidayBlockProcessor {
     };
 
     try {
-      await this.kafkaService.emit(
+      this.kafkaService.emit(
         KAFKA_TOPICS.BOOKING_CANCELLED_NOTIFICATION,
         event,
       );

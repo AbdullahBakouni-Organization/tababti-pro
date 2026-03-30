@@ -134,7 +134,7 @@ export class EntityProfileService {
   // HOSPITAL PROFILE (WITH DEPARTMENTS, MACHINES, OPERATIONS)
   // ══════════════════════════════════════════════════════════════════════════
 
-  private async getHospitalProfile(id: string, page: number, limit: number) {
+  private async getHospitalProfile(id: string, _page: number, _limit: number) {
     const hospital = await this.repo.findHospitalById(id);
     if (!hospital) throw new NotFoundException('hospital.NOT_FOUND');
 
@@ -229,7 +229,7 @@ export class EntityProfileService {
   // CENTER PROFILE (WITH DEPARTMENTS, MACHINES, OPERATIONS)
   // ══════════════════════════════════════════════════════════════════════════
 
-  private async getCenterProfile(id: string, page: number, limit: number) {
+  private async getCenterProfile(id: string, _page: number, _limit: number) {
     const center = await this.repo.findCenterById(id);
     if (!center) throw new NotFoundException('center.NOT_FOUND');
 

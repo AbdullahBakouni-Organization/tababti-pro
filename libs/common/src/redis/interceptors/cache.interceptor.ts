@@ -48,6 +48,7 @@ export class CacheInterceptor implements NestInterceptor {
 
     // If not in cache, execute and cache the result
     return next.handle().pipe(
+      // eslint-disable-next-line @typescript-eslint/no-misused-promises
       tap(async (data: any) => {
         await this.redisService.set(key, data, cacheTTL);
       }),

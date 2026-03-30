@@ -31,6 +31,7 @@ export class WhatsappService implements OnModuleInit {
       },
     });
 
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises
     this.client.on('qr', async (qr: string) => {
       this.logger.log('📱 New WhatsApp QR generated');
       this.currentQrCode = await qrcode.toDataURL(qr);
@@ -43,9 +44,11 @@ export class WhatsappService implements OnModuleInit {
       try {
         const { default: open } = await import('open');
         await open('http://localhost:3001/api/v1/whatsapp/qr');
+        // eslint-disable-next-line no-empty
       } catch {}
     });
 
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises
     this.client.on('ready', async () => {
       this.isReady = true;
       this.currentQrCode = null;
@@ -62,7 +65,7 @@ export class WhatsappService implements OnModuleInit {
       this.logger.warn(`⚠️ WhatsApp disconnected: ${reason}`);
     });
 
-    this.client.initialize();
+    void this.client.initialize();
   }
 
   // ── Public API ────────────────────────────────────────────────────────────

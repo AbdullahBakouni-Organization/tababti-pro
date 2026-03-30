@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { getModelToken, InjectConnection } from '@nestjs/mongoose';
+import { getModelToken } from '@nestjs/mongoose';
 import { getConnectionToken } from '@nestjs/mongoose';
 import { Types } from 'mongoose';
 import {
@@ -36,7 +36,7 @@ describe('WorkingHoursUpdateProcessorV2', () => {
     startSession: jest.fn().mockResolvedValue(mockSession),
   };
 
-  const mockSlot = {
+  const _mockSlot = {
     _id: new Types.ObjectId(),
     status: SlotStatus.AVAILABLE,
     save: jest.fn().mockResolvedValue(undefined),

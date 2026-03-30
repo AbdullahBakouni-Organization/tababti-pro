@@ -1,7 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { QuestionsController } from './questions.controller';
 import { QuestionsService } from '../service/questions.service';
-import { UserRole } from '@app/common/database/schemas/common.enums';
 
 describe('QuestionsController', () => {
   let controller: QuestionsController;

@@ -89,7 +89,7 @@ export class QuestionsService {
   async create(
     dto: CreateQuestionDto,
     authAccountId: string,
-    lang: 'en' | 'ar' = 'en',
+    _lang: 'en' | 'ar' = 'en',
   ): Promise<Question> {
     // 1. Validate user ID
     if (!Types.ObjectId.isValid(authAccountId)) {

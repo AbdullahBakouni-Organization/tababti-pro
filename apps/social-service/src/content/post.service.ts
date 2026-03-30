@@ -214,7 +214,7 @@ export class PostService {
   /* ======================================================
       DELETE POST
   ====================================================== */
-  async remove(postId: string, authAccountId: string, role: UserRole) {
+  async remove(postId: string, authAccountId: string, _role: UserRole) {
     const post = await this.postRepo.findOne(postId);
 
     if (!post) {

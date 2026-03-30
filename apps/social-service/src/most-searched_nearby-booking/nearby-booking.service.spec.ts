@@ -87,7 +87,7 @@ describe('NearbyBookingService', () => {
       mockRepo.findUserByAuthAccountId.mockResolvedValue({
         _id: new Types.ObjectId(),
       });
-      const result = await service.getNextBookingForUser(authId, 1, 10);
+      const _result = await service.getNextBookingForUser(authId, 1, 10);
       // When cache exists, repo should NOT be called
       expect(mockRepo.findNextBookingsForUser).not.toHaveBeenCalled();
     });
@@ -159,7 +159,7 @@ describe('NearbyBookingService', () => {
       const patientsData = { data: [], total: 0 };
       mockRepo.findDoctorPatients.mockResolvedValue(patientsData);
 
-      const result = await service.getDoctorPatients(authId, {} as any);
+      const _result = await service.getDoctorPatients(authId, {} as any);
       expect(mockRepo.findDoctorPatients).toHaveBeenCalled();
     });
   });

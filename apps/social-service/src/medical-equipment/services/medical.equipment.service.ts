@@ -230,7 +230,7 @@ export class MedicalEquipmentService {
           statusChangedAt: new Date(),
         });
         updated++;
-      } catch (error) {
+      } catch {
         failed++;
       }
     }

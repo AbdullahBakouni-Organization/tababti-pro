@@ -13,7 +13,6 @@ import {
   PostStatus,
 } from '@app/common/database/schemas/common.enums';
 import { CreatePostDto } from './dto/create-post.dto';
-import { ApiResponse } from '../common/response/api-response';
 import { MinioService } from '@app/common/file-storage';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

@@ -188,7 +188,7 @@ export class NearbyBookingService {
       doctorId,
       this.serializeFilters({ ...filters, page: p, limit: l }),
     );
-    const cached = fromCache(await this.cache.get(key));
+    const _cached = fromCache(await this.cache.get(key));
     // if (cached) return cached;
     const data = await this.repo.findDoctorPatients(doctor._id, filters);
     // await this.cache.set(key, data, TTL.PATIENTS.memory, TTL.PATIENTS.redis);
@@ -264,7 +264,7 @@ export class NearbyBookingService {
         limit: dto.limit,
       }),
     );
-    const cached = fromCache(await this.cache.get(key));
+    const _cached = fromCache(await this.cache.get(key));
     // if (cached) return cached;
     const data = await this.repo.getPatientDetail(doctor._id, dto);
     if (!data) throw new NotFoundException('user.NOT_FOUND');

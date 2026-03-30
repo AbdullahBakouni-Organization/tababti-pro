@@ -21,9 +21,22 @@ describe('TranslationAiService', () => {
       set: jest.fn().mockResolvedValue(undefined),
     };
 
+    // Mongoose query chain: find().sort().limit().lean() and findOne().lean()
+    const makeFindChain = (resolvedValue: unknown) => {
+      const chain = {
+        sort: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockReturnThis(),
+        lean: jest.fn().mockResolvedValue(resolvedValue),
+      };
+      return chain;
+    };
+    const makeFindOneChain = (resolvedValue: unknown) => ({
+      lean: jest.fn().mockResolvedValue(resolvedValue),
+    });
+
     transliterationCacheModel = {
-      find: jest.fn().mockResolvedValue([]),
-      findOne: jest.fn().mockResolvedValue(null),
+      find: jest.fn().mockReturnValue(makeFindChain([])),
+      findOne: jest.fn().mockReturnValue(makeFindOneChain(null)),
       updateOne: jest
         .fn()
         .mockReturnValue({ exec: jest.fn().mockResolvedValue(undefined) }),
