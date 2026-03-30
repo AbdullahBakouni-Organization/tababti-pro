@@ -41,9 +41,7 @@ describe('UserService', () => {
     set: jest.fn().mockResolvedValue(undefined),
     del: jest.fn().mockResolvedValue(undefined),
     clearMemory: jest.fn(),
-    gridKey: jest
-      .fn()
-      .mockReturnValue('grid:33.5:36.3:req'),
+    gridKey: jest.fn().mockReturnValue('grid:33.5:36.3:req'),
   };
 
   beforeEach(async () => {
@@ -103,7 +101,14 @@ describe('UserService', () => {
       mockRepository.getCentersInRadius.mockResolvedValue([]);
 
       const result = await service.findNearbyEntities(
-        33.5, 36.3, 10, 1, 20, 'driving-car', false, 'all',
+        33.5,
+        36.3,
+        10,
+        1,
+        20,
+        'driving-car',
+        false,
+        'all',
       );
 
       expect(result.doctors.data).toEqual([]);
@@ -117,7 +122,14 @@ describe('UserService', () => {
       mockRouting.enrichWithMatrix.mockResolvedValue([mockEntity]);
 
       await service.findNearbyEntities(
-        33.5, 36.3, 10, 1, 20, 'driving-car', false, 'doctors',
+        33.5,
+        36.3,
+        10,
+        1,
+        20,
+        'driving-car',
+        false,
+        'doctors',
       );
 
       expect(mockRepository.getDoctorsInRadius).toHaveBeenCalled();
@@ -130,7 +142,14 @@ describe('UserService', () => {
       mockRouting.enrichWithMatrix.mockResolvedValue([mockEntity]);
 
       await service.findNearbyEntities(
-        33.5, 36.3, 10, 1, 20, 'driving-car', false, 'hospitals',
+        33.5,
+        36.3,
+        10,
+        1,
+        20,
+        'driving-car',
+        false,
+        'hospitals',
       );
 
       expect(mockRepository.getHospitalsInRadius).toHaveBeenCalled();
@@ -142,7 +161,14 @@ describe('UserService', () => {
       mockRouting.enrichWithMatrix.mockResolvedValue([mockEntity]);
 
       await service.findNearbyEntities(
-        33.5, 36.3, 10, 1, 20, 'driving-car', false, 'centers',
+        33.5,
+        36.3,
+        10,
+        1,
+        20,
+        'driving-car',
+        false,
+        'centers',
       );
 
       expect(mockRepository.getCentersInRadius).toHaveBeenCalled();
@@ -156,7 +182,14 @@ describe('UserService', () => {
       mockRouting.enrichWithMatrix.mockResolvedValue([mockEntity]);
 
       const result = await service.findNearbyEntities(
-        33.5, 36.3, 10, 1, 20, 'driving-car', false, 'all',
+        33.5,
+        36.3,
+        10,
+        1,
+        20,
+        'driving-car',
+        false,
+        'all',
       );
 
       expect(mockRepository.getDoctorsInRadius).toHaveBeenCalled();
@@ -171,7 +204,14 @@ describe('UserService', () => {
       mockRouting.loadRoutesInParallel.mockResolvedValue([mockEntity]);
 
       await service.findNearbyEntities(
-        33.5, 36.3, 10, 1, 20, 'driving-car', true, 'doctors',
+        33.5,
+        36.3,
+        10,
+        1,
+        20,
+        'driving-car',
+        true,
+        'doctors',
       );
 
       expect(mockRouting.loadRoutesInParallel).toHaveBeenCalled();
@@ -188,7 +228,14 @@ describe('UserService', () => {
       mockMapper.toResponse.mockImplementation((e) => e);
 
       const result = await service.findNearbyEntities(
-        33.5, 36.3, 10, 2, 2, 'driving-car', false, 'doctors',
+        33.5,
+        36.3,
+        10,
+        2,
+        2,
+        'driving-car',
+        false,
+        'doctors',
       );
 
       // page=2, limit=2 → skip first 2, get only the 3rd entity
@@ -200,11 +247,22 @@ describe('UserService', () => {
       mockRepository.getDoctorsInRadius.mockResolvedValue([]);
 
       await service.findNearbyEntities(
-        33.5, 36.3, 10, 1, 20, 'driving-car', false, 'doctors', filters,
+        33.5,
+        36.3,
+        10,
+        1,
+        20,
+        'driving-car',
+        false,
+        'doctors',
+        filters,
       );
 
       expect(mockRepository.getDoctorsInRadius).toHaveBeenCalledWith(
-        33.5, 36.3, 10, filters,
+        33.5,
+        36.3,
+        10,
+        filters,
       );
     });
 
@@ -218,7 +276,14 @@ describe('UserService', () => {
       mockMapper.toResponse.mockImplementation((e) => e);
 
       const result = await service.findNearbyEntities(
-        33.5, 36.3, 10, 1, 3, 'driving-car', false, 'doctors',
+        33.5,
+        36.3,
+        10,
+        1,
+        3,
+        'driving-car',
+        false,
+        'doctors',
       );
 
       expect(result.meta.page).toBe(1);

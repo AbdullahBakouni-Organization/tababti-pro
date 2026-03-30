@@ -11,7 +11,9 @@ describe('HomeServiceController', () => {
       providers: [HomeServiceService],
     }).compile();
 
-    homeServiceController = app.get<HomeServiceController>(HomeServiceController);
+    homeServiceController = app.get<HomeServiceController>(
+      HomeServiceController,
+    );
   });
 
   describe('root', () => {

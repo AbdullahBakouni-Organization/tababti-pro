@@ -74,7 +74,9 @@ describe('DashboardService', () => {
 
   describe('resolveDoctor()', () => {
     it('throws NotFoundException when doctor not found', async () => {
-      mockDoctorModel.findOne.mockReturnValue({ lean: jest.fn().mockResolvedValue(null) });
+      mockDoctorModel.findOne.mockReturnValue({
+        lean: jest.fn().mockResolvedValue(null),
+      });
 
       await expect(service.resolveDoctor(authAccountId)).rejects.toThrow(
         NotFoundException,
@@ -122,7 +124,7 @@ describe('DashboardService', () => {
       mockBookingModel.aggregate
         .mockResolvedValueOnce([
           { _id: BookingStatus.COMPLETED, count: 5, revenue: 25000 },
-          { _id: BookingStatus.CANCELLED_BY_USER, count: 2, revenue: 0 },
+          { _id: BookingStatus.CANCELLED_BY_PATIENT, count: 2, revenue: 0 },
         ])
         .mockResolvedValueOnce([{ _id: null, total: 15000 }]);
 

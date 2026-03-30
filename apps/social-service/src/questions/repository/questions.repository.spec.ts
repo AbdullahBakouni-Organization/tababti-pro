@@ -51,7 +51,9 @@ describe('QuestionsRepository', () => {
 
     it('returns question for valid id', async () => {
       const mockQ = { _id: validId, content: 'q' };
-      mockQuestionModel.findById.mockReturnValue({ lean: jest.fn().mockResolvedValue(mockQ) });
+      mockQuestionModel.findById.mockReturnValue({
+        lean: jest.fn().mockResolvedValue(mockQ),
+      });
 
       const result = await repo.findById(validId.toString());
       expect(result).toEqual(mockQ);
@@ -65,7 +67,9 @@ describe('QuestionsRepository', () => {
 
     it('calls findByIdAndDelete and returns result', async () => {
       const mockQ = { _id: validId };
-      mockQuestionModel.findByIdAndDelete.mockReturnValue({ lean: jest.fn().mockResolvedValue(mockQ) });
+      mockQuestionModel.findByIdAndDelete.mockReturnValue({
+        lean: jest.fn().mockResolvedValue(mockQ),
+      });
 
       const result = await repo.delete(validId.toString());
       expect(result).toEqual(mockQ);

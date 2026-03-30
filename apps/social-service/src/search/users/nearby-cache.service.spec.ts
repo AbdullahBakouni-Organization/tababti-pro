@@ -11,10 +11,7 @@ describe('NearbyCache', () => {
     redis = createMockRedisService();
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        NearbyCache,
-        { provide: RedisService, useValue: redis },
-      ],
+      providers: [NearbyCache, { provide: RedisService, useValue: redis }],
     }).compile();
 
     cache = module.get<NearbyCache>(NearbyCache);

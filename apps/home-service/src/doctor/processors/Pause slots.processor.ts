@@ -89,7 +89,7 @@ export class PauseSlotsProcessor {
       const affectedPatientIds = [
         ...new Set(
           cancelledBookings
-            .map((b) => (b.patientId as any)?._id?.toString())
+            .map((b) => b.patientId?._id?.toString())
             .filter(Boolean),
         ),
       ];

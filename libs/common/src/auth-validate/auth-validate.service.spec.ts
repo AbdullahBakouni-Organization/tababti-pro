@@ -10,10 +10,7 @@ import { Admin } from '../database/schemas/admin.schema';
 import { User } from '../database/schemas/user.schema';
 import { UserRole } from '../database/schemas/common.enums';
 import { ConfigService } from '@nestjs/config';
-import {
-  createMockConfigService,
-  createMockModel,
-} from '../testing';
+import { createMockConfigService, createMockModel } from '../testing';
 
 describe('AuthValidateService', () => {
   let service: AuthValidateService;
@@ -83,7 +80,10 @@ describe('AuthValidateService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthValidateService,
-        { provide: getModelToken(AuthAccount.name), useValue: authAccountModel },
+        {
+          provide: getModelToken(AuthAccount.name),
+          useValue: authAccountModel,
+        },
         { provide: getModelToken(Doctor.name), useValue: doctorModel },
         { provide: getModelToken(Admin.name), useValue: adminModel },
         { provide: getModelToken(User.name), useValue: userModel },
@@ -108,8 +108,13 @@ describe('AuthValidateService', () => {
         .mockResolvedValueOnce('refresh-token');
 
       const result = await service.generateTokenPair(
-        accountId, entityId, '+963912345678', UserRole.USER,
-        'session-id', 'device-id', 1,
+        accountId,
+        entityId,
+        '+963912345678',
+        UserRole.USER,
+        'session-id',
+        'device-id',
+        1,
       );
 
       expect(result.accessToken).toBe('access-token');
@@ -119,8 +124,13 @@ describe('AuthValidateService', () => {
 
     it('signs access token with type: access', async () => {
       await service.generateTokenPair(
-        accountId, entityId, '+963912345678', UserRole.DOCTOR,
-        'session-id', 'device-id', 2,
+        accountId,
+        entityId,
+        '+963912345678',
+        UserRole.DOCTOR,
+        'session-id',
+        'device-id',
+        2,
       );
 
       expect(jwtService.signAsync).toHaveBeenCalledWith(
@@ -131,8 +141,13 @@ describe('AuthValidateService', () => {
 
     it('signs refresh token with type: refresh', async () => {
       await service.generateTokenPair(
-        accountId, entityId, '+963912345678', UserRole.USER,
-        'session-id', 'device-id', 1,
+        accountId,
+        entityId,
+        '+963912345678',
+        UserRole.USER,
+        'session-id',
+        'device-id',
+        1,
       );
 
       expect(jwtService.signAsync).toHaveBeenCalledWith(
@@ -151,7 +166,10 @@ describe('AuthValidateService', () => {
         .mockResolvedValueOnce('user-refresh');
 
       const result = await service.generateTokenUserPair(
-        accountId, '+963912345678', UserRole.USER, 1,
+        accountId,
+        '+963912345678',
+        UserRole.USER,
+        1,
       );
 
       expect(result.accessToken).toBe('user-access');
@@ -160,7 +178,10 @@ describe('AuthValidateService', () => {
 
     it('does not include sessionId or deviceId in payload', async () => {
       await service.generateTokenUserPair(
-        accountId, '+963912345678', UserRole.USER, 1,
+        accountId,
+        '+963912345678',
+        UserRole.USER,
+        1,
       );
 
       expect(jwtService.signAsync).toHaveBeenCalledWith(
@@ -232,7 +253,10 @@ describe('AuthValidateService', () => {
 
     it('returns token pair', async () => {
       const result = await service.createSession(
-        accountId, '+963912345678', UserRole.USER, sessionInfo,
+        accountId,
+        '+963912345678',
+        UserRole.USER,
+        sessionInfo,
       );
 
       expect(result.accessToken).toBe('access-tok');
@@ -243,7 +267,12 @@ describe('AuthValidateService', () => {
       authAccountModel.findById.mockResolvedValue(null);
 
       await expect(
-        service.createSession(accountId, '+963912345678', UserRole.USER, sessionInfo),
+        service.createSession(
+          accountId,
+          '+963912345678',
+          UserRole.USER,
+          sessionInfo,
+        ),
       ).rejects.toThrow(UnauthorizedException);
     });
 
@@ -265,7 +294,10 @@ describe('AuthValidateService', () => {
       userModel.findOne.mockResolvedValue(entityWithFullSessions);
 
       await service.createSession(
-        accountId, '+963912345678', UserRole.USER, sessionInfo,
+        accountId,
+        '+963912345678',
+        UserRole.USER,
+        sessionInfo,
       );
 
       // Should still have 5 sessions after eviction + add
@@ -302,7 +334,10 @@ describe('AuthValidateService', () => {
 
     it('throws UnauthorizedException when token version is revoked', async () => {
       jwtService.verifyAsync.mockResolvedValue({ ...mockPayload, tv: 99 });
-      authAccountModel.findById.mockResolvedValue({ ...mockAccount, tokenVersion: 1 });
+      authAccountModel.findById.mockResolvedValue({
+        ...mockAccount,
+        tokenVersion: 1,
+      });
 
       await expect(
         service.refreshUserAccessToken('old-refresh-token'),
@@ -317,8 +352,22 @@ describe('AuthValidateService', () => {
       const entityWithSession = {
         ...mockEntity,
         sessions: [
-          { sessionId: 'sess-to-remove', isActive: true, deviceId: 'dev-1', refreshToken: 'hash', createdAt: new Date(), lastActivityAt: new Date() },
-          { sessionId: 'sess-keep', isActive: true, deviceId: 'dev-2', refreshToken: 'hash', createdAt: new Date(), lastActivityAt: new Date() },
+          {
+            sessionId: 'sess-to-remove',
+            isActive: true,
+            deviceId: 'dev-1',
+            refreshToken: 'hash',
+            createdAt: new Date(),
+            lastActivityAt: new Date(),
+          },
+          {
+            sessionId: 'sess-keep',
+            isActive: true,
+            deviceId: 'dev-2',
+            refreshToken: 'hash',
+            createdAt: new Date(),
+            lastActivityAt: new Date(),
+          },
         ],
         save: jest.fn().mockResolvedValue(undefined),
       };
@@ -326,7 +375,11 @@ describe('AuthValidateService', () => {
 
       await service.logoutSession(accountId, UserRole.USER, 'sess-to-remove');
 
-      expect(entityWithSession.sessions.find(s => s.sessionId === 'sess-to-remove')).toBeUndefined();
+      expect(
+        entityWithSession.sessions.find(
+          (s) => s.sessionId === 'sess-to-remove',
+        ),
+      ).toBeUndefined();
       expect(entityWithSession.sessions).toHaveLength(1);
       expect(entityWithSession.save).toHaveBeenCalled();
     });
@@ -354,7 +407,11 @@ describe('AuthValidateService', () => {
 
   describe('revokeAllTokens()', () => {
     it('increments tokenVersion and clears all sessions', async () => {
-      const accountWithVersion = { ...mockAccount, tokenVersion: 3, save: jest.fn().mockResolvedValue(undefined) };
+      const accountWithVersion = {
+        ...mockAccount,
+        tokenVersion: 3,
+        save: jest.fn().mockResolvedValue(undefined),
+      };
       const entityWithSessions = {
         ...mockEntity,
         sessions: [{ sessionId: 'sess-1' }],
@@ -375,10 +432,24 @@ describe('AuthValidateService', () => {
   describe('getActiveSessions()', () => {
     it('returns active sessions for the entity', async () => {
       const sessions = [
-        { sessionId: 'sess-1', isActive: true, deviceId: 'dev-1', createdAt: new Date(), lastActivityAt: new Date() },
-        { sessionId: 'sess-2', isActive: false, deviceId: 'dev-2', createdAt: new Date(), lastActivityAt: new Date() },
+        {
+          sessionId: 'sess-1',
+          isActive: true,
+          deviceId: 'dev-1',
+          createdAt: new Date(),
+          lastActivityAt: new Date(),
+        },
+        {
+          sessionId: 'sess-2',
+          isActive: false,
+          deviceId: 'dev-2',
+          createdAt: new Date(),
+          lastActivityAt: new Date(),
+        },
       ];
-      userModel.findOne.mockReturnValue({ lean: jest.fn().mockResolvedValue({ ...mockEntity, sessions }) });
+      userModel.findOne.mockReturnValue({
+        lean: jest.fn().mockResolvedValue({ ...mockEntity, sessions }),
+      });
 
       const result = await service.getActiveSessions(accountId, UserRole.USER);
 

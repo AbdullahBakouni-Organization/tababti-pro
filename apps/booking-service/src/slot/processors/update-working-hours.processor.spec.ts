@@ -79,7 +79,10 @@ describe('WorkingHoursUpdateProcessorV2', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         WorkingHoursUpdateProcessorV2,
-        { provide: getModelToken(AppointmentSlot.name), useValue: mockSlotModel },
+        {
+          provide: getModelToken(AppointmentSlot.name),
+          useValue: mockSlotModel,
+        },
         { provide: getModelToken(Booking.name), useValue: mockBookingModel },
         { provide: getConnectionToken(), useValue: mockConnection },
         { provide: KafkaService, useValue: mockKafkaService },

@@ -46,7 +46,10 @@ describe('HolidayBlockProcessor', () => {
       providers: [
         HolidayBlockProcessor,
         { provide: getModelToken(Booking.name), useValue: mockBookingModel },
-        { provide: getModelToken(AppointmentSlot.name), useValue: mockSlotModel },
+        {
+          provide: getModelToken(AppointmentSlot.name),
+          useValue: mockSlotModel,
+        },
         { provide: KafkaService, useValue: mockKafkaService },
         { provide: CacheService, useValue: mockCacheService },
       ],
@@ -84,7 +87,9 @@ describe('HolidayBlockProcessor', () => {
       mockBookingModel.updateMany.mockResolvedValue({ modifiedCount: 0 });
       mockSlotModel.updateMany.mockResolvedValue({ modifiedCount: 0 });
 
-      await expect(processor.handleHolidayBlock(mockJob as any)).resolves.toBeUndefined();
+      await expect(
+        processor.handleHolidayBlock(mockJob as any),
+      ).resolves.toBeUndefined();
       expect(mockSession.commitTransaction).toHaveBeenCalled();
     });
   });

@@ -58,7 +58,11 @@ describe('LegalAdviceRepository', () => {
   describe('createRequest()', () => {
     it('throws BadRequestException for invalid requesterId', async () => {
       await expect(
-        repo.createRequest(UserRole.DOCTOR, 'bad-id', LegalAdviceCategory.licensing),
+        repo.createRequest(
+          UserRole.DOCTOR,
+          'bad-id',
+          LegalAdviceCategory.licensing,
+        ),
       ).rejects.toThrow(BadRequestException);
     });
 
@@ -84,7 +88,9 @@ describe('LegalAdviceRepository', () => {
 
   describe('findById()', () => {
     it('throws BadRequestException for invalid id', async () => {
-      await expect(repo.findById('bad-id')).rejects.toThrow(BadRequestException);
+      await expect(repo.findById('bad-id')).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('throws NotFoundException when request not found', async () => {

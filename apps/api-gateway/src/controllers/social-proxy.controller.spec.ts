@@ -22,10 +22,7 @@ describe('SocialProxyController', () => {
     ...overrides,
   });
 
-  const axiosResponse = (
-    data: unknown,
-    status = 200,
-  ): AxiosResponse => ({
+  const axiosResponse = (data: unknown, status = 200): AxiosResponse => ({
     data,
     status,
     statusText: 'OK',
@@ -59,7 +56,9 @@ describe('SocialProxyController', () => {
 
   it('should proxy a GET request to the social service', async () => {
     const responseData = { posts: [{ id: 1, text: 'Hello' }] };
-    jest.spyOn(httpService, 'request').mockReturnValue(of(axiosResponse(responseData)));
+    jest
+      .spyOn(httpService, 'request')
+      .mockReturnValue(of(axiosResponse(responseData)));
 
     const req = mockRequest();
     const res = mockResponse();
@@ -92,10 +91,14 @@ describe('SocialProxyController', () => {
   });
 
   it('should pass raw request as data for multipart/form-data', async () => {
-    jest.spyOn(httpService, 'request').mockReturnValue(of(axiosResponse({ ok: true })));
+    jest
+      .spyOn(httpService, 'request')
+      .mockReturnValue(of(axiosResponse({ ok: true })));
 
     const req = mockRequest({
-      headers: { 'content-type': 'multipart/form-data; boundary=---abc' } as any,
+      headers: {
+        'content-type': 'multipart/form-data; boundary=---abc',
+      } as any,
       method: 'POST',
     });
     const res = mockResponse();
@@ -109,7 +112,9 @@ describe('SocialProxyController', () => {
 
   it('should pass req.body for JSON requests', async () => {
     const body = { content: 'New post', communityId: '456' };
-    jest.spyOn(httpService, 'request').mockReturnValue(of(axiosResponse({ id: '789' })));
+    jest
+      .spyOn(httpService, 'request')
+      .mockReturnValue(of(axiosResponse({ id: '789' })));
 
     const req = mockRequest({ body, method: 'POST' });
     const res = mockResponse();

@@ -16,7 +16,9 @@ describe('SlotController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [SlotController],
-      providers: [{ provide: SlotGenerationService, useValue: mockSlotService }],
+      providers: [
+        { provide: SlotGenerationService, useValue: mockSlotService },
+      ],
     }).compile();
 
     controller = module.get<SlotController>(SlotController);

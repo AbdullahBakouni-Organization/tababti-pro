@@ -11,7 +11,9 @@ describe('SocialServiceController', () => {
       providers: [SocialServiceService],
     }).compile();
 
-    socialServiceController = app.get<SocialServiceController>(SocialServiceController);
+    socialServiceController = app.get<SocialServiceController>(
+      SocialServiceController,
+    );
   });
 
   describe('root', () => {

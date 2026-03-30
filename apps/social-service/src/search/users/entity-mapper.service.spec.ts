@@ -54,7 +54,10 @@ describe('EntityMapper', () => {
       it('handles privateSpecializationId as an array of objects', () => {
         const entity = {
           ...doctorEntity,
-          privateSpecializationId: [{ name: 'Cardiology' }, { name: 'Neurology' }],
+          privateSpecializationId: [
+            { name: 'Cardiology' },
+            { name: 'Neurology' },
+          ],
         };
         const result = mapper.toResponse(entity, 'doctor') as any;
         expect(result).toBeDefined();

@@ -16,7 +16,10 @@ import { Doctor } from '@app/common/database/schemas/doctor.schema';
 import { Hospital } from '@app/common/database/schemas/hospital.schema';
 import { Center } from '@app/common/database/schemas/center.schema';
 import { CacheService } from '@app/common/cache/cache.service';
-import { QuestionStatus, UserRole } from '@app/common/database/schemas/common.enums';
+import {
+  QuestionStatus,
+  UserRole,
+} from '@app/common/database/schemas/common.enums';
 
 jest.mock('@app/common/utils/cache-invalidation.util', () => ({
   invalidateQuestionsCaches: jest.fn().mockResolvedValue(undefined),
@@ -31,7 +34,11 @@ describe('QuestionsService', () => {
   const questionId = new Types.ObjectId();
 
   const mockUser = { _id: userId, authAccountId: authId };
-  const mockDoctor = { _id: doctorId, authAccountId: authId, publicSpecialization: 'general' };
+  const mockDoctor = {
+    _id: doctorId,
+    authAccountId: authId,
+    publicSpecialization: 'general',
+  };
   const mockQuestion = {
     _id: questionId,
     userId,
@@ -92,7 +99,10 @@ describe('QuestionsService', () => {
       providers: [
         QuestionsService,
         { provide: QuestionsRepository, useValue: mockRepo },
-        { provide: SpecializationsService, useValue: mockSpecializationsService },
+        {
+          provide: SpecializationsService,
+          useValue: mockSpecializationsService,
+        },
         { provide: getModelToken(User.name), useValue: mockUserModel },
         { provide: getModelToken(Answer.name), useValue: mockAnswerModel },
         { provide: getModelToken(Question.name), useValue: mockQuestionModel },
@@ -114,19 +124,30 @@ describe('QuestionsService', () => {
 
   describe('create()', () => {
     it('throws BadRequestException for invalid authAccountId', async () => {
-      await expect(service.create({ content: 'q' } as any, 'bad-id')).rejects.toThrow(BadRequestException);
+      await expect(
+        service.create({ content: 'q' } as any, 'bad-id'),
+      ).rejects.toThrow(BadRequestException);
     });
 
     it('throws NotFoundException when user not found', async () => {
-      mockUserModel.findOne.mockReturnValue({ lean: jest.fn().mockResolvedValue(null) });
-      await expect(service.create({ content: 'q' } as any, authId.toString())).rejects.toThrow(NotFoundException);
+      mockUserModel.findOne.mockReturnValue({
+        lean: jest.fn().mockResolvedValue(null),
+      });
+      await expect(
+        service.create({ content: 'q' } as any, authId.toString()),
+      ).rejects.toThrow(NotFoundException);
     });
 
     it('creates question successfully', async () => {
-      mockUserModel.findOne.mockReturnValue({ lean: jest.fn().mockResolvedValue(mockUser) });
+      mockUserModel.findOne.mockReturnValue({
+        lean: jest.fn().mockResolvedValue(mockUser),
+      });
       mockRepo.create.mockResolvedValue({ _id: questionId, content: 'q' });
 
-      const result = await service.create({ content: 'q', specializationId: [] } as any, authId.toString());
+      const result = await service.create(
+        { content: 'q', specializationId: [] } as any,
+        authId.toString(),
+      );
       expect(result).toHaveProperty('_id');
       expect(mockRepo.create).toHaveBeenCalled();
     });
@@ -136,37 +157,63 @@ describe('QuestionsService', () => {
 
   describe('moderateQuestion()', () => {
     it('throws BadRequestException for invalid questionId', async () => {
-      await expect(service.moderateQuestion('bad', { action: 'approve' } as any)).rejects.toThrow(BadRequestException);
+      await expect(
+        service.moderateQuestion('bad', { action: 'approve' } as any),
+      ).rejects.toThrow(BadRequestException);
     });
 
     it('throws NotFoundException when question not found', async () => {
-      mockQuestionModel.findById.mockReturnValue({ lean: jest.fn().mockResolvedValue(null) });
-      await expect(service.moderateQuestion(questionId.toString(), { action: 'approve' } as any)).rejects.toThrow(NotFoundException);
+      mockQuestionModel.findById.mockReturnValue({
+        lean: jest.fn().mockResolvedValue(null),
+      });
+      await expect(
+        service.moderateQuestion(questionId.toString(), {
+          action: 'approve',
+        } as any),
+      ).rejects.toThrow(NotFoundException);
     });
 
     it('throws BadRequestException when question is not pending', async () => {
       mockQuestionModel.findById.mockReturnValue({
-        lean: jest.fn().mockResolvedValue({ ...mockQuestion, status: QuestionStatus.APPROVED }),
+        lean: jest.fn().mockResolvedValue({
+          ...mockQuestion,
+          status: QuestionStatus.APPROVED,
+        }),
       });
-      await expect(service.moderateQuestion(questionId.toString(), { action: 'approve' } as any)).rejects.toThrow(BadRequestException);
+      await expect(
+        service.moderateQuestion(questionId.toString(), {
+          action: 'approve',
+        } as any),
+      ).rejects.toThrow(BadRequestException);
     });
 
     it('throws BadRequestException when rejecting without reason', async () => {
       mockQuestionModel.findById.mockReturnValue({
-        lean: jest.fn().mockResolvedValue({ ...mockQuestion, status: QuestionStatus.PENDING }),
+        lean: jest.fn().mockResolvedValue({
+          ...mockQuestion,
+          status: QuestionStatus.PENDING,
+        }),
       });
       await expect(
-        service.moderateQuestion(questionId.toString(), { action: 'reject', reason: '' } as any),
+        service.moderateQuestion(questionId.toString(), {
+          action: 'reject',
+          reason: '',
+        } as any),
       ).rejects.toThrow(BadRequestException);
     });
 
     it('approves a pending question', async () => {
       mockQuestionModel.findById.mockReturnValue({
-        lean: jest.fn().mockResolvedValue({ _id: questionId, status: QuestionStatus.PENDING }),
+        lean: jest.fn().mockResolvedValue({
+          _id: questionId,
+          status: QuestionStatus.PENDING,
+        }),
       });
       mockQuestionModel.updateOne.mockResolvedValue({ modifiedCount: 1 });
 
-      const result = await service.moderateQuestion(questionId.toString(), { action: 'approve' } as any);
+      const result = await service.moderateQuestion(questionId.toString(), {
+        action: 'approve',
+      } as any);
       expect(result.status).toBe(QuestionStatus.APPROVED);
     });
   });
@@ -185,7 +232,14 @@ describe('QuestionsService', () => {
     it('fetches and caches questions from repo', async () => {
       mockCacheService.get.mockResolvedValue(null);
       mockRepo.findQuestionsWithAnswers.mockResolvedValue({
-        questions: [{ _id: questionId, content: 'q', status: QuestionStatus.APPROVED, answers: [] }],
+        questions: [
+          {
+            _id: questionId,
+            content: 'q',
+            status: QuestionStatus.APPROVED,
+            answers: [],
+          },
+        ],
         total: 1,
         totalPages: 1,
       });
@@ -200,52 +254,75 @@ describe('QuestionsService', () => {
 
   describe('answerQuestion()', () => {
     it('throws BadRequestException for invalid questionId', async () => {
-      await expect(service.answerQuestion({
-        questionId: 'bad',
-        responderType: UserRole.DOCTOR,
-        responderId: authId.toString(),
-        content: 'ans',
-      })).rejects.toThrow(BadRequestException);
+      await expect(
+        service.answerQuestion({
+          questionId: 'bad',
+          responderType: UserRole.DOCTOR,
+          responderId: authId.toString(),
+          content: 'ans',
+        }),
+      ).rejects.toThrow(BadRequestException);
     });
 
     it('throws BadRequestException when responderType is USER', async () => {
-      await expect(service.answerQuestion({
-        questionId: questionId.toString(),
-        responderType: UserRole.USER,
-        responderId: authId.toString(),
-        content: 'ans',
-      })).rejects.toThrow(BadRequestException);
+      await expect(
+        service.answerQuestion({
+          questionId: questionId.toString(),
+          responderType: UserRole.USER,
+          responderId: authId.toString(),
+          content: 'ans',
+        }),
+      ).rejects.toThrow(BadRequestException);
     });
 
     it('throws NotFoundException when question not found', async () => {
-      mockDoctorModel.findOne.mockReturnValue({ lean: jest.fn().mockResolvedValue(mockDoctor) });
+      mockDoctorModel.findOne.mockReturnValue({
+        lean: jest.fn().mockResolvedValue(mockDoctor),
+      });
       mockRepo.findById.mockResolvedValue(null);
 
-      await expect(service.answerQuestion({
-        questionId: questionId.toString(),
-        responderType: UserRole.DOCTOR,
-        responderId: authId.toString(),
-        content: 'ans',
-      })).rejects.toThrow(NotFoundException);
+      await expect(
+        service.answerQuestion({
+          questionId: questionId.toString(),
+          responderType: UserRole.DOCTOR,
+          responderId: authId.toString(),
+          content: 'ans',
+        }),
+      ).rejects.toThrow(NotFoundException);
     });
 
     it('throws ForbiddenException for pending question', async () => {
-      mockDoctorModel.findOne.mockReturnValue({ lean: jest.fn().mockResolvedValue(mockDoctor) });
-      mockRepo.findById.mockResolvedValue({ ...mockQuestion, status: QuestionStatus.PENDING });
+      mockDoctorModel.findOne.mockReturnValue({
+        lean: jest.fn().mockResolvedValue(mockDoctor),
+      });
+      mockRepo.findById.mockResolvedValue({
+        ...mockQuestion,
+        status: QuestionStatus.PENDING,
+      });
 
-      await expect(service.answerQuestion({
-        questionId: questionId.toString(),
-        responderType: UserRole.DOCTOR,
-        responderId: authId.toString(),
-        content: 'ans',
-      })).rejects.toThrow(ForbiddenException);
+      await expect(
+        service.answerQuestion({
+          questionId: questionId.toString(),
+          responderType: UserRole.DOCTOR,
+          responderId: authId.toString(),
+          content: 'ans',
+        }),
+      ).rejects.toThrow(ForbiddenException);
     });
 
     it('creates answer successfully', async () => {
-      mockDoctorModel.findOne.mockReturnValue({ lean: jest.fn().mockResolvedValue(mockDoctor) });
-      mockRepo.findById.mockResolvedValue({ _id: questionId, status: QuestionStatus.APPROVED });
+      mockDoctorModel.findOne.mockReturnValue({
+        lean: jest.fn().mockResolvedValue(mockDoctor),
+      });
+      mockRepo.findById.mockResolvedValue({
+        _id: questionId,
+        status: QuestionStatus.APPROVED,
+      });
       mockAnswerModel.exists.mockResolvedValue(null);
-      mockAnswerModel.create.mockResolvedValue({ _id: new Types.ObjectId(), content: 'ans' });
+      mockAnswerModel.create.mockResolvedValue({
+        _id: new Types.ObjectId(),
+        content: 'ans',
+      });
       mockQuestionModel.updateOne.mockResolvedValue({ modifiedCount: 1 });
 
       const result = await service.answerQuestion({
@@ -262,24 +339,35 @@ describe('QuestionsService', () => {
 
   describe('deleteQuestion()', () => {
     it('throws BadRequestException for invalid questionId', async () => {
-      await expect(service.deleteQuestion('bad', authId.toString())).rejects.toThrow(BadRequestException);
+      await expect(
+        service.deleteQuestion('bad', authId.toString()),
+      ).rejects.toThrow(BadRequestException);
     });
 
     it('throws ForbiddenException when not owner', async () => {
       const otherId = new Types.ObjectId();
-      mockUserModel.findOne.mockReturnValue({ lean: jest.fn().mockResolvedValue({ _id: otherId }) });
+      mockUserModel.findOne.mockReturnValue({
+        lean: jest.fn().mockResolvedValue({ _id: otherId }),
+      });
       mockRepo.findById.mockResolvedValue({ ...mockQuestion, userId });
 
-      await expect(service.deleteQuestion(questionId.toString(), authId.toString())).rejects.toThrow(ForbiddenException);
+      await expect(
+        service.deleteQuestion(questionId.toString(), authId.toString()),
+      ).rejects.toThrow(ForbiddenException);
     });
 
     it('deletes question when owner', async () => {
-      mockUserModel.findOne.mockReturnValue({ lean: jest.fn().mockResolvedValue({ _id: userId }) });
+      mockUserModel.findOne.mockReturnValue({
+        lean: jest.fn().mockResolvedValue({ _id: userId }),
+      });
       mockRepo.findById.mockResolvedValue({ _id: questionId, userId });
       mockAnswerModel.deleteMany.mockResolvedValue({ deletedCount: 0 });
       mockRepo.delete.mockResolvedValue({ _id: questionId });
 
-      const result = await service.deleteQuestion(questionId.toString(), authId.toString());
+      const result = await service.deleteQuestion(
+        questionId.toString(),
+        authId.toString(),
+      );
       expect(result).toHaveProperty('_id');
     });
   });

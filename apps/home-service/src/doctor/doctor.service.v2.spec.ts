@@ -15,7 +15,10 @@ import { Post } from '@app/common/database/schemas/post.schema';
 import { CacheService } from '@app/common/cache/cache.service';
 import { KafkaService } from '@app/common/kafka/kafka.service';
 import { MinioService } from '@app/common/file-storage';
-import { BookingStatus, SlotStatus } from '@app/common/database/schemas/common.enums';
+import {
+  BookingStatus,
+  SlotStatus,
+} from '@app/common/database/schemas/common.enums';
 
 jest.mock('@app/common/utils/cache-invalidation.util', () => ({
   invalidateBookingCaches: jest.fn().mockResolvedValue(undefined),
@@ -121,7 +124,9 @@ describe('DoctorBookingsQueryService', () => {
       ],
     }).compile();
 
-    service = module.get<DoctorBookingsQueryService>(DoctorBookingsQueryService);
+    service = module.get<DoctorBookingsQueryService>(
+      DoctorBookingsQueryService,
+    );
   });
 
   it('should be defined', () => {
@@ -294,9 +299,9 @@ describe('DoctorBookingsQueryService', () => {
 
   describe('getDoctorGalleryImages()', () => {
     it('throws BadRequestException for invalid doctor ID', async () => {
-      await expect(
-        service.getDoctorGalleryImages('bad-id'),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.getDoctorGalleryImages('bad-id')).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('returns cached gallery when available', async () => {
@@ -315,9 +320,9 @@ describe('DoctorBookingsQueryService', () => {
         exec: jest.fn().mockResolvedValue(null),
       });
 
-      await expect(
-        service.getDoctorGalleryImages(doctorId),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.getDoctorGalleryImages(doctorId)).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('returns gallery images for a doctor', async () => {

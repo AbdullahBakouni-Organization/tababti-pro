@@ -19,7 +19,11 @@ describe('RateLimitGuard', () => {
     ip: '127.0.0.1',
   };
 
-  const makeContext = (request = mockRequest, handlerOptions?: RateLimitOptions, classOptions?: RateLimitOptions) => ({
+  const makeContext = (
+    request = mockRequest,
+    handlerOptions?: RateLimitOptions,
+    classOptions?: RateLimitOptions,
+  ) => ({
     getHandler: jest.fn().mockReturnValue({}),
     getClass: jest.fn().mockReturnValue({}),
     switchToHttp: jest.fn().mockReturnValue({

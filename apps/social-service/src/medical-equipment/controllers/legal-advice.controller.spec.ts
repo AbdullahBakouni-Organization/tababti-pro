@@ -67,7 +67,13 @@ describe('LegalAdviceController', () => {
 
   describe('getMyRequests()', () => {
     it('delegates to service and wraps in ApiResponse', async () => {
-      const paged = { requests: [mockRequest], total: 1, page: 1, limit: 10, totalPages: 1 };
+      const paged = {
+        requests: [mockRequest],
+        total: 1,
+        page: 1,
+        limit: 10,
+        totalPages: 1,
+      };
       mockService.getMyRequests.mockResolvedValue(paged);
 
       const result = await controller.getMyRequests(
@@ -122,7 +128,13 @@ describe('LegalAdviceController', () => {
 
   describe('getAllRequests()', () => {
     it('delegates to service with filters and wraps in ApiResponse', async () => {
-      const paged = { requests: [], total: 0, page: 1, limit: 10, totalPages: 0 };
+      const paged = {
+        requests: [],
+        total: 0,
+        page: 1,
+        limit: 10,
+        totalPages: 0,
+      };
       mockService.getAllRequests.mockResolvedValue(paged);
 
       const result = await controller.getAllRequests(

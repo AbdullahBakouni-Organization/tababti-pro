@@ -79,7 +79,13 @@ describe('AdminMedicalEquipmentController', () => {
 
   describe('getAllRequests()', () => {
     it('delegates to service and returns wrapped result', async () => {
-      const paged = { requests: [mockRequest], total: 1, page: 1, limit: 10, totalPages: 1 };
+      const paged = {
+        requests: [mockRequest],
+        total: 1,
+        page: 1,
+        limit: 10,
+        totalPages: 1,
+      };
       mockService.getAllRequests.mockResolvedValue(paged);
 
       const result = await controller.getAllRequests(
@@ -112,7 +118,13 @@ describe('AdminMedicalEquipmentController', () => {
     });
 
     it('returns requests filtered by status', async () => {
-      const paged = { requests: [], total: 0, page: 1, limit: 10, totalPages: 0 };
+      const paged = {
+        requests: [],
+        total: 0,
+        page: 1,
+        limit: 10,
+        totalPages: 0,
+      };
       mockService.getAllRequests.mockResolvedValue(paged);
 
       const result = await controller.getRequestsByStatus(

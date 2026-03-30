@@ -79,9 +79,7 @@ describe('cache-invalidation.util', () => {
     });
 
     it('should catch errors and log a warning', async () => {
-      cacheService.invalidatePattern.mockRejectedValue(
-        new Error('Redis down'),
-      );
+      cacheService.invalidatePattern.mockRejectedValue(new Error('Redis down'));
 
       await expect(
         invalidateBookingCaches(cacheService as any, 'doc1', undefined, logger),

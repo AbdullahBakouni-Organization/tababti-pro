@@ -6,7 +6,10 @@ import { BookingService } from './booking-service.service';
 const realPatientId = new Types.ObjectId();
 
 const mockBookingService = {
-  createBooking: jest.fn().mockResolvedValue({ bookingId: new Types.ObjectId().toString(), status: 'PENDING' }),
+  createBooking: jest.fn().mockResolvedValue({
+    bookingId: new Types.ObjectId().toString(),
+    status: 'PENDING',
+  }),
 };
 
 describe('BookingController', () => {
@@ -27,12 +30,20 @@ describe('BookingController', () => {
   });
 
   it('createBooking() calls bookingService.createBooking with dto and patientId from req', async () => {
-    const dto = { doctorId: new Types.ObjectId().toString(), slotId: new Types.ObjectId().toString() } as any;
-    const req = { user: { entity: { _id: { toString: () => realPatientId.toString() } } } } as any;
+    const dto = {
+      doctorId: new Types.ObjectId().toString(),
+      slotId: new Types.ObjectId().toString(),
+    } as any;
+    const req = {
+      user: { entity: { _id: { toString: () => realPatientId.toString() } } },
+    } as any;
 
     const result = await controller.createBooking(dto, req);
 
-    expect(mockBookingService.createBooking).toHaveBeenCalledWith(dto, realPatientId.toString());
+    expect(mockBookingService.createBooking).toHaveBeenCalledWith(
+      dto,
+      realPatientId.toString(),
+    );
     expect(result).toBeDefined();
   });
 });

@@ -33,7 +33,7 @@ export class CenterConditionBuilder {
         : [];
     if (terms.length) {
       const textCondition = this.base.textSearch(['name', 'bio'], terms);
-      if (textCondition) conditions.push(textCondition as MongoCondition);
+      if (textCondition) conditions.push(textCondition);
     }
 
     // ===== CITY FILTER =====
@@ -51,7 +51,7 @@ export class CenterConditionBuilder {
 
       if (cityId) {
         const cityCondition = this.base.exact('cityId', cityId);
-        if (cityCondition) conditions.push(cityCondition as MongoCondition);
+        if (cityCondition) conditions.push(cityCondition);
       }
     }
 
@@ -62,8 +62,7 @@ export class CenterConditionBuilder {
         .lean();
       if (subcityDoc) {
         const subcityCondition = this.base.exact('subcity', subcityDoc._id);
-        if (subcityCondition)
-          conditions.push(subcityCondition as MongoCondition);
+        if (subcityCondition) conditions.push(subcityCondition);
       }
     }
 
@@ -73,13 +72,13 @@ export class CenterConditionBuilder {
         'centerSpecialization',
         dto.centerSpecialization,
       );
-      if (specCondition) conditions.push(specCondition as MongoCondition);
+      if (specCondition) conditions.push(specCondition);
     }
 
     // ===== ADDRESS SEARCH =====
     if (dto.address) {
       const addressCondition = this.base.textSearch(['address'], [dto.address]);
-      if (addressCondition) conditions.push(addressCondition as MongoCondition);
+      if (addressCondition) conditions.push(addressCondition);
     }
 
     if (
@@ -111,13 +110,13 @@ export class CenterConditionBuilder {
         'approvalStatus',
         dto.approvalStatus,
       );
-      if (statusCondition) conditions.push(statusCondition as MongoCondition);
+      if (statusCondition) conditions.push(statusCondition);
     }
 
     // ===== RANGE FILTERS =====
     if (dto.minRating !== undefined) {
       const ratingCondition = this.base.range('rating', dto.minRating, 5);
-      if (ratingCondition) conditions.push(ratingCondition as MongoCondition);
+      if (ratingCondition) conditions.push(ratingCondition);
     }
 
     // ===== MEDICAL CAPABILITIES (DEPARTMENTS/OPERATIONS/MACHINES) =====
@@ -142,7 +141,7 @@ export class CenterConditionBuilder {
 
     if (centerIds.length) {
       const inCondition = this.base.in('_id', centerIds);
-      if (inCondition) conditions.push(inCondition as MongoCondition);
+      if (inCondition) conditions.push(inCondition);
     }
 
     // ===== COMBINE ALL CONDITIONS =====

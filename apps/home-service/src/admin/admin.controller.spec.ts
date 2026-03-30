@@ -46,9 +46,15 @@ const mockAdminService = {
 };
 
 const mockAuthValidateService = {
-  createSession: jest.fn().mockResolvedValue({ accessToken: 'new-access', refreshToken: 'new-refresh' }),
+  createSession: jest.fn().mockResolvedValue({
+    accessToken: 'new-access',
+    refreshToken: 'new-refresh',
+  }),
   refreshAccessToken: jest.fn().mockResolvedValue({ accessToken: 'new-token' }),
-  refreshUserAccessToken: jest.fn().mockResolvedValue({ accessToken: 'new-access', refreshToken: 'new-refresh' }),
+  refreshUserAccessToken: jest.fn().mockResolvedValue({
+    accessToken: 'new-access',
+    refreshToken: 'new-refresh',
+  }),
   logoutAllSessions: jest.fn().mockResolvedValue(undefined),
 };
 
@@ -74,22 +80,42 @@ describe('AdminController', () => {
 
   it('signIn() calls adminService.signIn with dto', async () => {
     const dto = {
-      username: 'admin', password: 'pass',
-      deviceInfo: { deviceId: 'dev-1', deviceName: 'iPhone', deviceType: 'mobile', platform: 'iOS' },
+      username: 'admin',
+      password: 'pass',
+      deviceInfo: {
+        deviceId: 'dev-1',
+        deviceName: 'iPhone',
+        deviceType: 'mobile',
+        platform: 'iOS',
+      },
     } as any;
     const res = { cookie: jest.fn() } as any;
-    const req = { ip: '127.0.0.1', socket: { remoteAddress: '127.0.0.1' }, headers: { 'user-agent': 'test' } } as any;
+    const req = {
+      ip: '127.0.0.1',
+      socket: { remoteAddress: '127.0.0.1' },
+      headers: { 'user-agent': 'test' },
+    } as any;
     await controller.signIn(dto, res, req);
     expect(mockAdminService.signIn).toHaveBeenCalledWith(dto);
   });
 
   it('approveDoctor() calls adminService.approveDoctor', async () => {
-    await controller.approveDoctor(realDoctorId.toString(), makeAdminReq() as any);
-    expect(mockAdminService.approveDoctor).toHaveBeenCalledWith(realDoctorId.toString(), expect.anything());
+    await controller.approveDoctor(
+      realDoctorId.toString(),
+      makeAdminReq() as any,
+    );
+    expect(mockAdminService.approveDoctor).toHaveBeenCalledWith(
+      realDoctorId.toString(),
+      expect.anything(),
+    );
   });
 
   it('rejectDoctor() calls adminService.rejectedDoctor with (doctorId, adminId, reason)', async () => {
-    await controller.rejectDoctor(realDoctorId.toString(), 'Not qualified', makeAdminReq() as any);
+    await controller.rejectDoctor(
+      realDoctorId.toString(),
+      'Not qualified',
+      makeAdminReq() as any,
+    );
     // Controller calls rejectedDoctor(doctorId, adminId, reason)
     expect(mockAdminService.rejectedDoctor).toHaveBeenCalledWith(
       realDoctorId.toString(),
@@ -106,28 +132,52 @@ describe('AdminController', () => {
 
   it('getDoctorById() calls adminService.getDoctorById', async () => {
     await controller.getDoctorById(realDoctorId.toString());
-    expect(mockAdminService.getDoctorById).toHaveBeenCalledWith(realDoctorId.toString());
+    expect(mockAdminService.getDoctorById).toHaveBeenCalledWith(
+      realDoctorId.toString(),
+    );
   });
 
   it('approvePost() calls adminService.approvePost', async () => {
-    await controller.approvePost(realPostId.toString(), {} as any, makeAdminReq() as any);
-    expect(mockAdminService.approvePost).toHaveBeenCalledWith(realPostId.toString(), expect.anything(), expect.anything());
+    await controller.approvePost(
+      realPostId.toString(),
+      {} as any,
+      makeAdminReq() as any,
+    );
+    expect(mockAdminService.approvePost).toHaveBeenCalledWith(
+      realPostId.toString(),
+      expect.anything(),
+      expect.anything(),
+    );
   });
 
   it('rejectPost() calls adminService.rejectPost', async () => {
-    await controller.rejectPost(realPostId.toString(), {} as any, makeAdminReq() as any);
-    expect(mockAdminService.rejectPost).toHaveBeenCalledWith(realPostId.toString(), expect.anything(), expect.anything());
+    await controller.rejectPost(
+      realPostId.toString(),
+      {} as any,
+      makeAdminReq() as any,
+    );
+    expect(mockAdminService.rejectPost).toHaveBeenCalledWith(
+      realPostId.toString(),
+      expect.anything(),
+      expect.anything(),
+    );
   });
 
   it('approveQuestions() calls adminService.approveQuestions', async () => {
     const questionId = new Types.ObjectId().toString();
-    await controller.approveQuestions({ questionIds: [questionId] } as any, makeAdminReq() as any);
+    await controller.approveQuestions(
+      { questionIds: [questionId] } as any,
+      makeAdminReq() as any,
+    );
     expect(mockAdminService.approveQuestions).toHaveBeenCalled();
   });
 
   it('rejectQuestions() calls adminService.rejectQuestions', async () => {
     const questionId = new Types.ObjectId().toString();
-    await controller.rejectQuestions({ questionIds: [questionId] } as any, makeAdminReq() as any);
+    await controller.rejectQuestions(
+      { questionIds: [questionId] } as any,
+      makeAdminReq() as any,
+    );
     expect(mockAdminService.rejectQuestions).toHaveBeenCalled();
   });
 });

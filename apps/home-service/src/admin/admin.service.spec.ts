@@ -82,7 +82,9 @@ describe('AdminService', () => {
     phones: [{ normal: ['+963912345678'] }],
     fcmToken: 'fcm-token-doctor',
     gallery: [],
-    save: jest.fn().mockResolvedValue({ _id: doctorId, status: ApprovalStatus.APPROVED }),
+    save: jest
+      .fn()
+      .mockResolvedValue({ _id: doctorId, status: ApprovalStatus.APPROVED }),
     db: { startSession: jest.fn().mockResolvedValue(mockSession) },
   };
 
@@ -116,12 +118,19 @@ describe('AdminService', () => {
     mockSession.abortTransaction.mockResolvedValue(undefined);
     mockAdmin.save.mockResolvedValue(undefined);
     mockAdmin.db.startSession.mockResolvedValue(mockSession);
-    mockDoctor.save.mockResolvedValue({ _id: doctorId, status: ApprovalStatus.APPROVED });
+    mockDoctor.save.mockResolvedValue({
+      _id: doctorId,
+      status: ApprovalStatus.APPROVED,
+    });
     mockDoctor.db.startSession.mockResolvedValue(mockSession);
 
     // Expose db.startSession on model mocks
-    (adminModel as any).db = { startSession: jest.fn().mockResolvedValue(mockSession) };
-    (doctorModel as any).db = { startSession: jest.fn().mockResolvedValue(mockSession) };
+    (adminModel as any).db = {
+      startSession: jest.fn().mockResolvedValue(mockSession),
+    };
+    (doctorModel as any).db = {
+      startSession: jest.fn().mockResolvedValue(mockSession),
+    };
     mockPost.save.mockResolvedValue(undefined);
 
     (bcrypt.compare as jest.Mock).mockResolvedValue(true);
@@ -136,7 +145,10 @@ describe('AdminService', () => {
         { provide: getModelToken(Center.name), useValue: centerModel },
         { provide: getModelToken(Question.name), useValue: questionModel },
         { provide: getModelToken(User.name), useValue: patientModel },
-        { provide: getModelToken(AuthAccount.name), useValue: authAccountModel },
+        {
+          provide: getModelToken(AuthAccount.name),
+          useValue: authAccountModel,
+        },
         { provide: KafkaService, useValue: kafkaService },
         { provide: MinioService, useValue: minioService },
       ],
@@ -306,7 +318,13 @@ describe('AdminService', () => {
         fcmToken: 'fcm-token',
         firstName: 'Ahmad',
         lastName: 'Khalil',
-        save: jest.fn().mockResolvedValue({ _id: doctorId, phones: [{ normal: ['+963912345678'] }], firstName: 'Ahmad', lastName: 'Khalil', status: ApprovalStatus.REJECTED }),
+        save: jest.fn().mockResolvedValue({
+          _id: doctorId,
+          phones: [{ normal: ['+963912345678'] }],
+          firstName: 'Ahmad',
+          lastName: 'Khalil',
+          status: ApprovalStatus.REJECTED,
+        }),
       };
       doctorModel.findById.mockReturnValue({
         session: jest.fn().mockResolvedValue(rejectedDoctorMock),
@@ -331,7 +349,11 @@ describe('AdminService', () => {
       });
 
       await expect(
-        service.rejectedDoctor(doctorId.toString(), adminId.toString(), 'reason'),
+        service.rejectedDoctor(
+          doctorId.toString(),
+          adminId.toString(),
+          'reason',
+        ),
       ).rejects.toThrow(BadRequestException);
     });
 
@@ -344,7 +366,11 @@ describe('AdminService', () => {
       });
 
       await expect(
-        service.rejectedDoctor(doctorId.toString(), adminId.toString(), 'reason'),
+        service.rejectedDoctor(
+          doctorId.toString(),
+          adminId.toString(),
+          'reason',
+        ),
       ).rejects.toThrow(BadRequestException);
     });
   });
@@ -365,7 +391,10 @@ describe('AdminService', () => {
           ],
         }),
       });
-      doctorModel.updateOne.mockResolvedValue({ matchedCount: 1, modifiedCount: 2 });
+      doctorModel.updateOne.mockResolvedValue({
+        matchedCount: 1,
+        modifiedCount: 2,
+      });
 
       await service.approveGalleryImages(
         doctorId.toString(),
@@ -393,7 +422,11 @@ describe('AdminService', () => {
       });
 
       await expect(
-        service.approveGalleryImages(doctorId.toString(), imageIds, adminId.toString()),
+        service.approveGalleryImages(
+          doctorId.toString(),
+          imageIds,
+          adminId.toString(),
+        ),
       ).rejects.toThrow(NotFoundException);
     });
 
@@ -402,10 +435,17 @@ describe('AdminService', () => {
         select: jest.fn().mockReturnThis(),
         lean: jest.fn().mockResolvedValue(mockDoctor),
       });
-      doctorModel.updateOne.mockResolvedValue({ matchedCount: 1, modifiedCount: 0 });
+      doctorModel.updateOne.mockResolvedValue({
+        matchedCount: 1,
+        modifiedCount: 0,
+      });
 
       await expect(
-        service.approveGalleryImages(doctorId.toString(), imageIds, adminId.toString()),
+        service.approveGalleryImages(
+          doctorId.toString(),
+          imageIds,
+          adminId.toString(),
+        ),
       ).rejects.toThrow(BadRequestException);
     });
   });
@@ -416,7 +456,14 @@ describe('AdminService', () => {
     const imageIds = ['img-1'];
     const doctorWithGallery = {
       ...mockDoctor,
-      gallery: [{ imageId: 'img-1', bucket: 'doctors', fileName: 'img-1.jpg', status: GalleryImageStatus.PENDING }],
+      gallery: [
+        {
+          imageId: 'img-1',
+          bucket: 'doctors',
+          fileName: 'img-1.jpg',
+          status: GalleryImageStatus.PENDING,
+        },
+      ],
     };
 
     it('deletes images from MinIO and removes from doctor record', async () => {
@@ -433,16 +480,26 @@ describe('AdminService', () => {
         adminId.toString(),
       );
 
-      expect(minioService.deleteFile).toHaveBeenCalledWith('doctors', 'img-1.jpg');
+      expect(minioService.deleteFile).toHaveBeenCalledWith(
+        'doctors',
+        'img-1.jpg',
+      );
       expect(doctorModel.updateOne).toHaveBeenCalledWith(
         { _id: doctorId.toString() },
-        expect.objectContaining({ $pull: { gallery: { imageId: { $in: imageIds } } } }),
+        expect.objectContaining({
+          $pull: { gallery: { imageId: { $in: imageIds } } },
+        }),
       );
     });
 
     it('throws BadRequestException for invalid doctorId', async () => {
       await expect(
-        service.rejectGalleryImages('bad-id', imageIds, 'reason', adminId.toString()),
+        service.rejectGalleryImages(
+          'bad-id',
+          imageIds,
+          'reason',
+          adminId.toString(),
+        ),
       ).rejects.toThrow(BadRequestException);
     });
 
@@ -453,7 +510,12 @@ describe('AdminService', () => {
       });
 
       await expect(
-        service.rejectGalleryImages(doctorId.toString(), imageIds, 'reason', adminId.toString()),
+        service.rejectGalleryImages(
+          doctorId.toString(),
+          imageIds,
+          'reason',
+          adminId.toString(),
+        ),
       ).rejects.toThrow(NotFoundException);
     });
   });
@@ -538,7 +600,11 @@ describe('AdminService', () => {
       });
 
       await expect(
-        service.rejectPost(postId.toString(), { reason: 'r' } as any, adminId.toString()),
+        service.rejectPost(
+          postId.toString(),
+          { reason: 'r' } as any,
+          adminId.toString(),
+        ),
       ).rejects.toThrow(NotFoundException);
     });
   });
@@ -549,16 +615,25 @@ describe('AdminService', () => {
     const questionIds = [new Types.ObjectId().toString()];
 
     it('approves questions and sends Kafka notifications per user', async () => {
-      questionModel.updateMany.mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
+      questionModel.updateMany.mockResolvedValue({
+        matchedCount: 1,
+        modifiedCount: 1,
+      });
       questionModel.find.mockReturnValue({
         select: jest.fn().mockReturnThis(),
-        lean: jest.fn().mockResolvedValue([
-          { _id: new Types.ObjectId(), userId: new Types.ObjectId() },
-        ]),
+        lean: jest
+          .fn()
+          .mockResolvedValue([
+            { _id: new Types.ObjectId(), userId: new Types.ObjectId() },
+          ]),
       });
       patientModel.findById.mockReturnValue({
         select: jest.fn().mockReturnThis(),
-        lean: jest.fn().mockResolvedValue({ _id: new Types.ObjectId(), fcmToken: 'tok', username: 'Ali' }),
+        lean: jest.fn().mockResolvedValue({
+          _id: new Types.ObjectId(),
+          fcmToken: 'tok',
+          username: 'Ali',
+        }),
       });
 
       await expect(
@@ -575,7 +650,10 @@ describe('AdminService', () => {
     });
 
     it('throws NotFoundException when no matching questions found', async () => {
-      questionModel.updateMany.mockResolvedValue({ matchedCount: 0, modifiedCount: 0 });
+      questionModel.updateMany.mockResolvedValue({
+        matchedCount: 0,
+        modifiedCount: 0,
+      });
 
       await expect(
         service.approveQuestions(questionIds, adminId.toString()),
@@ -583,7 +661,10 @@ describe('AdminService', () => {
     });
 
     it('throws BadRequestException when all questions already approved', async () => {
-      questionModel.updateMany.mockResolvedValue({ matchedCount: 1, modifiedCount: 0 });
+      questionModel.updateMany.mockResolvedValue({
+        matchedCount: 1,
+        modifiedCount: 0,
+      });
 
       await expect(
         service.approveQuestions(questionIds, adminId.toString()),
@@ -595,9 +676,16 @@ describe('AdminService', () => {
 
   describe('getDoctors()', () => {
     it('returns paginated doctors with default pagination', async () => {
-      doctorModel.aggregate.mockResolvedValueOnce([{ total: 2 }])
+      doctorModel.aggregate
+        .mockResolvedValueOnce([{ total: 2 }])
         .mockResolvedValueOnce([
-          { _id: new Types.ObjectId(), firstName: 'Ali', middleName: 'M', lastName: 'K', createdAt: new Date() },
+          {
+            _id: new Types.ObjectId(),
+            firstName: 'Ali',
+            middleName: 'M',
+            lastName: 'K',
+            createdAt: new Date(),
+          },
         ]);
 
       const result = await service.getDoctors({} as any);
@@ -614,7 +702,9 @@ describe('AdminService', () => {
 
       expect(doctorModel.aggregate).toHaveBeenCalledWith(
         expect.arrayContaining([
-          expect.objectContaining({ $match: expect.objectContaining({ status: ApprovalStatus.PENDING }) }),
+          expect.objectContaining({
+            $match: expect.objectContaining({ status: ApprovalStatus.PENDING }),
+          }),
         ]),
       );
     });
@@ -659,9 +749,9 @@ describe('AdminService', () => {
         lean: jest.fn().mockResolvedValue(null),
       });
 
-      await expect(
-        service.getDoctorById(doctorId.toString()),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.getDoctorById(doctorId.toString())).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 });

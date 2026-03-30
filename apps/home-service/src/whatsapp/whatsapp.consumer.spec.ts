@@ -42,7 +42,9 @@ describe('WhatsappConsumer', () => {
     });
 
     it('sends message with nested value payload', async () => {
-      const data = { value: { phone: '0911111111', text: 'Hello', lang: 'en' } };
+      const data = {
+        value: { phone: '0911111111', text: 'Hello', lang: 'en' },
+      };
       await consumer.handleSendMessage(data);
       expect(mockWhatsappService.sendMessage).toHaveBeenCalledWith(
         '0911111111',
@@ -131,7 +133,10 @@ describe('WhatsappConsumer', () => {
         new Error('WA error'),
       );
       await expect(
-        consumer.handleDoctorWelcome({ phone: '0911111111', doctorName: 'Ahmad' }),
+        consumer.handleDoctorWelcome({
+          phone: '0911111111',
+          doctorName: 'Ahmad',
+        }),
       ).resolves.toBeUndefined();
     });
   });
@@ -158,7 +163,10 @@ describe('WhatsappConsumer', () => {
         new Error('error'),
       );
       await expect(
-        consumer.handleDoctorApproved({ phone: '0911111111', doctorName: 'Ahmad' }),
+        consumer.handleDoctorApproved({
+          phone: '0911111111',
+          doctorName: 'Ahmad',
+        }),
       ).resolves.toBeUndefined();
     });
   });
@@ -167,7 +175,11 @@ describe('WhatsappConsumer', () => {
 
   describe('handleDoctorRejected()', () => {
     it('sends rejection message with valid payload', async () => {
-      const data = { phone: '0911111111', doctorName: 'Ahmad', reason: 'Docs missing' };
+      const data = {
+        phone: '0911111111',
+        doctorName: 'Ahmad',
+        reason: 'Docs missing',
+      };
       await consumer.handleDoctorRejected(data);
       expect(mockWhatsappService.sendDoctorRejected).toHaveBeenCalledWith(
         '0911111111',
@@ -186,7 +198,10 @@ describe('WhatsappConsumer', () => {
         new Error('error'),
       );
       await expect(
-        consumer.handleDoctorRejected({ phone: '0911111111', doctorName: 'Ahmad' }),
+        consumer.handleDoctorRejected({
+          phone: '0911111111',
+          doctorName: 'Ahmad',
+        }),
       ).resolves.toBeUndefined();
     });
   });

@@ -79,9 +79,7 @@ describe('PauseSlotsProcessor', () => {
     it('pauses slots with no affected bookings', async () => {
       const mockJob = { data: baseJobData } as any;
 
-      await expect(
-        processor.handlePauseSlots(mockJob),
-      ).resolves.not.toThrow();
+      await expect(processor.handlePauseSlots(mockJob)).resolves.not.toThrow();
 
       expect(mockSlotModel.updateMany).toHaveBeenCalled();
       expect(mockBookingModel.find).not.toHaveBeenCalled();
@@ -91,7 +89,11 @@ describe('PauseSlotsProcessor', () => {
       const patientId = new Types.ObjectId();
       const mockBooking = {
         _id: new Types.ObjectId(bookingId1),
-        patientId: { _id: patientId, fcmToken: 'patient-token', username: 'Ali' },
+        patientId: {
+          _id: patientId,
+          fcmToken: 'patient-token',
+          username: 'Ali',
+        },
         slotId: { _id: new Types.ObjectId(slotId1) },
         bookingDate: new Date(),
         bookingTime: '10:00',

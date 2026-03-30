@@ -70,19 +70,34 @@ describe('BookingValidationService', () => {
   describe('validateBooking() — invalid IDs', () => {
     it('throws BadRequestException for invalid patientId', async () => {
       await expect(
-        service.validateBooking('bad-id', validDoctorId, futureDate, validSlotId),
+        service.validateBooking(
+          'bad-id',
+          validDoctorId,
+          futureDate,
+          validSlotId,
+        ),
       ).rejects.toThrow(BadRequestException);
     });
 
     it('throws BadRequestException for invalid doctorId', async () => {
       await expect(
-        service.validateBooking(validPatientId, 'bad-id', futureDate, validSlotId),
+        service.validateBooking(
+          validPatientId,
+          'bad-id',
+          futureDate,
+          validSlotId,
+        ),
       ).rejects.toThrow(BadRequestException);
     });
 
     it('throws BadRequestException for invalid slotId', async () => {
       await expect(
-        service.validateBooking(validPatientId, validDoctorId, futureDate, 'bad-id'),
+        service.validateBooking(
+          validPatientId,
+          validDoctorId,
+          futureDate,
+          'bad-id',
+        ),
       ).rejects.toThrow(BadRequestException);
     });
   });
@@ -94,7 +109,12 @@ describe('BookingValidationService', () => {
       slotModel.findById.mockResolvedValue(null);
 
       await expect(
-        service.validateBooking(validPatientId, validDoctorId, futureDate, validSlotId),
+        service.validateBooking(
+          validPatientId,
+          validDoctorId,
+          futureDate,
+          validSlotId,
+        ),
       ).rejects.toThrow(NotFoundException);
     });
 

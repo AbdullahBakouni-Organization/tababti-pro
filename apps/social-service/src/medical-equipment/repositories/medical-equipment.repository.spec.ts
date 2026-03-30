@@ -89,7 +89,9 @@ describe('MedicalEquipmentRepository', () => {
 
   describe('findById()', () => {
     it('throws BadRequestException for invalid id', async () => {
-      await expect(repo.findById('bad-id')).rejects.toThrow(BadRequestException);
+      await expect(repo.findById('bad-id')).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('throws NotFoundException when request not found', async () => {

@@ -24,8 +24,14 @@ describe('SlotKafkaController', () => {
       controllers: [SlotKafkaController],
       providers: [
         { provide: SlotGenerationService, useValue: mockSlotGenerationService },
-        { provide: getQueueToken('WORKING_HOURS_UPDATE'), useValue: mockWorkingHoursQueue },
-        { provide: getQueueToken('WORKING_HOURS_GENERATE'), useValue: mockWorkingHoursQueueV1 },
+        {
+          provide: getQueueToken('WORKING_HOURS_UPDATE'),
+          useValue: mockWorkingHoursQueue,
+        },
+        {
+          provide: getQueueToken('WORKING_HOURS_GENERATE'),
+          useValue: mockWorkingHoursQueueV1,
+        },
       ],
     }).compile();
 
@@ -40,13 +46,19 @@ describe('SlotKafkaController', () => {
     it('calls getAvailableSlots with doctorId', async () => {
       const event = { data: { doctorId: 'doc-1', location: 'clinic' } };
       await controller.handleSlotsRefreshed(event as any);
-      expect(mockSlotGenerationService.getAvailableSlots).toHaveBeenCalledWith({ doctorId: 'doc-1' });
+      expect(mockSlotGenerationService.getAvailableSlots).toHaveBeenCalledWith({
+        doctorId: 'doc-1',
+      });
     });
 
     it('does not throw when getAvailableSlots fails', async () => {
-      mockSlotGenerationService.getAvailableSlots.mockRejectedValue(new Error('Service down'));
+      mockSlotGenerationService.getAvailableSlots.mockRejectedValue(
+        new Error('Service down'),
+      );
       const event = { data: { doctorId: 'doc-1', location: 'clinic' } };
-      await expect(controller.handleSlotsRefreshed(event as any)).resolves.toBeUndefined();
+      await expect(
+        controller.handleSlotsRefreshed(event as any),
+      ).resolves.toBeUndefined();
     });
   });
 

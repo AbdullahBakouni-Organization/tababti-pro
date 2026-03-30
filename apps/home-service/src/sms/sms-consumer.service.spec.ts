@@ -9,7 +9,14 @@ describe('SmsConsumerController', () => {
     send: jest.fn().mockResolvedValue(true),
   };
 
-  const makeEvent = (data: Partial<{ doctorId: string; phone: string; fullName: string; reason: string }> = {}) => ({
+  const makeEvent = (
+    data: Partial<{
+      doctorId: string;
+      phone: string;
+      fullName: string;
+      reason: string;
+    }> = {},
+  ) => ({
     eventType: 'DOCTOR_EVENT',
     timestamp: new Date(),
     data: {
@@ -59,12 +66,16 @@ describe('SmsConsumerController', () => {
     });
 
     it('returns without sending when phone has fewer than 9 digits', async () => {
-      await controller.handleDoctorRegistered(makeEvent({ phone: '12345' }) as any);
+      await controller.handleDoctorRegistered(
+        makeEvent({ phone: '12345' }) as any,
+      );
       expect(mockSmsService.send).not.toHaveBeenCalled();
     });
 
     it('handles errors gracefully without throwing', async () => {
-      mockSmsService.send.mockRejectedValue(new Error('SMS service unavailable'));
+      mockSmsService.send.mockRejectedValue(
+        new Error('SMS service unavailable'),
+      );
 
       await expect(
         controller.handleDoctorRegistered(makeEvent() as any),
@@ -72,7 +83,9 @@ describe('SmsConsumerController', () => {
     });
 
     it('uses "الطبيب" as fallback when fullName is missing', async () => {
-      await controller.handleDoctorRegistered(makeEvent({ fullName: '' }) as any);
+      await controller.handleDoctorRegistered(
+        makeEvent({ fullName: '' }) as any,
+      );
 
       expect(mockSmsService.send).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -99,7 +112,9 @@ describe('SmsConsumerController', () => {
     });
 
     it('returns without sending when phone is too short', async () => {
-      await controller.handleDoctorApproved(makeEvent({ phone: '91234' }) as any);
+      await controller.handleDoctorApproved(
+        makeEvent({ phone: '91234' }) as any,
+      );
       expect(mockSmsService.send).not.toHaveBeenCalled();
     });
 

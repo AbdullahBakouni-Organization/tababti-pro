@@ -122,7 +122,9 @@ describe('SpecializationsService', () => {
         lean: jest.fn().mockResolvedValue(null),
       });
 
-      await expect(service.getDropdownList()).rejects.toThrow(NotFoundException);
+      await expect(service.getDropdownList()).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('returns and caches specializations from DB', async () => {
@@ -154,7 +156,9 @@ describe('SpecializationsService', () => {
       });
       mockSpecModel.countDocuments.mockResolvedValue(0);
 
-      await expect(service.getPaginatedList()).rejects.toThrow(NotFoundException);
+      await expect(service.getPaginatedList()).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('returns paginated list', async () => {
@@ -229,7 +233,8 @@ describe('SpecializationsService', () => {
         lean: jest.fn().mockResolvedValue(null),
       });
 
-      const result = await service.buildQuestionSpecializationMatch('Cardiology');
+      const result =
+        await service.buildQuestionSpecializationMatch('Cardiology');
       expect(result).toBeNull();
     });
 
@@ -239,7 +244,8 @@ describe('SpecializationsService', () => {
         lean: jest.fn().mockResolvedValue(mockSpec),
       });
 
-      const result = await service.buildQuestionSpecializationMatch('Cardiology');
+      const result =
+        await service.buildQuestionSpecializationMatch('Cardiology');
       expect(result).toHaveProperty('specializationId');
     });
   });

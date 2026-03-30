@@ -52,7 +52,9 @@ describe('AdminLegalAdviceController', () => {
       providers: [{ provide: LegalAdviceService, useValue: mockService }],
     }).compile();
 
-    controller = module.get<AdminLegalAdviceController>(AdminLegalAdviceController);
+    controller = module.get<AdminLegalAdviceController>(
+      AdminLegalAdviceController,
+    );
   });
 
   it('should be defined', () => {
@@ -74,7 +76,13 @@ describe('AdminLegalAdviceController', () => {
 
   describe('getAllRequests()', () => {
     it('delegates to service and returns wrapped result', async () => {
-      const paged = { requests: [mockRequest], total: 1, page: 1, limit: 10, totalPages: 1 };
+      const paged = {
+        requests: [mockRequest],
+        total: 1,
+        page: 1,
+        limit: 10,
+        totalPages: 1,
+      };
       mockService.getAllRequests.mockResolvedValue(paged);
 
       const result = await controller.getAllRequests(
@@ -107,7 +115,13 @@ describe('AdminLegalAdviceController', () => {
     });
 
     it('returns requests filtered by status', async () => {
-      const paged = { requests: [], total: 0, page: 1, limit: 10, totalPages: 0 };
+      const paged = {
+        requests: [],
+        total: 0,
+        page: 1,
+        limit: 10,
+        totalPages: 0,
+      };
       mockService.getAllRequests.mockResolvedValue(paged);
 
       const result = await controller.getRequestsByStatus(
@@ -122,7 +136,13 @@ describe('AdminLegalAdviceController', () => {
 
   describe('getMyQueue()', () => {
     it('returns admin queue', async () => {
-      const paged = { requests: [], total: 0, page: 1, limit: 10, totalPages: 0 };
+      const paged = {
+        requests: [],
+        total: 0,
+        page: 1,
+        limit: 10,
+        totalPages: 0,
+      };
       mockService.getAllRequests.mockResolvedValue(paged);
 
       const result = await controller.getMyQueue('admin-1', 1, 10, 'en');
@@ -134,7 +154,12 @@ describe('AdminLegalAdviceController', () => {
     it('returns single request with admin access', async () => {
       mockService.getRequest.mockResolvedValue(mockRequest);
 
-      const result = await controller.getRequest('req-1', UserRole.ADMIN, 'admin-1', 'en');
+      const result = await controller.getRequest(
+        'req-1',
+        UserRole.ADMIN,
+        'admin-1',
+        'en',
+      );
 
       expect(mockService.getRequest).toHaveBeenCalledWith(
         'req-1',
@@ -149,7 +174,12 @@ describe('AdminLegalAdviceController', () => {
   describe('updateStatus()', () => {
     it('throws BadRequestException when status is missing', async () => {
       await expect(
-        controller.updateStatus('req-1', { status: undefined as any }, 'admin-1', 'en'),
+        controller.updateStatus(
+          'req-1',
+          { status: undefined as any },
+          'admin-1',
+          'en',
+        ),
       ).rejects.toThrow(BadRequestException);
     });
 

@@ -72,11 +72,11 @@ describe('MedicalEquipmentController', () => {
     it('delegates to service.updateRequestStatus', async () => {
       mockService.updateRequestStatus.mockResolvedValue({
         _id: 'req-1',
-        status: EntityRequestStatus.APPROVED,
+        status: EntityRequestStatus.COMPLETED,
       });
       const result = await controller.updateRequestStatus(
         'req-1',
-        { status: EntityRequestStatus.APPROVED } as any,
+        { status: EntityRequestStatus.COMPLETED } as any,
         'en',
       );
       expect(result).toHaveProperty('data');

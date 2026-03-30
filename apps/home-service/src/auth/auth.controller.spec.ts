@@ -5,7 +5,9 @@ import { AuthService } from './auth.service';
 import { AuthValidateService } from '@app/common/auth-validate';
 
 const mockAuthService = {
-  requestOtp: jest.fn().mockResolvedValue({ success: true, message: 'OTP sent' }),
+  requestOtp: jest
+    .fn()
+    .mockResolvedValue({ success: true, message: 'OTP sent' }),
   verifyOtp: jest.fn().mockResolvedValue({ success: true }),
   resendOtp: jest.fn().mockResolvedValue({ success: true }),
   completeRegistration: jest.fn().mockResolvedValue({ success: true }),
@@ -13,7 +15,10 @@ const mockAuthService = {
 };
 
 const mockAuthValidateService = {
-  refreshUserAccessToken: jest.fn().mockResolvedValue({ accessToken: 'new-access', refreshToken: 'new-refresh' }),
+  refreshUserAccessToken: jest.fn().mockResolvedValue({
+    accessToken: 'new-access',
+    refreshToken: 'new-refresh',
+  }),
 };
 
 describe('AuthController', () => {
@@ -58,7 +63,9 @@ describe('AuthController', () => {
 
   it('logout() extracts userId from req.user and calls authService.logout', async () => {
     const realId = new Types.ObjectId();
-    const req = { user: { entity: { _id: { toString: () => realId.toString() } } } } as any;
+    const req = {
+      user: { entity: { _id: { toString: () => realId.toString() } } },
+    } as any;
     await controller.logout(req);
     expect(mockAuthService.logout).toHaveBeenCalledWith(realId.toString());
   });

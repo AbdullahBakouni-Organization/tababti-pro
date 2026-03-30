@@ -22,10 +22,7 @@ describe('BookingProxyController', () => {
     ...overrides,
   });
 
-  const axiosResponse = (
-    data: unknown,
-    status = 200,
-  ): AxiosResponse => ({
+  const axiosResponse = (data: unknown, status = 200): AxiosResponse => ({
     data,
     status,
     statusText: 'OK',
@@ -59,7 +56,9 @@ describe('BookingProxyController', () => {
 
   it('should proxy a GET request to the booking service', async () => {
     const responseData = { bookings: [] };
-    jest.spyOn(httpService, 'request').mockReturnValue(of(axiosResponse(responseData)));
+    jest
+      .spyOn(httpService, 'request')
+      .mockReturnValue(of(axiosResponse(responseData)));
 
     const req = mockRequest();
     const res = mockResponse();
@@ -92,10 +91,14 @@ describe('BookingProxyController', () => {
   });
 
   it('should pass raw request as data for multipart/form-data', async () => {
-    jest.spyOn(httpService, 'request').mockReturnValue(of(axiosResponse({ ok: true })));
+    jest
+      .spyOn(httpService, 'request')
+      .mockReturnValue(of(axiosResponse({ ok: true })));
 
     const req = mockRequest({
-      headers: { 'content-type': 'multipart/form-data; boundary=---xyz' } as any,
+      headers: {
+        'content-type': 'multipart/form-data; boundary=---xyz',
+      } as any,
       method: 'POST',
     });
     const res = mockResponse();
@@ -109,7 +112,9 @@ describe('BookingProxyController', () => {
 
   it('should pass req.body for JSON requests', async () => {
     const body = { date: '2026-04-01', time: '10:00' };
-    jest.spyOn(httpService, 'request').mockReturnValue(of(axiosResponse({ created: true })));
+    jest
+      .spyOn(httpService, 'request')
+      .mockReturnValue(of(axiosResponse({ created: true })));
 
     const req = mockRequest({ body, method: 'POST' });
     const res = mockResponse();

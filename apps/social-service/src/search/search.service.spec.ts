@@ -10,7 +10,11 @@ import { ApprovalStatus } from '@app/common/database/schemas/common.enums';
 
 describe('SearchService', () => {
   let service: SearchService;
-  let doctorModel: { findById: jest.Mock; find: jest.Mock; countDocuments: jest.Mock };
+  let doctorModel: {
+    findById: jest.Mock;
+    find: jest.Mock;
+    countDocuments: jest.Mock;
+  };
   let orchestrator: { searchAll: jest.Mock };
   let cache: { clear: jest.Mock };
 
@@ -81,7 +85,9 @@ describe('SearchService', () => {
         lean: jest.fn().mockReturnThis(),
         exec: jest.fn().mockResolvedValue(mockDoctor),
       });
-      const mockResults = [{ _id: new Types.ObjectId(), firstName: 'Dr2', lastName: 'Similar' }];
+      const mockResults = [
+        { _id: new Types.ObjectId(), firstName: 'Dr2', lastName: 'Similar' },
+      ];
       doctorModel.find.mockReturnValue({
         select: jest.fn().mockReturnThis(),
         sort: jest.fn().mockReturnThis(),
@@ -92,7 +98,10 @@ describe('SearchService', () => {
       });
       doctorModel.countDocuments.mockResolvedValue(1);
 
-      const result = await service.getSimilarDoctors({ doctorId, page: 1, limit: 5 } as any, authAccountId);
+      const result = await service.getSimilarDoctors(
+        { doctorId, page: 1, limit: 5 } as any,
+        authAccountId,
+      );
 
       expect(result.doctors.data).toHaveLength(1);
       expect(result.meta.total).toBe(1);

@@ -29,12 +29,12 @@ describe('HomeProxyController', () => {
   const axiosResponse = (
     data: unknown,
     status = 200,
-    headers: Record<string, unknown> = {},
+    headers: Record<string, string | string[]> = {},
   ): AxiosResponse => ({
     data,
     status,
     statusText: 'OK',
-    headers,
+    headers: headers as any,
     config: {} as InternalAxiosRequestConfig,
   });
 
@@ -86,9 +86,7 @@ describe('HomeProxyController', () => {
   });
 
   it('should strip the /home/ prefix from the URL path', async () => {
-    jest
-      .spyOn(httpService, 'request')
-      .mockReturnValue(of(axiosResponse({})));
+    jest.spyOn(httpService, 'request').mockReturnValue(of(axiosResponse({})));
 
     const req = mockRequest({ url: '/home/api/v1/resource' });
     const res = mockResponse();
@@ -122,7 +120,9 @@ describe('HomeProxyController', () => {
       .mockReturnValue(of(axiosResponse({ uploaded: true })));
 
     const req = mockRequest({
-      headers: { 'content-type': 'multipart/form-data; boundary=---abc' } as any,
+      headers: {
+        'content-type': 'multipart/form-data; boundary=---abc',
+      } as any,
       method: 'POST',
     });
     const res = mockResponse();
@@ -190,9 +190,7 @@ describe('HomeProxyController', () => {
   });
 
   it('should remove host and content-length headers before forwarding', async () => {
-    jest
-      .spyOn(httpService, 'request')
-      .mockReturnValue(of(axiosResponse({})));
+    jest.spyOn(httpService, 'request').mockReturnValue(of(axiosResponse({})));
 
     const req = mockRequest({
       headers: {

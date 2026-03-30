@@ -270,7 +270,11 @@ describe('ConflictDetectionService', () => {
       bookingModel._mockQuery.exec.mockResolvedValue([booking]);
 
       const result = await service.detectConflicts(doctorId, [
-        makeWorkingHours({ day: 'Monday', startTime: '09:00', endTime: '17:00' }),
+        makeWorkingHours({
+          day: 'Monday',
+          startTime: '09:00',
+          endTime: '17:00',
+        }),
       ]);
 
       expect(result.futureConflicts).toHaveLength(1);
@@ -393,10 +397,7 @@ describe('ConflictDetectionService', () => {
 
     it('should return 1 when all conflicts are from same patient', () => {
       const p1 = new Types.ObjectId().toString();
-      const conflicts = [
-        { patientId: p1 } as any,
-        { patientId: p1 } as any,
-      ];
+      const conflicts = [{ patientId: p1 } as any, { patientId: p1 } as any];
 
       const count = service.getUniquePatientCount(conflicts);
       expect(count).toBe(1);

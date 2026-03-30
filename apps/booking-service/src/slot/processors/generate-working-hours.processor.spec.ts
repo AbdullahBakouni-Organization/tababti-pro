@@ -21,7 +21,10 @@ describe('SlotGenerationProcessor', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         SlotGenerationProcessor,
-        { provide: getModelToken(AppointmentSlot.name), useValue: mockSlotModel },
+        {
+          provide: getModelToken(AppointmentSlot.name),
+          useValue: mockSlotModel,
+        },
       ],
     }).compile();
 
@@ -62,14 +65,20 @@ describe('SlotGenerationProcessor', () => {
     };
 
     it('processes job without throwing', async () => {
-      mockSlotModel.find.mockReturnValue({ lean: jest.fn().mockResolvedValue([]) });
+      mockSlotModel.find.mockReturnValue({
+        lean: jest.fn().mockResolvedValue([]),
+      });
       mockSlotModel.insertMany.mockResolvedValue([]);
 
-      await expect(processor.handleSlotGeneration(mockJob as any)).resolves.toBeUndefined();
+      await expect(
+        processor.handleSlotGeneration(mockJob as any),
+      ).resolves.toBeUndefined();
     });
 
     it('calls job.progress during processing', async () => {
-      mockSlotModel.find.mockReturnValue({ lean: jest.fn().mockResolvedValue([]) });
+      mockSlotModel.find.mockReturnValue({
+        lean: jest.fn().mockResolvedValue([]),
+      });
       mockSlotModel.insertMany.mockResolvedValue([]);
 
       await processor.handleSlotGeneration(mockJob as any);

@@ -80,15 +80,19 @@ describe('FcmService', () => {
 
     it('returns true when FCM send succeeds', async () => {
       mockSend.mockResolvedValue('msg-id');
-      const result =
-        await service.sendBookingCancellationNotificationToDoctor('token-2', data);
+      const result = await service.sendBookingCancellationNotificationToDoctor(
+        'token-2',
+        data,
+      );
       expect(result).toBe(true);
     });
 
     it('returns false on failure', async () => {
       mockSend.mockRejectedValue(new Error('error'));
-      const result =
-        await service.sendBookingCancellationNotificationToDoctor('bad-token', data);
+      const result = await service.sendBookingCancellationNotificationToDoctor(
+        'bad-token',
+        data,
+      );
       expect(result).toBe(false);
     });
   });
@@ -107,13 +111,19 @@ describe('FcmService', () => {
 
     it('returns true on success', async () => {
       mockSend.mockResolvedValue('msg-id');
-      const result = await service.sendBookingCompletionNotification('token', data);
+      const result = await service.sendBookingCompletionNotification(
+        'token',
+        data,
+      );
       expect(result).toBe(true);
     });
 
     it('returns false on failure', async () => {
       mockSend.mockRejectedValue(new Error('error'));
-      const result = await service.sendBookingCompletionNotification('token', data);
+      const result = await service.sendBookingCompletionNotification(
+        'token',
+        data,
+      );
       expect(result).toBe(false);
     });
   });
@@ -131,13 +141,19 @@ describe('FcmService', () => {
 
     it('returns true on success', async () => {
       mockSend.mockResolvedValue('msg-id');
-      const result = await service.sendBookingRescheduledNotification('token', data);
+      const result = await service.sendBookingRescheduledNotification(
+        'token',
+        data,
+      );
       expect(result).toBe(true);
     });
 
     it('returns false on failure', async () => {
       mockSend.mockRejectedValue(new Error('error'));
-      const result = await service.sendBookingRescheduledNotification('token', data);
+      const result = await service.sendBookingRescheduledNotification(
+        'token',
+        data,
+      );
       expect(result).toBe(false);
     });
   });
@@ -215,13 +231,19 @@ describe('FcmService', () => {
 
     it('returns true on success', async () => {
       mockSend.mockResolvedValue('msg-id');
-      const result = await service.sendAdminApprovedPostNotification('token', data);
+      const result = await service.sendAdminApprovedPostNotification(
+        'token',
+        data,
+      );
       expect(result).toBe(true);
     });
 
     it('returns false on failure', async () => {
       mockSend.mockRejectedValue(new Error('error'));
-      const result = await service.sendAdminApprovedPostNotification('token', data);
+      const result = await service.sendAdminApprovedPostNotification(
+        'token',
+        data,
+      );
       expect(result).toBe(false);
     });
   });
@@ -238,13 +260,19 @@ describe('FcmService', () => {
 
     it('returns true on success', async () => {
       mockSend.mockResolvedValue('msg-id');
-      const result = await service.sendAdminRejectedPostNotification('token', data);
+      const result = await service.sendAdminRejectedPostNotification(
+        'token',
+        data,
+      );
       expect(result).toBe(true);
     });
 
     it('returns false on failure', async () => {
       mockSend.mockRejectedValue(new Error('error'));
-      const result = await service.sendAdminRejectedPostNotification('token', data);
+      const result = await service.sendAdminRejectedPostNotification(
+        'token',
+        data,
+      );
       expect(result).toBe(false);
     });
   });
@@ -417,7 +445,10 @@ describe('FcmService', () => {
 
   describe('subscribeToTopic()', () => {
     it('returns success and failure counts', async () => {
-      mockSubscribeToTopic.mockResolvedValue({ successCount: 2, failureCount: 0 });
+      mockSubscribeToTopic.mockResolvedValue({
+        successCount: 2,
+        failureCount: 0,
+      });
       const result = await service.subscribeToTopic(
         ['token-1', 'token-2'],
         'doctor-updates',

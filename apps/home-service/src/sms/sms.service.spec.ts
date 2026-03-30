@@ -88,9 +88,7 @@ describe('SmsService', () => {
     });
 
     it('throws when phone number is empty', async () => {
-      await expect(
-        service.send({ to: '', message: 'Test' }),
-      ).rejects.toThrow();
+      await expect(service.send({ to: '', message: 'Test' })).rejects.toThrow();
     });
 
     it('throws when message is empty', async () => {

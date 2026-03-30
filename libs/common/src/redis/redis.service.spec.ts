@@ -66,7 +66,7 @@ describe('RedisService', () => {
     // Reset all mocks between tests
     Object.values(mockRedisInstance).forEach((fn) => {
       if (typeof fn === 'function' && 'mockReset' in fn) {
-        (fn as jest.Mock).mockReset();
+        fn.mockReset();
       }
     });
     mockRedisInstance.quit.mockResolvedValue('OK');

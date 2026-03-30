@@ -71,7 +71,10 @@ describe('PostController', () => {
       controllers: [PostController],
       providers: [
         { provide: PostService, useValue: mockPostService },
-        { provide: MinioService, useValue: { uploadFile: jest.fn(), deleteFile: jest.fn() } },
+        {
+          provide: MinioService,
+          useValue: { uploadFile: jest.fn(), deleteFile: jest.fn() },
+        },
       ],
     }).compile();
 

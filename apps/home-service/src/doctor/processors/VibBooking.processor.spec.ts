@@ -53,7 +53,10 @@ describe('VIPBookingProcessor', () => {
       providers: [
         VIPBookingProcessor,
         { provide: getModelToken(Booking.name), useValue: mockBookingModel },
-        { provide: getModelToken(AppointmentSlot.name), useValue: mockSlotModel },
+        {
+          provide: getModelToken(AppointmentSlot.name),
+          useValue: mockSlotModel,
+        },
         { provide: getModelToken(User.name), useValue: mockUserModel },
         { provide: KafkaService, useValue: mockKafkaService },
         { provide: CacheService, useValue: mockCacheService },
@@ -113,7 +116,9 @@ describe('VIPBookingProcessor', () => {
       const mockBooking = { _id: new Types.ObjectId(), status: 'pending' };
       mockBookingModel.create.mockResolvedValue([mockBooking]);
 
-      await expect(processor.handleVIPBooking(mockJob as any)).resolves.toBeUndefined();
+      await expect(
+        processor.handleVIPBooking(mockJob as any),
+      ).resolves.toBeUndefined();
     });
   });
 });

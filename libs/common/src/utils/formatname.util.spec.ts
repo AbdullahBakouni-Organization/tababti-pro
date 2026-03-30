@@ -16,9 +16,7 @@ describe('formatDoctorName', () => {
   });
 
   it('should join first, middle, and last name', () => {
-    expect(formatDoctorName('Ahmed', 'Hassan', 'Ali')).toBe(
-      'Ahmed Hassan Ali',
-    );
+    expect(formatDoctorName('Ahmed', 'Hassan', 'Ali')).toBe('Ahmed Hassan Ali');
   });
 
   it('should skip empty middle name', () => {

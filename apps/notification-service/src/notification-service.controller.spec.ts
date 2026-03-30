@@ -16,16 +16,14 @@ describe('NotificationServiceController', () => {
     notificationService = {
       sendCancelledNotification: jest.fn().mockResolvedValue(undefined),
       sendCancelledNotificationToDoctor: jest.fn().mockResolvedValue(undefined),
-      sendCompletedNotificationToPatient: jest.fn().mockResolvedValue(undefined),
+      sendCompletedNotificationToPatient: jest
+        .fn()
+        .mockResolvedValue(undefined),
       sendRescheduledNotificationToPatient: jest
         .fn()
         .mockResolvedValue(undefined),
-      sendAdminApprovedPostNotification: jest
-        .fn()
-        .mockResolvedValue(undefined),
-      sendAdminRejectedPostNotification: jest
-        .fn()
-        .mockResolvedValue(undefined),
+      sendAdminApprovedPostNotification: jest.fn().mockResolvedValue(undefined),
+      sendAdminRejectedPostNotification: jest.fn().mockResolvedValue(undefined),
       sendAdminApprovedGalleryNotification: jest
         .fn()
         .mockResolvedValue(undefined),
@@ -385,9 +383,10 @@ describe('NotificationServiceController', () => {
 
       const result = await controller.getUnreadNotifications(mockReq);
 
-      expect(
-        notificationService.getUnreadNotifications,
-      ).toHaveBeenCalledWith(patientId, UserRole.USER);
+      expect(notificationService.getUnreadNotifications).toHaveBeenCalledWith(
+        patientId,
+        UserRole.USER,
+      );
       expect(result).toEqual({ notifications: { data: [] } });
     });
 
@@ -401,9 +400,10 @@ describe('NotificationServiceController', () => {
 
       await controller.getUnreadNotifications(mockReq);
 
-      expect(
-        notificationService.getUnreadNotifications,
-      ).toHaveBeenCalledWith(doctorId, UserRole.DOCTOR);
+      expect(notificationService.getUnreadNotifications).toHaveBeenCalledWith(
+        doctorId,
+        UserRole.DOCTOR,
+      );
     });
   });
 

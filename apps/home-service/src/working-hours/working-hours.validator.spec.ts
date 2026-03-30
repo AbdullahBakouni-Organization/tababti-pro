@@ -19,9 +19,9 @@ const makeHour = (
 describe('WorkingHoursValidator', () => {
   describe('validateUpdate()', () => {
     it('throws BadRequestException when newHours is empty', () => {
-      expect(() =>
-        WorkingHoursValidator.validateUpdate([], []),
-      ).toThrow(BadRequestException);
+      expect(() => WorkingHoursValidator.validateUpdate([], [])).toThrow(
+        BadRequestException,
+      );
     });
 
     it('throws BadRequestException when newHours is null', () => {
@@ -42,16 +42,16 @@ describe('WorkingHoursValidator', () => {
 
     it('throws BadRequestException for invalid time range (end <= start)', () => {
       const hours = [makeHour(Days.MONDAY, '12:00', '08:00')];
-      expect(() =>
-        WorkingHoursValidator.validateUpdate(hours, []),
-      ).toThrow(BadRequestException);
+      expect(() => WorkingHoursValidator.validateUpdate(hours, [])).toThrow(
+        BadRequestException,
+      );
     });
 
     it('throws BadRequestException for same start and end time', () => {
       const hours = [makeHour(Days.MONDAY, '08:00', '08:00')];
-      expect(() =>
-        WorkingHoursValidator.validateUpdate(hours, []),
-      ).toThrow(BadRequestException);
+      expect(() => WorkingHoursValidator.validateUpdate(hours, [])).toThrow(
+        BadRequestException,
+      );
     });
 
     it('throws BadRequestException for internal conflict in same day', () => {
@@ -59,9 +59,9 @@ describe('WorkingHoursValidator', () => {
         makeHour(Days.MONDAY, '08:00', '12:00'),
         makeHour(Days.MONDAY, '10:00', '14:00'), // overlaps
       ];
-      expect(() =>
-        WorkingHoursValidator.validateUpdate(hours, []),
-      ).toThrow(BadRequestException);
+      expect(() => WorkingHoursValidator.validateUpdate(hours, [])).toThrow(
+        BadRequestException,
+      );
     });
 
     it('does NOT throw for same day hours at different locations (no overlap check across locations)', () => {

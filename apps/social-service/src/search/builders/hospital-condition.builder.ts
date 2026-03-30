@@ -31,7 +31,7 @@ export class HospitalConditionBuilder {
         : [];
     if (terms.length) {
       const textCondition = this.base.textSearch(['name', 'bio'], terms);
-      if (textCondition) conditions.push(textCondition as MongoCondition);
+      if (textCondition) conditions.push(textCondition);
     }
 
     if (dto.hospitalCity) {
@@ -50,7 +50,7 @@ export class HospitalConditionBuilder {
 
       if (cityId) {
         const cityCondition = this.base.exact('cityId', cityId);
-        if (cityCondition) conditions.push(cityCondition as MongoCondition);
+        if (cityCondition) conditions.push(cityCondition);
       }
     }
 
@@ -60,8 +60,7 @@ export class HospitalConditionBuilder {
         .lean();
       if (subcityDoc) {
         const subcityCondition = this.base.exact('subcity', subcityDoc._id);
-        if (subcityCondition)
-          conditions.push(subcityCondition as MongoCondition);
+        if (subcityCondition) conditions.push(subcityCondition);
       }
     }
 
@@ -72,13 +71,13 @@ export class HospitalConditionBuilder {
       { field: 'hospitalSpecialization', value: dto.hospitalSpecialization },
     ].forEach(({ field, value }) => {
       const cond = value ? this.base.exact(field, value) : null;
-      if (cond) conditions.push(cond as MongoCondition);
+      if (cond) conditions.push(cond);
     });
 
     // ===== ADDRESS SEARCH =====
     if (dto.address) {
       const addressCondition = this.base.textSearch(['address'], [dto.address]);
-      if (addressCondition) conditions.push(addressCondition as MongoCondition);
+      if (addressCondition) conditions.push(addressCondition);
     }
 
     if (
@@ -113,12 +112,12 @@ export class HospitalConditionBuilder {
         dto.hospitalMinBeds,
         dto.hospitalMaxBeds,
       );
-      if (bedsCondition) conditions.push(bedsCondition as MongoCondition);
+      if (bedsCondition) conditions.push(bedsCondition);
     }
 
     if (dto.minRating !== undefined) {
       const ratingCondition = this.base.range('rating', dto.minRating, 5);
-      if (ratingCondition) conditions.push(ratingCondition as MongoCondition);
+      if (ratingCondition) conditions.push(ratingCondition);
     }
 
     const depIds: Types.ObjectId[] = [];
@@ -142,7 +141,7 @@ export class HospitalConditionBuilder {
 
     if (depIds.length) {
       const inCondition = this.base.in('_id', depIds);
-      if (inCondition) conditions.push(inCondition as MongoCondition);
+      if (inCondition) conditions.push(inCondition);
     }
 
     return this.base.combine(conditions);

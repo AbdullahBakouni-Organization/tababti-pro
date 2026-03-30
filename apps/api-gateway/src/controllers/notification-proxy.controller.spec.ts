@@ -22,10 +22,7 @@ describe('NotificationProxyController', () => {
     ...overrides,
   });
 
-  const axiosResponse = (
-    data: unknown,
-    status = 200,
-  ): AxiosResponse => ({
+  const axiosResponse = (data: unknown, status = 200): AxiosResponse => ({
     data,
     status,
     statusText: 'OK',
@@ -44,7 +41,9 @@ describe('NotificationProxyController', () => {
       ],
     }).compile();
 
-    controller = module.get<NotificationProxyController>(NotificationProxyController);
+    controller = module.get<NotificationProxyController>(
+      NotificationProxyController,
+    );
     httpService = module.get<HttpService>(HttpService);
     process.env.NOTIFICATION_SERVICE_URL = 'http://notification-service:3004';
   });
@@ -59,7 +58,9 @@ describe('NotificationProxyController', () => {
 
   it('should proxy a POST request to the notification service', async () => {
     const responseData = { sent: true };
-    jest.spyOn(httpService, 'request').mockReturnValue(of(axiosResponse(responseData)));
+    jest
+      .spyOn(httpService, 'request')
+      .mockReturnValue(of(axiosResponse(responseData)));
 
     const req = mockRequest({ body: { userId: '123', message: 'Hello' } });
     const res = mockResponse();
@@ -92,10 +93,14 @@ describe('NotificationProxyController', () => {
   });
 
   it('should pass raw request as data for multipart/form-data', async () => {
-    jest.spyOn(httpService, 'request').mockReturnValue(of(axiosResponse({ ok: true })));
+    jest
+      .spyOn(httpService, 'request')
+      .mockReturnValue(of(axiosResponse({ ok: true })));
 
     const req = mockRequest({
-      headers: { 'content-type': 'multipart/form-data; boundary=---def' } as any,
+      headers: {
+        'content-type': 'multipart/form-data; boundary=---def',
+      } as any,
       method: 'POST',
     });
     const res = mockResponse();
@@ -109,7 +114,9 @@ describe('NotificationProxyController', () => {
 
   it('should pass req.body for JSON requests', async () => {
     const body = { token: 'fcm-token', topic: 'news' };
-    jest.spyOn(httpService, 'request').mockReturnValue(of(axiosResponse({ subscribed: true })));
+    jest
+      .spyOn(httpService, 'request')
+      .mockReturnValue(of(axiosResponse({ subscribed: true })));
 
     const req = mockRequest({ body, method: 'POST' });
     const res = mockResponse();

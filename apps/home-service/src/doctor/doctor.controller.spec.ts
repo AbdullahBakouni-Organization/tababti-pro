@@ -125,7 +125,11 @@ describe('DoctorController', () => {
         refreshToken: 'rt',
       });
 
-      const result = await controller.signIn(dto, mockRes as any, makeReq() as any);
+      const result = await controller.signIn(
+        dto,
+        mockRes as any,
+        makeReq() as any,
+      );
 
       expect(mockDoctorService.loginDoctor).toHaveBeenCalledWith(dto);
       expect(mockAuthService.createSession).toHaveBeenCalled();
@@ -144,11 +148,15 @@ describe('DoctorController', () => {
   describe('requestPasswordResetOtp()', () => {
     it('delegates to DoctorService', async () => {
       const dto = { phone: '0911111111' } as any;
-      mockDoctorService.requestPasswordResetOtp.mockResolvedValue({ success: true });
+      mockDoctorService.requestPasswordResetOtp.mockResolvedValue({
+        success: true,
+      });
 
       const result = await controller.requestPasswordResetOtp(dto);
 
-      expect(mockDoctorService.requestPasswordResetOtp).toHaveBeenCalledWith(dto);
+      expect(mockDoctorService.requestPasswordResetOtp).toHaveBeenCalledWith(
+        dto,
+      );
       expect(result).toEqual({ success: true });
     });
   });
@@ -225,8 +233,13 @@ describe('DoctorController', () => {
 
   describe('cancelBooking()', () => {
     it('delegates to DoctorService with parsed doctorId', async () => {
-      const dto = { bookingId: new Types.ObjectId().toString(), reason: 'busy' } as any;
-      mockDoctorService.doctorCancelBooking.mockResolvedValue({ cancelled: true });
+      const dto = {
+        bookingId: new Types.ObjectId().toString(),
+        reason: 'busy',
+      } as any;
+      mockDoctorService.doctorCancelBooking.mockResolvedValue({
+        cancelled: true,
+      });
 
       const result = await controller.cancelBooking(dto, makeReq());
 
@@ -247,7 +260,9 @@ describe('DoctorController', () => {
         approved: true,
       });
 
-      const result = await controller.checkDoctorByPhone({ phone: '0911111111' } as any);
+      const result = await controller.checkDoctorByPhone({
+        phone: '0911111111',
+      } as any);
 
       expect(result).toEqual({ exists: true, approved: true });
     });
@@ -258,7 +273,9 @@ describe('DoctorController', () => {
   describe('updateDoctorFCMToken()', () => {
     it('delegates to DoctorService', async () => {
       const dto = { fcmToken: 'token-abc' } as any;
-      mockDoctorService.updateDoctorFCMToken.mockResolvedValue({ updated: true });
+      mockDoctorService.updateDoctorFCMToken.mockResolvedValue({
+        updated: true,
+      });
 
       const result = await controller.updateDoctorFCMToken(dto, makeReq());
 
@@ -305,7 +322,9 @@ describe('DoctorController', () => {
   describe('rescheduleBooking()', () => {
     it('delegates to DoctorServiceV2', async () => {
       const dto = { bookingId: new Types.ObjectId().toString() } as any;
-      mockDoctorServiceV2.rescheduleBooking.mockResolvedValue({ rescheduled: true });
+      mockDoctorServiceV2.rescheduleBooking.mockResolvedValue({
+        rescheduled: true,
+      });
 
       const result = await controller.rescheduleBooking(dto, makeReq());
 

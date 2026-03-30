@@ -313,9 +313,9 @@ describe('DoctorService', () => {
     });
 
     it('throws BadRequestException for empty FCM token', async () => {
-      await expect(
-        service.updateDoctorFCMToken(doctorId, ''),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.updateDoctorFCMToken(doctorId, '')).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('throws BadRequestException for whitespace-only FCM token', async () => {
@@ -339,9 +339,9 @@ describe('DoctorService', () => {
 
   describe('getAllSlots()', () => {
     it('throws BadRequestException when neither date nor dayName provided', async () => {
-      await expect(
-        service.getAllSlots(doctorId, {} as any),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.getAllSlots(doctorId, {} as any)).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('throws BadRequestException for invalid doctor ID', async () => {
@@ -469,9 +469,9 @@ describe('DoctorService', () => {
         exec: jest.fn().mockResolvedValue(mockDoctor),
       });
       slotModel.find.mockReturnValue({
-        exec: jest.fn().mockResolvedValue([
-          { _id: new Types.ObjectId(slotId1) },
-        ]),
+        exec: jest
+          .fn()
+          .mockResolvedValue([{ _id: new Types.ObjectId(slotId1) }]),
       });
       bookingModel.find.mockReturnValue({
         populate: jest.fn().mockReturnValue({
@@ -497,9 +497,9 @@ describe('DoctorService', () => {
         exec: jest.fn().mockResolvedValue(mockDoctor),
       });
       slotModel.find.mockReturnValue({
-        exec: jest.fn().mockResolvedValue([
-          { _id: new Types.ObjectId(slotId1) },
-        ]),
+        exec: jest
+          .fn()
+          .mockResolvedValue([{ _id: new Types.ObjectId(slotId1) }]),
       });
       bookingModel.find.mockReturnValue({
         populate: jest.fn().mockReturnValue({
@@ -558,9 +558,9 @@ describe('DoctorService', () => {
         exec: jest.fn().mockResolvedValue(mockDoctor),
       });
       slotModel.find.mockReturnValue({
-        exec: jest.fn().mockResolvedValue([
-          { _id: new Types.ObjectId(slotId1) },
-        ]),
+        exec: jest
+          .fn()
+          .mockResolvedValue([{ _id: new Types.ObjectId(slotId1) }]),
       });
       bookingModel.find.mockReturnValue({
         populate: jest.fn().mockReturnValue({
@@ -603,10 +603,7 @@ describe('DoctorService', () => {
 
     it('throws BadRequestException for invalid slot ID', async () => {
       await expect(
-        service.checkVIPBookingConflict(
-          { slotId: 'bad-id' } as any,
-          doctorId,
-        ),
+        service.checkVIPBookingConflict({ slotId: 'bad-id' } as any, doctorId),
       ).rejects.toThrow(BadRequestException);
     });
 
@@ -965,9 +962,9 @@ describe('DoctorService', () => {
         exec: jest.fn().mockResolvedValue(null),
       });
 
-      await expect(
-        service.computeAndCacheStats(doctorId),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.computeAndCacheStats(doctorId)).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('returns stats with gender breakdown', async () => {

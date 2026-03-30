@@ -61,22 +61,18 @@ describe('LegalAdviceService', () => {
   describe('createRequest()', () => {
     it('throws BadRequestException for invalid requester type', async () => {
       await expect(
-        service.createRequest(
-          UserRole.USER,
-          requesterId,
-          { legalAdviceType: LegalAdviceCategory.licensing } as any,
-        ),
+        service.createRequest(UserRole.USER, requesterId, {
+          legalAdviceType: LegalAdviceCategory.licensing,
+        } as any),
       ).rejects.toThrow(BadRequestException);
     });
 
     it('creates request for valid doctor requester', async () => {
       mockRepo.createRequest.mockResolvedValue(mockRequest);
 
-      const result = await service.createRequest(
-        UserRole.DOCTOR,
-        requesterId,
-        { legalAdviceType: LegalAdviceCategory.licensing } as any,
-      );
+      const result = await service.createRequest(UserRole.DOCTOR, requesterId, {
+        legalAdviceType: LegalAdviceCategory.licensing,
+      } as any);
 
       expect(mockRepo.createRequest).toHaveBeenCalledWith(
         UserRole.DOCTOR,
@@ -94,11 +90,9 @@ describe('LegalAdviceService', () => {
       });
 
       await expect(
-        service.createRequest(
-          UserRole.HOSPITAL,
-          requesterId,
-          { legalAdviceType: LegalAdviceCategory.licensing } as any,
-        ),
+        service.createRequest(UserRole.HOSPITAL, requesterId, {
+          legalAdviceType: LegalAdviceCategory.licensing,
+        } as any),
       ).resolves.not.toThrow();
     });
   });

@@ -76,13 +76,17 @@ describe('NearbyBookingService', () => {
 
   describe('getNextBookingForUser()', () => {
     it('throws BadRequestException for invalid authAccountId', async () => {
-      await expect(service.getNextBookingForUser('bad-id', 1, 10)).rejects.toThrow(BadRequestException);
+      await expect(
+        service.getNextBookingForUser('bad-id', 1, 10),
+      ).rejects.toThrow(BadRequestException);
     });
 
     it('returns cached result without calling repo', async () => {
       const cached = { bookings: [] };
       mockCacheService.get.mockResolvedValue(cached);
-      mockRepo.findUserByAuthAccountId.mockResolvedValue({ _id: new Types.ObjectId() });
+      mockRepo.findUserByAuthAccountId.mockResolvedValue({
+        _id: new Types.ObjectId(),
+      });
       const result = await service.getNextBookingForUser(authId, 1, 10);
       // When cache exists, repo should NOT be called
       expect(mockRepo.findNextBookingsForUser).not.toHaveBeenCalled();
@@ -101,12 +105,16 @@ describe('NearbyBookingService', () => {
 
   describe('getNextBookingForDoctor()', () => {
     it('throws BadRequestException for invalid authAccountId', async () => {
-      await expect(service.getNextBookingForDoctor('bad', 1, 10)).rejects.toThrow(BadRequestException);
+      await expect(
+        service.getNextBookingForDoctor('bad', 1, 10),
+      ).rejects.toThrow(BadRequestException);
     });
 
     it('returns from repo when cache is empty', async () => {
       mockCacheService.get.mockResolvedValue(null);
-      mockRepo.findDoctorByAuthAccountId.mockResolvedValue({ _id: new Types.ObjectId() });
+      mockRepo.findDoctorByAuthAccountId.mockResolvedValue({
+        _id: new Types.ObjectId(),
+      });
       mockRepo.findNextBookingsForDoctor.mockResolvedValue([]);
       await service.getNextBookingForDoctor(authId, 1, 10);
       expect(mockRepo.findNextBookingsForDoctor).toHaveBeenCalled();
@@ -115,7 +123,9 @@ describe('NearbyBookingService', () => {
 
   describe('getAllBookingsForUser()', () => {
     it('throws BadRequestException for invalid authAccountId', async () => {
-      await expect(service.getAllBookingsForUser('bad', undefined, 1, 10)).rejects.toThrow(BadRequestException);
+      await expect(
+        service.getAllBookingsForUser('bad', undefined, 1, 10),
+      ).rejects.toThrow(BadRequestException);
     });
 
     it('returns bookings from repo', async () => {
@@ -130,9 +140,9 @@ describe('NearbyBookingService', () => {
 
   describe('getDoctorPatients()', () => {
     it('throws BadRequestException for invalid authAccountId', async () => {
-      await expect(
-        service.getDoctorPatients('bad', {} as any),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.getDoctorPatients('bad', {} as any)).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('throws NotFoundException when doctor not found', async () => {
@@ -156,9 +166,9 @@ describe('NearbyBookingService', () => {
 
   describe('getMyAppointments()', () => {
     it('throws BadRequestException for invalid authAccountId', async () => {
-      await expect(
-        service.getMyAppointments('bad', {} as any),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.getMyAppointments('bad', {} as any)).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('returns cached appointments', async () => {

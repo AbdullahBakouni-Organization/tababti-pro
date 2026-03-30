@@ -7,7 +7,10 @@ import { EntityProfileRepository } from './entity-profile.repository';
 import { Post } from '@app/common/database/schemas/post.schema';
 import { CommonDepartment } from '@app/common/database/schemas/common_departments.schema';
 import { CacheService } from '@app/common/cache/cache.service';
-import { UserRole, GalleryImageStatus } from '@app/common/database/schemas/common.enums';
+import {
+  UserRole,
+  GalleryImageStatus,
+} from '@app/common/database/schemas/common.enums';
 
 describe('EntityProfileService', () => {
   let service: EntityProfileService;
@@ -122,7 +125,11 @@ describe('EntityProfileService', () => {
     });
 
     it('returns cached profile when both profile and gallery are cached', async () => {
-      const cachedProfile = { type: UserRole.DOCTOR, id: doctorId, fullName: 'Ali Ahmad Mahmoud' };
+      const cachedProfile = {
+        type: UserRole.DOCTOR,
+        id: doctorId,
+        fullName: 'Ali Ahmad Mahmoud',
+      };
       const cachedGallery = { data: [], meta: {} };
       mockCacheService.get
         .mockResolvedValueOnce(cachedProfile)
@@ -170,7 +177,10 @@ describe('EntityProfileService', () => {
       });
       mockPostModel.countDocuments.mockResolvedValue(0);
 
-      const result = await service.getEntityProfile(hospitalId, UserRole.HOSPITAL);
+      const result = await service.getEntityProfile(
+        hospitalId,
+        UserRole.HOSPITAL,
+      );
       expect(result).toHaveProperty('type', UserRole.HOSPITAL);
     });
   });

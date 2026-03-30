@@ -221,7 +221,9 @@ describe('NotificationService', () => {
     it('sends FCM and saves SENT record', async () => {
       fcmService.sendBookingRescheduledNotification.mockResolvedValue(true);
 
-      await service.sendRescheduledNotificationToPatient(rescheduledEvent as any);
+      await service.sendRescheduledNotificationToPatient(
+        rescheduledEvent as any,
+      );
 
       expect(fcmService.sendBookingRescheduledNotification).toHaveBeenCalled();
       expect(notificationModel.create).toHaveBeenCalledWith(
@@ -260,7 +262,9 @@ describe('NotificationService', () => {
     it('sends FCM and saves DOCTOR record', async () => {
       fcmService.sendAdminRejectedPostNotification.mockResolvedValue(true);
 
-      await service.sendAdminRejectedPostNotification(adminRejectedEvent as any);
+      await service.sendAdminRejectedPostNotification(
+        adminRejectedEvent as any,
+      );
 
       expect(fcmService.sendAdminRejectedPostNotification).toHaveBeenCalled();
       expect(notificationModel.create).toHaveBeenCalledWith(
@@ -296,7 +300,9 @@ describe('NotificationService', () => {
     };
 
     it('sends FCM and saves record', async () => {
-      fcmService.sendAdminApprovedGalleryImagesNotification.mockResolvedValue(true);
+      fcmService.sendAdminApprovedGalleryImagesNotification.mockResolvedValue(
+        true,
+      );
 
       await service.sendAdminApprovedGalleryNotification(galleryEvent as any);
 
@@ -335,9 +341,13 @@ describe('NotificationService', () => {
     };
 
     it('sends FCM and saves record', async () => {
-      fcmService.sendAdminRejectedGalleryImagesNotification.mockResolvedValue(true);
+      fcmService.sendAdminRejectedGalleryImagesNotification.mockResolvedValue(
+        true,
+      );
 
-      await service.sendAdminRejectedGalleryNotification(rejectedGalleryEvent as any);
+      await service.sendAdminRejectedGalleryNotification(
+        rejectedGalleryEvent as any,
+      );
 
       expect(
         fcmService.sendAdminRejectedGalleryImagesNotification,
@@ -351,7 +361,9 @@ describe('NotificationService', () => {
       );
 
       await expect(
-        service.sendAdminRejectedGalleryNotification(rejectedGalleryEvent as any),
+        service.sendAdminRejectedGalleryNotification(
+          rejectedGalleryEvent as any,
+        ),
       ).resolves.not.toThrow();
 
       expect(notificationModel.create).toHaveBeenCalledWith(
@@ -373,9 +385,13 @@ describe('NotificationService', () => {
     };
 
     it('sends FCM and saves USER record', async () => {
-      fcmService.sendAdminApprovedUserQuestionsNotification.mockResolvedValue(true);
+      fcmService.sendAdminApprovedUserQuestionsNotification.mockResolvedValue(
+        true,
+      );
 
-      await service.sendAdminApprovedUserQuestionsNotification(questionsEvent as any);
+      await service.sendAdminApprovedUserQuestionsNotification(
+        questionsEvent as any,
+      );
 
       expect(
         fcmService.sendAdminApprovedUserQuestionsNotification,
@@ -391,7 +407,9 @@ describe('NotificationService', () => {
       );
 
       await expect(
-        service.sendAdminApprovedUserQuestionsNotification(questionsEvent as any),
+        service.sendAdminApprovedUserQuestionsNotification(
+          questionsEvent as any,
+        ),
       ).resolves.not.toThrow();
 
       expect(notificationModel.create).toHaveBeenCalledWith(
@@ -414,7 +432,9 @@ describe('NotificationService', () => {
     };
 
     it('sends FCM and saves USER record', async () => {
-      fcmService.sendAdminRejectedUserQuestionsNotification.mockResolvedValue(true);
+      fcmService.sendAdminRejectedUserQuestionsNotification.mockResolvedValue(
+        true,
+      );
 
       await service.sendAdminRejectedUserQuestionsNotification(
         rejectedQuestionsEvent as any,
