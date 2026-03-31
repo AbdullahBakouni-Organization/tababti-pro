@@ -184,6 +184,7 @@ export class QuestionsRepository {
       limit,
       doctorId: null,
       showOnlyMine: false,
+      includeAnswers: false,
     });
   }
 
@@ -196,8 +197,16 @@ export class QuestionsRepository {
     limit = 10,
     doctorId: Types.ObjectId,
     showOnlyMine: boolean,
+    includeAnswers: boolean,
   ): Promise<QuestionPage> {
-    return this._aggregate({ match, skip, limit, doctorId, showOnlyMine });
+    return this._aggregate({
+      match,
+      skip,
+      limit,
+      doctorId,
+      showOnlyMine,
+      includeAnswers,
+    });
   }
 
   // ── Shared aggregation pipeline ───────────────────────────────────────────
@@ -207,8 +216,10 @@ export class QuestionsRepository {
     limit: number;
     doctorId: Types.ObjectId | null;
     showOnlyMine: boolean;
+    includeAnswers: boolean;
   }): Promise<QuestionPage> {
-    const { match, skip, limit, doctorId, showOnlyMine } = options;
+    const { match, skip, limit, doctorId, showOnlyMine, includeAnswers } =
+      options;
 
     const pipeline: PipelineStage[] = [
       { $match: match },
@@ -233,114 +244,138 @@ export class QuestionsRepository {
       },
       { $addFields: { asker: { $arrayElemAt: ['$askerArr', 0] } } },
       { $project: { askerArr: 0 } },
+    ];
 
-      {
-        $lookup: {
-          from: 'answers',
-          localField: '_id',
-          foreignField: 'questionId',
-          as: 'allAnswers',
-        },
-      },
-      {
-        $addFields: {
-          answersCount: { $size: '$allAnswers' },
-          answers:
-            showOnlyMine && doctorId
-              ? {
-                  $filter: {
-                    input: '$allAnswers',
-                    as: 'a',
-                    cond: { $eq: ['$$a.responderId', doctorId] },
-                  },
-                }
-              : '$allAnswers',
-        },
-      },
-      { $project: { allAnswers: 0 } },
-
-      { $unwind: { path: '$answers', preserveNullAndEmptyArrays: true } },
-
-      {
-        $lookup: {
-          from: 'doctors',
-          localField: 'answers.responderId',
-          foreignField: '_id',
-          as: 'answers.responderDoctor',
-        },
-      },
-      {
-        $lookup: {
-          from: 'hospitals',
-          localField: 'answers.responderId',
-          foreignField: '_id',
-          as: 'answers.responderHospital',
-        },
-      },
-      {
-        $lookup: {
-          from: 'centers',
-          localField: 'answers.responderId',
-          foreignField: '_id',
-          as: 'answers.responderCenter',
-        },
-      },
-      {
-        $addFields: {
-          'answers.responder': {
-            $ifNull: [
-              { $arrayElemAt: ['$answers.responderDoctor', 0] },
-              {
-                $ifNull: [
-                  { $arrayElemAt: ['$answers.responderHospital', 0] },
-                  { $arrayElemAt: ['$answers.responderCenter', 0] },
-                ],
-              },
-            ],
+    if (includeAnswers) {
+      pipeline.push(
+        {
+          $lookup: {
+            from: 'answers',
+            localField: '_id',
+            foreignField: 'questionId',
+            as: 'allAnswers',
           },
-          'answers.isMyAnswer': doctorId
-            ? { $eq: ['$answers.responderId', doctorId] }
-            : false,
         },
-      },
-      {
-        $project: {
-          'answers.responderDoctor': 0,
-          'answers.responderHospital': 0,
-          'answers.responderCenter': 0,
+        {
+          $addFields: {
+            answersCount: { $size: '$allAnswers' },
+            answers:
+              showOnlyMine && doctorId
+                ? {
+                    $filter: {
+                      input: '$allAnswers',
+                      as: 'a',
+                      cond: {
+                        $eq: [
+                          { $toString: '$$a.responderId' },
+                          doctorId.toString(),
+                        ],
+                      },
+                    },
+                  }
+                : '$allAnswers',
+          },
         },
-      },
+        { $project: { allAnswers: 0 } },
 
-      {
-        $group: {
-          _id: '$_id',
-          content: { $first: '$content' },
-          status: { $first: '$status' },
-          userId: { $first: '$userId' },
-          specializationId: { $first: '$specializationId' },
-          specializations: { $first: '$specializations' },
-          asker: { $first: '$asker' },
-          answers: { $push: '$answers' },
-          answersCount: { $first: '$answersCount' },
-          createdAt: { $first: '$createdAt' },
-          updatedAt: { $first: '$updatedAt' },
+        { $unwind: { path: '$answers', preserveNullAndEmptyArrays: true } },
+
+        {
+          $lookup: {
+            from: 'doctors',
+            localField: 'answers.responderId',
+            foreignField: '_id',
+            as: 'answers.responderDoctor',
+          },
         },
-      },
-      {
-        $addFields: {
-          answers: {
-            $filter: {
-              input: '$answers',
-              as: 'a',
-              cond: { $ifNull: ['$$a._id', false] },
+        {
+          $lookup: {
+            from: 'hospitals',
+            localField: 'answers.responderId',
+            foreignField: '_id',
+            as: 'answers.responderHospital',
+          },
+        },
+        {
+          $lookup: {
+            from: 'centers',
+            localField: 'answers.responderId',
+            foreignField: '_id',
+            as: 'answers.responderCenter',
+          },
+        },
+        {
+          $addFields: {
+            'answers.responder': {
+              $ifNull: [
+                { $arrayElemAt: ['$answers.responderDoctor', 0] },
+                {
+                  $ifNull: [
+                    { $arrayElemAt: ['$answers.responderHospital', 0] },
+                    { $arrayElemAt: ['$answers.responderCenter', 0] },
+                  ],
+                },
+              ],
+            },
+            'answers.isMyAnswer': doctorId
+              ? {
+                  $eq: [
+                    { $toString: '$answers.responderId' },
+                    doctorId.toString(),
+                  ],
+                }
+              : false,
+          },
+        },
+        {
+          $project: {
+            'answers.responderDoctor': 0,
+            'answers.responderHospital': 0,
+            'answers.responderCenter': 0,
+          },
+        },
+
+        {
+          $group: {
+            _id: '$_id',
+            content: { $first: '$content' },
+            status: { $first: '$status' },
+            userId: { $first: '$userId' },
+            specializationId: { $first: '$specializationId' },
+            specializations: { $first: '$specializations' },
+            asker: { $first: '$asker' },
+            answers: { $push: '$answers' },
+            answersCount: { $first: '$answersCount' },
+            createdAt: { $first: '$createdAt' },
+            updatedAt: { $first: '$updatedAt' },
+          },
+        },
+        {
+          $addFields: {
+            answers: {
+              $filter: {
+                input: '$answers',
+                as: 'a',
+                cond: { $ifNull: ['$$a._id', false] },
+              },
             },
           },
         },
-      },
+      );
+    } else {
+      pipeline.push({
+        $addFields: {
+          answers: [],
+          answersCount: 0,
+        },
+      });
+    }
+
+    pipeline.push(
       { $sort: { createdAt: -1 } },
       { $skip: skip },
       { $limit: limit },
-    ];
+    );
 
     const [questions, total] = await Promise.all([
       this.questionModel.aggregate(pipeline),

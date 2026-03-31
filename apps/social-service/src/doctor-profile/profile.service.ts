@@ -22,7 +22,10 @@ import { MinioService } from '@app/common/file-storage';
 import { calculateYearsOfExperience } from '@app/common/utils/calculate-experience.util';
 import { uploadDoctorProfileImage } from '@app/common/utils/upload-profile-images.util';
 import { CacheService } from '@app/common/cache/cache.service';
-import { invalidateMainProfileCaches } from '@app/common/utils/cache-invalidation.util';
+import {
+  invalidateMainProfileCaches,
+  invalidateProfileDoctorPostCaches,
+} from '@app/common/utils/cache-invalidation.util';
 
 @Injectable()
 export class DoctorProfileService {
@@ -206,6 +209,11 @@ export class DoctorProfileService {
     await this.cacheService.invalidate(
       `doctor_mobile_profile:${updatedDoctor._id.toString()}`,
     );
+    await invalidateProfileDoctorPostCaches(
+      this.cacheService,
+      updatedDoctor._id.toString(),
+      this.logger,
+    );
     return this.formatPrivateDoctor(updatedDoctor);
   }
 
@@ -269,19 +277,21 @@ export class DoctorProfileService {
 
     const totalPages = Math.ceil(posts.length / limit);
     const result = {
-      data: posts.map((post) => ({
-        ...post,
-        authorGender: doctor?.gender ?? null,
-        authorImage: doctor?.image ?? null,
-      })),
-      total: posts.length,
-      meta: {
+      posts: {
+        data: posts.map((post) => ({
+          ...post,
+          authorGender: doctor?.gender ?? null,
+          authorImage: doctor?.image ?? null,
+        })),
         total: posts.length,
-        page,
-        limit,
-        totalPages,
-        hasNextPage: skip + posts.length < totalPages,
-        hasPreviousPage: page > 1,
+        meta: {
+          total: posts.length,
+          page,
+          limit,
+          totalPages,
+          hasNextPage: skip + posts.length < totalPages,
+          hasPreviousPage: page > 1,
+        },
       },
     };
 
@@ -317,6 +327,8 @@ export class DoctorProfileService {
 
       phones: doctor.phones,
       workingHours: doctor.workingHours ?? [],
+      lat: doctor.latitude,
+      lng: doctor.longitude,
     };
   }
 

@@ -45,9 +45,13 @@ import { Question } from '@app/common/database/schemas/question.schema';
 import { User, UserDocument } from '@app/common/database/schemas/user.schema';
 import { GetDoctorsFilterDto } from './dto/get-doctors.filter.dto';
 import {
+  DoctorDetailDto,
   DoctorListItemDto,
   PaginatedDoctorsResponseDto,
+  PostItemDto,
 } from './dto/doctor-response.dto';
+import { AdminStatsResponseDto } from './dto/home-stats.dto';
+import { Booking } from '@app/common/database/schemas/booking.schema';
 
 @Injectable()
 export class AdminService {
@@ -61,6 +65,7 @@ export class AdminService {
     @InjectModel(Question.name) private questionModel: Model<Question>,
     @InjectModel(User.name) private patientModel: Model<User>,
     @InjectModel(AuthAccount.name) private authAccountModel: Model<AuthAccount>,
+    @InjectModel(Booking.name) private bookingModel: Model<Booking>,
     private kafkaProducer: KafkaService,
     private readonly minioService: MinioService,
   ) {}
@@ -1610,6 +1615,279 @@ export class AdminService {
     };
   }
 
+  async getDoctorById(doctorId: string): Promise<{ doctor: DoctorDetailDto }> {
+    if (!Types.ObjectId.isValid(doctorId)) {
+      throw new BadRequestException('Invalid doctor ID');
+    }
+
+    // ==================== FETCH DOCTOR FIRST ====================
+    const doctor = await this.doctorModel
+      .findById(doctorId)
+      .select('-password -twoFactorSecret -sessions -deviceTokens')
+      .lean();
+
+    if (!doctor) {
+      throw new NotFoundException('Doctor not found');
+    }
+
+    // ==================== FETCH POSTS USING authAccountId ====================
+    const posts = await this.postModel
+      .find({ authorId: doctor.authAccountId })
+      .sort({ createdAt: -1 })
+      .lean();
+    // =========================================================================
+
+    const transformedPosts: PostItemDto[] = posts.map((post) => ({
+      postId: post._id.toString(),
+      content: post.content ?? '',
+      images: post.images || [],
+      status: post.status,
+      likesCount: post.likesCount ?? 0,
+      approvedAt: post.approvedAt,
+      rejectedAt: post.rejectedAt,
+      rejectionReason: post.rejectionReason,
+      createdAt: post.createdAt ?? new Date(),
+    }));
+
+    return {
+      doctor: this.transformToDoctorDetailDto(doctor, transformedPosts),
+    };
+  }
+
+  async getAdminStats(): Promise<AdminStatsResponseDto> {
+    this.logger.log('Fetching admin dashboard stats');
+
+    const now = new Date();
+
+    // ==================== DATE RANGES ====================
+    const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const thisMonthEnd = new Date(
+      now.getFullYear(),
+      now.getMonth() + 1,
+      0,
+      23,
+      59,
+      59,
+      999,
+    );
+    const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const lastMonthEnd = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      0,
+      23,
+      59,
+      59,
+      999,
+    );
+    // =====================================================
+
+    const [
+      // Doctors overall
+      totalDoctors,
+      thisMonthDoctors,
+      lastMonthDoctors,
+
+      // Doctors approved
+      totalApproved,
+      thisMonthApproved,
+      lastMonthApproved,
+
+      // Doctors rejected
+      totalRejected,
+      thisMonthRejected,
+      lastMonthRejected,
+
+      // Users
+      totalUsers,
+      thisMonthUsers,
+      lastMonthUsers,
+
+      // Bookings
+      totalBookings,
+      thisMonthBookings,
+      lastMonthBookings,
+    ] = await Promise.all([
+      // ==================== DOCTORS OVERALL ====================
+      this.doctorModel.countDocuments(),
+      this.doctorModel.countDocuments({
+        createdAt: { $gte: thisMonthStart, $lte: thisMonthEnd },
+      }),
+      this.doctorModel.countDocuments({
+        createdAt: { $gte: lastMonthStart, $lte: lastMonthEnd },
+      }),
+
+      // ==================== DOCTORS APPROVED ====================
+      this.doctorModel.countDocuments({ status: ApprovalStatus.APPROVED }),
+      this.doctorModel.countDocuments({
+        status: ApprovalStatus.APPROVED,
+        createdAt: { $gte: thisMonthStart, $lte: thisMonthEnd },
+      }),
+      this.doctorModel.countDocuments({
+        status: ApprovalStatus.APPROVED,
+        createdAt: { $gte: lastMonthStart, $lte: lastMonthEnd },
+      }),
+
+      // ==================== DOCTORS REJECTED ====================
+      this.doctorModel.countDocuments({ status: ApprovalStatus.REJECTED }),
+      this.doctorModel.countDocuments({
+        status: ApprovalStatus.REJECTED,
+        createdAt: { $gte: thisMonthStart, $lte: thisMonthEnd },
+      }),
+      this.doctorModel.countDocuments({
+        status: ApprovalStatus.REJECTED,
+        createdAt: { $gte: lastMonthStart, $lte: lastMonthEnd },
+      }),
+
+      // ==================== USERS ====================
+      this.patientModel.countDocuments(),
+      this.patientModel.countDocuments({
+        createdAt: { $gte: thisMonthStart, $lte: thisMonthEnd },
+      }),
+      this.patientModel.countDocuments({
+        createdAt: { $gte: lastMonthStart, $lte: lastMonthEnd },
+      }),
+
+      // ==================== BOOKINGS ====================
+      this.bookingModel.countDocuments(),
+      this.bookingModel.countDocuments({
+        createdAt: { $gte: thisMonthStart, $lte: thisMonthEnd },
+      }),
+      this.bookingModel.countDocuments({
+        createdAt: { $gte: lastMonthStart, $lte: lastMonthEnd },
+      }),
+    ]);
+
+    // ==================== CALCULATE CHANGE ====================
+    const calcChange = (
+      current: number,
+      previous: number,
+    ): { changePercentage: number; isIncreased: boolean } => {
+      if (previous === 0) {
+        return {
+          changePercentage: current > 0 ? 100 : 0,
+          isIncreased: current > 0,
+        };
+      }
+      const change = ((current - previous) / previous) * 100;
+      return {
+        changePercentage: Math.abs(Math.round(change * 10) / 10),
+        isIncreased: change >= 0,
+      };
+    };
+    // =========================================================
+
+    const doctorChange = calcChange(thisMonthDoctors, lastMonthDoctors);
+    const approvedChange = calcChange(thisMonthApproved, lastMonthApproved);
+    const rejectedChange = calcChange(thisMonthRejected, lastMonthRejected);
+    const userChange = calcChange(thisMonthUsers, lastMonthUsers);
+    const bookingChange = calcChange(thisMonthBookings, lastMonthBookings);
+
+    return {
+      doctors: {
+        total: totalDoctors,
+        thisMonth: thisMonthDoctors,
+        lastMonth: lastMonthDoctors,
+        changePercentage: doctorChange.changePercentage,
+        isIncreased: doctorChange.isIncreased,
+        approved: {
+          total: totalApproved,
+          thisMonth: thisMonthApproved,
+          lastMonth: lastMonthApproved,
+          changePercentage: approvedChange.changePercentage,
+          isIncreased: approvedChange.isIncreased,
+        },
+        rejected: {
+          total: totalRejected,
+          thisMonth: thisMonthRejected,
+          lastMonth: lastMonthRejected,
+          changePercentage: rejectedChange.changePercentage,
+          isIncreased: rejectedChange.isIncreased,
+        },
+      },
+      users: {
+        total: totalUsers,
+        thisMonth: thisMonthUsers,
+        lastMonth: lastMonthUsers,
+        changePercentage: userChange.changePercentage,
+        isIncreased: userChange.isIncreased,
+      },
+      bookings: {
+        total: totalBookings,
+        thisMonth: thisMonthBookings,
+        lastMonth: lastMonthBookings,
+        changePercentage: bookingChange.changePercentage,
+        isIncreased: bookingChange.isIncreased,
+      },
+    };
+  }
+  private transformToDoctorDetailDto(
+    doctor: any,
+    posts: PostItemDto[],
+  ): DoctorDetailDto {
+    return {
+      // ==================== BASE INFO ====================
+      doctorId: doctor._id.toString(),
+      firstName: doctor.firstName,
+      middleName: doctor.middleName,
+      lastName: doctor.lastName,
+      fullName:
+        `${doctor.firstName} ${doctor.middleName} ${doctor.lastName}`.trim(),
+      gender: doctor.gender,
+      status: doctor.status,
+      city: doctor.city,
+      subcity: doctor.subcity,
+      publicSpecialization: doctor.publicSpecialization,
+      privateSpecialization: doctor.privateSpecialization,
+      image: doctor.image ?? null,
+      lat: doctor.latitude ?? null,
+      lng: doctor.longitude ?? null,
+      isSubscribed: doctor.isSubscribed,
+      createdAt: doctor.createdAt,
+      profileCompletionPercentage: doctor.profileCompletionPercentage ?? 0,
+
+      // ==================== PROFILE INFO ====================
+      bio: doctor.bio ?? null,
+      address: doctor.address ?? null,
+      rating: doctor.rating ?? null,
+      inspectionPrice: doctor.inspectionPrice ?? null,
+      inspectionDuration: doctor.inspectionDuration ?? null,
+      yearsOfExperience: doctor.yearsOfExperience ?? null,
+      experienceStartDate: doctor.experienceStartDate ?? null,
+      phones: doctor.phones || [],
+
+      // ==================== WORK INFO ====================
+      workingHours: doctor.workingHours || [],
+      hospitals: doctor.hospitals || [],
+      centers: doctor.centers || [],
+      insuranceCompanies: doctor.insuranceCompanies || [],
+
+      // ==================== MEDIA ====================
+      gallery: doctor.gallery || [],
+      documents: doctor.documents ?? null,
+
+      // ==================== STATUS INFO ====================
+      rejectionReason: doctor.rejectionReason ?? null,
+      approvedAt: doctor.approvedAt ?? null,
+      rejectedAt: doctor.rejectedAt ?? null,
+      registeredAt: doctor.registeredAt ?? null,
+      lastLoginAt: doctor.lastLoginAt ?? null,
+
+      // ==================== SECURITY & STATS ====================
+      failedLoginAttempts: doctor.failedLoginAttempts ?? 0,
+      lockedUntil: doctor.lockedUntil ?? null,
+      lastLoginIp: doctor.lastLoginIp ?? null,
+      twoFactorEnabled: doctor.twoFactorEnabled ?? false,
+      searchCount: doctor.searchCount ?? 0,
+      profileViews: doctor.profileViews ?? 0,
+      maxSessions: doctor.maxSessions ?? 5,
+      workingHoursVersion: doctor.workingHoursVersion ?? 1,
+
+      // ==================== POSTS ====================
+      posts: posts,
+      postsCount: posts.length,
+    };
+  }
   private transformToDoctorDto(doctor: any): DoctorListItemDto {
     return {
       doctorId: doctor._id.toString(),
@@ -1635,25 +1913,5 @@ export class AdminService {
       lastLoginAt: doctor.lastLoginAt,
       createdAt: doctor.createdAt,
     } as DoctorListItemDto;
-  }
-  async getDoctorById(
-    doctorId: string,
-  ): Promise<{ doctor: DoctorListItemDto }> {
-    if (!Types.ObjectId.isValid(doctorId)) {
-      throw new BadRequestException('Invalid doctor ID');
-    }
-
-    const doctor = await this.doctorModel
-      .findById(doctorId)
-      .select('-password -twoFactorSecret -sessions -deviceTokens')
-      .lean();
-
-    if (!doctor) {
-      throw new NotFoundException('Doctor not found');
-    }
-
-    return {
-      doctor: this.transformToDoctorDto(doctor),
-    };
   }
 }

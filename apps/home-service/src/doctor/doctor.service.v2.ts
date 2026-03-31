@@ -135,13 +135,17 @@ export class DoctorBookingsQueryService {
 
     // Fetch bookings with all related data
     const bookings = await this.bookingModel
-      .find(filters)
+      .find({
+        ...filters,
+        patientId: { $ne: null }, // ← skip orphaned
+        slotId: { $ne: null },
+      })
       .populate<{ patientId: User }>('patientId', 'username phone gender')
       .populate<{ slotId: AppointmentSlot }>(
         'slotId',
         'date startTime endTime status location',
       )
-      .sort({ bookingTime: 1 }) // Sort by time (small to big)
+      .sort({ bookingTime: 1 })
       .skip(skip)
       .limit(limit)
       .lean()
@@ -267,24 +271,24 @@ export class DoctorBookingsQueryService {
               cancelledAt: booking.cancellation.cancelledAt,
             }
           : undefined,
-        patient: {
-          patientId: patient._id.toString(),
-          username: patient.username,
-          phone: patient.phone,
-          gender: patient.gender,
-        },
-        slot: {
-          slotId: slot._id.toString(),
-          date: slot.date,
-          startTime: slot.startTime,
-          endTime: slot.endTime,
-          status: slot.status,
-          location: {
-            type: slot.location.type,
-            entity_name: slot.location.entity_name,
-            address: slot.location.address,
-          },
-        },
+        patient: patient
+          ? {
+              patientId: patient._id.toString(), // ← was 'id', also toString()
+              username: patient.username,
+              phone: patient.phone,
+              gender: patient.gender,
+            }
+          : null,
+        slot: slot
+          ? {
+              slotId: slot._id.toString(), // ← was 'id', also toString()
+              date: slot.date,
+              startTime: slot.startTime,
+              endTime: slot.endTime,
+              status: slot.status,
+              location: slot.location,
+            }
+          : null,
       };
     });
   }

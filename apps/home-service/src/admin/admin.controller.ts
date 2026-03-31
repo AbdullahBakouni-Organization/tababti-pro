@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import {
   Controller,
   Post,
@@ -21,6 +22,7 @@ import type { Response } from 'express';
 import {
   ApiBearerAuth,
   ApiBody,
+  ApiOkResponse,
   ApiOperation,
   ApiParam,
   ApiQuery,
@@ -54,6 +56,7 @@ import {
   PaginatedDoctorsResponseDto,
 } from './dto/doctor-response.dto';
 import { GetDoctorsFilterDto } from './dto/get-doctors.filter.dto';
+import { AdminStatsResponseDto } from './dto/home-stats.dto';
 
 @Controller('admin')
 export class AdminController {
@@ -106,9 +109,9 @@ export class AdminController {
     );
     res.cookie('admin_token', tokens.refreshToken, {
       httpOnly: true,
-      secure: false,
-      sameSite: 'lax',
-      maxAge: 24 * 60 * 60 * 1000 * 30,
+      secure: process.env.NODE_ENV === 'production', // true في production، false في development
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      maxAge: 24 * 60 * 60 * 1000 * 30, // 30 days
       path: '/',
     });
     return {
@@ -146,8 +149,8 @@ export class AdminController {
     const tokens = await this.authService.refreshAccessToken(refreshToken);
     res.cookie('admin_token', tokens.refreshToken, {
       httpOnly: true,
-      secure: false,
-      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production', // true في production، false في development
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
       maxAge: 24 * 60 * 60 * 1000 * 30, // 30 days
       path: '/',
     });
@@ -163,11 +166,17 @@ export class AdminController {
   @ApiBearerAuth()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Logout from all devices' })
-  async logoutAll(@Req() req: any) {
+  async logoutAll(@Req() req: any, @Res({ passthrough: true }) res: Response) {
     const adminId: string = req.user.accountId;
     const role: UserRole.ADMIN = req.user.role;
     await this.authService.logoutAllSessions(adminId, role);
-
+    res.cookie('admin_token', '', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      expires: new Date(0),
+      path: '/',
+    });
     return {
       success: true,
       message: 'Logged out from all devices',
@@ -797,5 +806,12 @@ export class AdminController {
   @ApiResponse({ status: 400, description: 'Invalid doctor ID' })
   async getDoctorById(@Param('doctorId') doctorId: string) {
     return this.adminService.getDoctorById(doctorId);
+  }
+  @Get('stats')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Get admin dashboard statistics' })
+  @ApiOkResponse({ type: AdminStatsResponseDto })
+  async getAdminStats(): Promise<AdminStatsResponseDto> {
+    return this.adminService.getAdminStats();
   }
 }

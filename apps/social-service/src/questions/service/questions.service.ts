@@ -35,6 +35,10 @@ import {
 } from '../interface/question.interfaces';
 import { CacheService } from '@app/common/cache/cache.service';
 import { invalidateQuestionsCaches } from '@app/common/utils/cache-invalidation.util';
+import {
+  PrivateSpecialization,
+  PrivateSpecializationSchema,
+} from '@app/common/database/schemas/privatespecializations.schema';
 
 interface AnswerQuestionParams {
   questionId: string;
@@ -79,6 +83,8 @@ export class QuestionsService {
     @InjectModel(Doctor.name) private readonly doctorModel: Model<Doctor>,
     @InjectModel(Hospital.name) private readonly hospitalModel: Model<Hospital>,
     @InjectModel(Center.name) private readonly centerModel: Model<Center>,
+    @InjectModel(PrivateSpecialization.name)
+    private readonly privatespecilizationmodel: Model<PrivateSpecialization>,
     private readonly cacheManager: CacheService,
   ) {}
 
@@ -218,6 +224,7 @@ export class QuestionsService {
         1,
         responderId,
         false,
+        false,
       );
     } else {
       result = await this.repo.findQuestionsWithAnswers(match, 0, 1);
@@ -333,11 +340,11 @@ export class QuestionsService {
     const doctorProfileId = (doctor as any)._id as Types.ObjectId;
     const answeredQuestionIds =
       await this.getAnsweredQuestionIds(doctorProfileId);
-
     if (filter === 'all') {
       const match = {
         unknownId: { $exists: true, $ne: null },
-        status: 'approved',
+        approvalStatus: 'approved',
+        _id: { $nin: answeredQuestionIds },
       };
       const skip = (page - 1) * limit;
 
@@ -347,6 +354,7 @@ export class QuestionsService {
           skip,
           limit,
           doctorProfileId,
+          false,
           false,
         );
 
@@ -387,7 +395,7 @@ export class QuestionsService {
     );
 
     // Apply approved status to specialization and myAnswers filters
-    match.status = 'approved';
+    match.approvalStatus = 'approved';
 
     const skip = (page - 1) * limit;
     const showOnlyMine = filter === 'myAnswers';
@@ -399,6 +407,7 @@ export class QuestionsService {
         limit,
         doctorProfileId,
         showOnlyMine,
+        true,
       );
 
     return {
@@ -636,14 +645,21 @@ export class QuestionsService {
       status: { $in: VISIBLE_STATUSES },
     };
 
-    if (filter === 'specialization' && doctor.publicSpecialization) {
-      const privateSpecIds = await this.specializationsService
-        .getPrivateIdsByPublicName(doctor.publicSpecialization)
-        .catch(() => [] as Types.ObjectId[]);
-
-      if (privateSpecIds.length) {
-        match.specializationId = { $in: privateSpecIds };
+    if (filter === 'specialization') {
+      if (!doctor.privateSpecialization) {
+        return { _id: { $exists: false } };
       }
+
+      const privateSpec = await this.privatespecilizationmodel
+        .findOne({ name: doctor.privateSpecialization })
+        .select('_id')
+        .lean();
+
+      if (!privateSpec) {
+        return { _id: { $exists: false } };
+      }
+
+      match.specializationId = privateSpec._id;
     }
 
     if (answeredIds.length) {
