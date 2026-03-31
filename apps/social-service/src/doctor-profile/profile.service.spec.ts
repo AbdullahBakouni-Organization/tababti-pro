@@ -10,6 +10,7 @@ import { CacheService } from '@app/common/cache/cache.service';
 
 jest.mock('@app/common/utils/cache-invalidation.util', () => ({
   invalidateMainProfileCaches: jest.fn().mockResolvedValue(undefined),
+  invalidateProfileDoctorPostCaches: jest.fn().mockResolvedValue(undefined),
 }));
 jest.mock('@app/common/utils/upload-profile-images.util', () => ({
   uploadDoctorProfileImage: jest.fn().mockResolvedValue(undefined),
@@ -241,7 +242,7 @@ describe('DoctorProfileService', () => {
       mockPostModel.countDocuments.mockResolvedValue(1);
 
       const result = await service.getDoctorPosts(doctorId, 1, 10);
-      expect(result.data).toHaveLength(1);
+      expect(result.posts.data).toHaveLength(1);
     });
   });
 

@@ -16,6 +16,7 @@ import { Question } from '@app/common/database/schemas/question.schema';
 import { User } from '@app/common/database/schemas/user.schema';
 import { AuthAccount } from '@app/common/database/schemas/auth.schema';
 import { Post } from '@app/common/database/schemas/post.schema';
+import { Booking } from '@app/common/database/schemas/booking.schema';
 import { KafkaService } from '@app/common/kafka/kafka.service';
 import { MinioService } from '@app/common/file-storage';
 import {
@@ -148,6 +149,10 @@ describe('AdminService', () => {
         {
           provide: getModelToken(AuthAccount.name),
           useValue: authAccountModel,
+        },
+        {
+          provide: getModelToken(Booking.name),
+          useValue: createMockModel(),
         },
         { provide: KafkaService, useValue: kafkaService },
         { provide: MinioService, useValue: minioService },
@@ -729,6 +734,10 @@ describe('AdminService', () => {
           privateSpecialization: 'Cardiology',
           createdAt: new Date(),
         }),
+      });
+      postModel.find.mockReturnValue({
+        sort: jest.fn().mockReturnThis(),
+        lean: jest.fn().mockResolvedValue([]),
       });
 
       const result = await service.getDoctorById(doctorId.toString());
