@@ -35,10 +35,7 @@ import {
 } from '../interface/question.interfaces';
 import { CacheService } from '@app/common/cache/cache.service';
 import { invalidateQuestionsCaches } from '@app/common/utils/cache-invalidation.util';
-import {
-  PrivateSpecialization,
-  PrivateSpecializationSchema,
-} from '@app/common/database/schemas/privatespecializations.schema';
+import { PrivateSpecialization } from '@app/common/database/schemas/privatespecializations.schema';
 
 interface AnswerQuestionParams {
   questionId: string;

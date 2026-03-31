@@ -16,6 +16,7 @@ import { Doctor } from '@app/common/database/schemas/doctor.schema';
 import { Hospital } from '@app/common/database/schemas/hospital.schema';
 import { Center } from '@app/common/database/schemas/center.schema';
 import { CacheService } from '@app/common/cache/cache.service';
+import { PrivateSpecialization } from '@app/common/database/schemas/privatespecializations.schema';
 import {
   QuestionStatus,
   UserRole,
@@ -109,6 +110,10 @@ describe('QuestionsService', () => {
         { provide: getModelToken(Doctor.name), useValue: mockDoctorModel },
         { provide: getModelToken(Hospital.name), useValue: mockHospitalModel },
         { provide: getModelToken(Center.name), useValue: mockCenterModel },
+        {
+          provide: getModelToken(PrivateSpecialization.name),
+          useValue: { find: jest.fn(), findOne: jest.fn() },
+        },
         { provide: CacheService, useValue: mockCacheService },
       ],
     }).compile();
