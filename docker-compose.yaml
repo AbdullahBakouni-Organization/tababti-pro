@@ -113,9 +113,10 @@ services:
   # API Gateway
   # ============================================
   api-gateway:
+    image: ${DOCKER_USERNAME:-abdullahbakouni}/tababti-api-gateway:${IMAGE_TAG:-latest}
     build:
       context: .
-      dockerfile: apps/api-gateway/Dockerfile
+      dockerfile: docker/api-gateway.Dockerfile
     container_name: tababti-api-gateway
     restart: unless-stopped
     environment:
@@ -181,9 +182,10 @@ services:
   # Home Service — Instance 1
   # ============================================
   home-service-1:
+    image: ${DOCKER_USERNAME:-abdullahbakouni}/tababti-home-service:${IMAGE_TAG:-latest}
     build:
       context: .
-      dockerfile: apps/home-service/Dockerfile
+      dockerfile: docker/home-service.Dockerfile
     container_name: tababti-home-service-1
     restart: unless-stopped
     environment:
@@ -237,9 +239,10 @@ services:
   # Home Service — Instance 2
   # ============================================
   home-service-2:
+    image: ${DOCKER_USERNAME:-abdullahbakouni}/tababti-home-service:${IMAGE_TAG:-latest}
     build:
       context: .
-      dockerfile: apps/home-service/Dockerfile
+      dockerfile: docker/home-service.Dockerfile
     container_name: tababti-home-service-2
     restart: unless-stopped
     environment:
@@ -294,9 +297,10 @@ services:
   # Social Service — Instance 1
   # ============================================
   social-service-1:
+    image: ${DOCKER_USERNAME:-abdullahbakouni}/tababti-social-service:${IMAGE_TAG:-latest}
     build:
       context: .
-      dockerfile: apps/social-service/Dockerfile
+      dockerfile: docker/social-service.Dockerfile
     container_name: tababti-social-service-1
     restart: unless-stopped
     environment:
@@ -352,9 +356,10 @@ services:
   # Social Service — Instance 2
   # ============================================
   social-service-2:
+    image: ${DOCKER_USERNAME:-abdullahbakouni}/tababti-social-service:${IMAGE_TAG:-latest}
     build:
       context: .
-      dockerfile: apps/social-service/Dockerfile
+      dockerfile: docker/social-service.Dockerfile
     container_name: tababti-social-service-2
     restart: unless-stopped
     environment:
@@ -410,9 +415,10 @@ services:
   # Notification Service
   # ============================================
   notification-service:
+    image: ${DOCKER_USERNAME:-abdullahbakouni}/tababti-notification-service:${IMAGE_TAG:-latest}
     build:
       context: .
-      dockerfile: apps/notification-service/Dockerfile
+      dockerfile: docker/notification-service.Dockerfile
     container_name: tababti-notification-service
     restart: unless-stopped
     environment:
@@ -459,9 +465,10 @@ services:
   # Booking Service
   # ============================================
   booking-service:
+    image: ${DOCKER_USERNAME:-abdullahbakouni}/tababti-booking-service:${IMAGE_TAG:-latest}
     build:
       context: .
-      dockerfile: apps/booking-service/Dockerfile
+      dockerfile: docker/booking-service.Dockerfile
     container_name: tababti-booking-service
     restart: unless-stopped
     environment:
