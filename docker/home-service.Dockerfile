@@ -24,6 +24,22 @@ ARG VERSION
 ENV NODE_ENV=production
 ENV APP_VERSION=${VERSION}
 
+# Install Chromium for whatsapp-web.js / puppeteer
+# Tell puppeteer to skip downloading its own Chrome and use the system one
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+
+RUN apk add --no-cache \
+      chromium \
+      chromium-chromedriver \
+      nss \
+      freetype \
+      harfbuzz \
+      ca-certificates \
+      ttf-freefont \
+      font-noto \
+      font-noto-arabic
+
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
 COPY --from=deps /app/node_modules ./node_modules
