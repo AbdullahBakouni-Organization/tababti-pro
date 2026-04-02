@@ -24,7 +24,10 @@ export class WhatsappService implements OnModuleInit {
 
   onModuleInit() {
     this.client = new Client({
-      authStrategy: new LocalAuth({ clientId: 'tababti-whatsapp' }),
+      authStrategy: new LocalAuth({
+        clientId: 'tababti-whatsapp',
+        dataPath: '/tmp/wwebjs_auth',
+      }),
       puppeteer: {
         headless: true,
         args: ['--no-sandbox', '--disable-setuid-sandbox'],

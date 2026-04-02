@@ -11,7 +11,6 @@ volumes:
   kafka_data:
   minio_data:
   redis_data:
-  whatsapp_session:
 
 services:
   # ============================================
@@ -236,8 +235,6 @@ services:
       timeout: 50s
       retries: 5
       start_period: 120s
-    volumes:
-      - whatsapp_session:/app/.wwebjs_auth
   # ============================================
   # Home Service — Instance 2
   # ============================================
@@ -295,8 +292,6 @@ services:
       timeout: 50s
       retries: 5
       start_period: 120s
-    volumes:
-      - whatsapp_session:/app/.wwebjs_auth
 
   # ============================================
   # Social Service — Instance 1
