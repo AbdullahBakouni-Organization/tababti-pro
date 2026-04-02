@@ -173,7 +173,7 @@ services:
         max-size: '10m'
         max-file: '3'
     healthcheck:
-      test: ['CMD', 'wget', '--spider', '-q', 'http://localhost:3000/health']
+      test: ['CMD-SHELL', 'node -e "require(\"net\").connect(3000,\"localhost\",()=>process.exit(0)).on(\"error\",()=>process.exit(1))"']
       interval: 30s
       timeout: 10s
       retries: 3
@@ -230,7 +230,7 @@ services:
         max-file: '3'
     healthcheck:
       test:
-        ['CMD-SHELL', 'wget -qO- http://localhost:3001/api/v1/health || exit 1']
+        ['CMD-SHELL', 'node -e "require(\"net\").connect(3001,\"localhost\",()=>process.exit(0)).on(\"error\",()=>process.exit(1))"']
       interval: 15s
       timeout: 50s
       retries: 5
@@ -287,7 +287,7 @@ services:
         max-file: '3'
     healthcheck:
       test:
-        ['CMD-SHELL', 'wget -qO- http://localhost:3001/api/v1/health || exit 1']
+        ['CMD-SHELL', 'node -e "require(\"net\").connect(3001,\"localhost\",()=>process.exit(0)).on(\"error\",()=>process.exit(1))"']
       interval: 15s
       timeout: 50s
       retries: 5
@@ -346,7 +346,7 @@ services:
         max-file: '3'
     healthcheck:
       test:
-        ['CMD-SHELL', 'wget -qO- http://localhost:3002/api/v1/health || exit 1']
+        ['CMD-SHELL', 'node -e "require(\"net\").connect(3002,\"localhost\",()=>process.exit(0)).on(\"error\",()=>process.exit(1))"']
       interval: 15s
       timeout: 50s
       retries: 5
@@ -405,7 +405,7 @@ services:
         max-file: '3'
     healthcheck:
       test:
-        ['CMD-SHELL', 'wget -qO- http://localhost:3002/api/v1/health || exit 1']
+        ['CMD-SHELL', 'node -e "require(\"net\").connect(3002,\"localhost\",()=>process.exit(0)).on(\"error\",()=>process.exit(1))"']
       interval: 15s
       timeout: 50s
       retries: 5
@@ -455,7 +455,7 @@ services:
       test:
         [
           'CMD-SHELL',
-          'wget -qO- http://localhost:3006/api/v1/notifications/health || exit 1',
+          'node -e "require(\"net\").connect(3006,\"localhost\",()=>process.exit(0)).on(\"error\",()=>process.exit(1))"',
         ]
       interval: 15s
       timeout: 50s
@@ -512,7 +512,7 @@ services:
       test:
         [
           'CMD-SHELL',
-          'wget -qO- http://localhost:3003/api/v1/bookings/health || exit 1',
+          'node -e "require(\"net\").connect(3003,\"localhost\",()=>process.exit(0)).on(\"error\",()=>process.exit(1))"',
         ]
       interval: 15s
       timeout: 50s
