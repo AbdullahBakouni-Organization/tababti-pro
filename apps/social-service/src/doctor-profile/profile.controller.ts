@@ -73,7 +73,7 @@ export class DoctorProfileController {
   async getDoctorPostsById(
     @Param('id') doctorId: string,
     @Query() pagination: PaginationDto,
-    @Headers('accept-language') lang: 'en' | 'ar' = 'en',
+    @Headers('accept-language') _lang: 'en' | 'ar' = 'en',
   ) {
     const posts = await this.doctorService.getDoctorPosts(
       doctorId,
@@ -94,7 +94,7 @@ export class DoctorProfileController {
   async getDoctorGalleryById(
     @Param('id') doctorId: string,
     @Query() pagination: PaginationDto,
-    @Headers('accept-language') lang: 'en' | 'ar' = 'en',
+    @Headers('accept-language') _lang: 'en' | 'ar' = 'en',
   ) {
     const data = await this.doctorService.getDoctorGallery(
       doctorId,

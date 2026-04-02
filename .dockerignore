@@ -1,0 +1,40 @@
+# Version control
+.git
+.gitignore
+
+# Dependencies (rebuilt inside Docker)
+node_modules
+
+# Test artifacts
+coverage
+**/*.spec.ts
+**/*.e2e-spec.ts
+jest.config.*
+
+# Build outputs (copied from builder stage)
+dist
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Editor/OS files
+.vscode
+.idea
+*.DS_Store
+*.swp
+*.swo
+
+# Docker files themselves
+docker/
+Dockerfile*
+.dockerignore
+
+# CI/CD config
+.github/
+
+# Docs
+*.md
+CHANGELOG*
+LICENSE

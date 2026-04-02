@@ -21,7 +21,7 @@ export class SearchOrchestratorService {
 
   async searchAll(dto: SearchFilterDto) {
     const { search, page = 1, limit = 10 } = dto;
-    if (search?.trim()) await this.enhancer.trigger(search.trim());
+    if (search?.trim()) this.enhancer.trigger(search.trim());
 
     let doctorsResult: SearchResult<Doctor> = {
       data: [],

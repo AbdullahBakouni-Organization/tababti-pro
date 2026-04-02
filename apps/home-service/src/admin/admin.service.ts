@@ -25,12 +25,11 @@ import {
   ApprovalStatus,
   GalleryImageStatus,
   PostStatus,
-  QuestionStatus,
 } from '@app/common/database/schemas/common.enums';
 import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
 import { KafkaService } from '@app/common/kafka/kafka.service';
 import { Post } from '@app/common/database/schemas/post.schema';
-import { MinioService } from '../minio/minio.service';
+import { MinioService } from '@app/common/file-storage';
 import { GalleryImageWithStatus } from '../doctor/doctor.service.v2';
 import {
   ApprovePostDto,
@@ -44,6 +43,15 @@ import { GetQuestionsFilterDto } from './dto/get-questions.filter.dto';
 import { PaginatedQuestionsResponseDto } from './dto/question-response.dto';
 import { Question } from '@app/common/database/schemas/question.schema';
 import { User, UserDocument } from '@app/common/database/schemas/user.schema';
+import { GetDoctorsFilterDto } from './dto/get-doctors.filter.dto';
+import {
+  DoctorDetailDto,
+  DoctorListItemDto,
+  PaginatedDoctorsResponseDto,
+  PostItemDto,
+} from './dto/doctor-response.dto';
+import { AdminStatsResponseDto } from './dto/home-stats.dto';
+import { Booking } from '@app/common/database/schemas/booking.schema';
 
 @Injectable()
 export class AdminService {
@@ -57,6 +65,7 @@ export class AdminService {
     @InjectModel(Question.name) private questionModel: Model<Question>,
     @InjectModel(User.name) private patientModel: Model<User>,
     @InjectModel(AuthAccount.name) private authAccountModel: Model<AuthAccount>,
+    @InjectModel(Booking.name) private bookingModel: Model<Booking>,
     private kafkaProducer: KafkaService,
     private readonly minioService: MinioService,
   ) {}
@@ -208,25 +217,18 @@ export class AdminService {
     // 🔔 SIDE EFFECTS (OUTSIDE TRANSACTION)
     // ───────────────────────────────────────────────
 
-    try {
-      const results = await Promise.allSettled([
-        this.publishDoctorApprovedEvent(approvedDoctor),
-      ]);
+    if (approvedDoctor) {
+      try {
+        const phone = approvedDoctor.phones?.[0]?.normal?.[0];
+        const doctorName = `${approvedDoctor.firstName} ${approvedDoctor.lastName}`;
 
-      results.forEach((r, idx) => {
-        if (r.status === 'rejected') {
-          this.logger.error(
-            `Post-commit side effect #${idx + 1} failed`,
-            r.reason,
-          );
-        }
-      });
-    } catch (error) {
-      // ⚠️ This catch is only for unexpected Promise.allSettled failures
-      this.logger.error(
-        'Unexpected error during post-commit side effects',
-        error,
-      );
+        this.kafkaProducer.emit(KAFKA_TOPICS.WHATSAPP_DOCTOR_APPROVED, {
+          phone,
+          doctorName,
+        });
+      } catch (error) {
+        this.logger.error('Failed to publish Kafka event', error);
+      }
     }
 
     return approvedDoctor;
@@ -235,7 +237,7 @@ export class AdminService {
   async rejectedDoctor(
     doctorId: string,
     adminId: string,
-    reason: string,
+    _reason: string,
   ): Promise<DoctorDocument> {
     const session = await this.doctorModel.db.startSession();
 
@@ -289,93 +291,86 @@ export class AdminService {
     // 🔔 SIDE EFFECTS (OUTSIDE TRANSACTION)
     // ───────────────────────────────────────────────
 
-    try {
-      const results = await Promise.allSettled([
-        this.publishDoctorRejectedEvent(rejectedDoctor, reason),
-      ]);
+    if (rejectedDoctor) {
+      try {
+        const phone = rejectedDoctor.phones?.[0]?.normal?.[0];
+        const doctorName = `${rejectedDoctor.firstName} ${rejectedDoctor.lastName}`;
 
-      results.forEach((r, idx) => {
-        if (r.status === 'rejected') {
-          this.logger.error(
-            `Post-commit side effect #${idx + 1} failed`,
-            r.reason,
-          );
-        }
-      });
-    } catch (error) {
-      // ⚠️ This catch is only for unexpected Promise.allSettled failures
-      this.logger.error(
-        'Unexpected error during post-commit side effects',
-        error,
-      );
+        this.kafkaProducer.emit(KAFKA_TOPICS.WHATSAPP_DOCTOR_REJECTED, {
+          phone,
+          doctorName,
+        });
+      } catch (error) {
+        this.logger.error('Failed to publish Kafka event', error);
+      }
     }
 
     return rejectedDoctor;
   }
 
-  private async publishDoctorApprovedEvent(
-    doctor: DoctorDocument,
-  ): Promise<void> {
-    const event = {
-      eventType: 'DOCTOR_APPROVED',
-      timestamp: new Date(),
-      data: {
-        doctorId: doctor._id.toString(),
-        fullName: `${doctor.firstName} ${doctor.middleName} ${doctor.lastName}`,
-        phone: doctor.phones
-          .map((p) => p.normal || p.clinic || p.whatsup)
-          .flat()
-          .join(', '),
-      },
-      metadata: {
-        source: 'approved-service',
-        version: '1.0',
-      },
-    };
+  // private async publishDoctorApprovedEvent(
+  //   doctor: DoctorDocument,
+  // ): Promise<void> {
+  //   const event = {
+  //     eventType: 'DOCTOR_APPROVED',
+  //     timestamp: new Date(),
+  //     data: {
+  //       doctorId: doctor._id.toString(),
+  //       fullName: `${doctor.firstName} ${doctor.middleName} ${doctor.lastName}`,
+  //       phone: doctor.phones
+  //         .map((p) => p.normal || p.clinic || p.whatsup)
+  //         .flat()
+  //         .join(', '),
+  //     },
+  //     metadata: {
+  //       source: 'approved-service',
+  //       version: '1.0',
+  //     },
+  //   };
 
-    try {
-      // Use emit for fire-and-forget events
-      await this.kafkaProducer.emit(KAFKA_TOPICS.DOCTOR_APPROVED, event);
-    } catch (error) {
-      const err = new Error(
-        `Failed to publish Approved event: ${error.message}`,
-      );
-      this.logger.error(err.message);
-    }
-  }
+  //   try {
+  //     // Use emit for fire-and-forget events
+  //     await this.kafkaProducer.emit(KAFKA_TOPICS.DOCTOR_APPROVED, event);
+  //   } catch (error) {
+  //     const err = new Error(
+  //       `Failed to publish Approved event: ${error.message}`,
+  //     );
+  //     this.logger.error(err.message);
+  //   }
+  // }
 
-  private async publishDoctorRejectedEvent(
-    doctor: DoctorDocument,
-    reason: string,
-  ): Promise<void> {
-    const event = {
-      eventType: 'DOCTOR_REJECTED',
-      timestamp: new Date(),
-      data: {
-        doctorId: doctor._id.toString(),
-        fullName: `${doctor.firstName} ${doctor.middleName} ${doctor.lastName}`,
-        phone: doctor.phones
-          .map((p) => p.normal || p.clinic || p.whatsup)
-          .flat()
-          .join(', '),
-        reason,
-      },
-      metadata: {
-        source: 'rejected-service',
-        version: '1.0',
-      },
-    };
+  // private async publishDoctorRejectedEvent(
+  //   doctor: DoctorDocument,
+  //   reason: string,
+  // ): Promise<void> {
+  //   const event = {
+  //     eventType: 'DOCTOR_REJECTED',
+  //     timestamp: new Date(),
+  //     data: {
+  //       doctorId: doctor._id.toString(),
+  //       fullName: `${doctor.firstName} ${doctor.middleName} ${doctor.lastName}`,
+  //       phone: doctor.phones
+  //         .map((p) => p.normal || p.clinic || p.whatsup)
+  //         .flat()
+  //         .join(', '),
+  //       reason,
+  //     },
+  //     metadata: {
+  //       source: 'rejected-service',
+  //       version: '1.0',
+  //     },
+  //   };
 
-    try {
-      // Use emit for fire-and-forget events
-      await this.kafkaProducer.emit(KAFKA_TOPICS.DOCTOR_REJECTED, event);
-    } catch (error) {
-      const err = new Error(
-        `Failed to publish Rejected event: ${error.message}`,
-      );
-      this.logger.error(err.message);
-    }
-  }
+  //   try {
+  //     // Use emit for fire-and-forget events
+  //     await this.kafkaProducer.emit(KAFKA_TOPICS.DOCTOR_REJECTED, event);
+  //   } catch (error) {
+  //     const err = new Error(
+  //       `Failed to publish Rejected event: ${error.message}`,
+  //     );
+  //     this.logger.error(err.message);
+  //   }
+  // }
 
   async approveGalleryImages(
     doctorId: string,
@@ -692,11 +687,16 @@ export class AdminService {
   async getAllPendingGalleryImages(
     page: number = 1,
     limit: number = 20,
+    dateFrom?: string, // ← أضف هذا
+    dateTo?: string, // ← أضف هذا
   ): Promise<{
     gallery: {
       data: Array<{
         doctorId: string;
         doctorName: string;
+        doctorImage: string; // ← أضف
+        publicSpecialization: string; // ← أضف
+        privateSpecialization: string; // ← أضف
         image: GalleryImageWithStatus;
       }>;
     };
@@ -712,20 +712,35 @@ export class AdminService {
     this.logger.log(
       `Fetching pending gallery images — page ${page}, limit ${limit}`,
     );
-
     const skip = (page - 1) * limit;
 
     const pipeline: any[] = [
       // Stage 1: only doctors that have at least one pending image
       { $match: { 'gallery.status': GalleryImageStatus.PENDING } },
-
       // Stage 2: flatten gallery array — one doc per image
       { $unwind: '$gallery' },
-
       // Stage 3: keep only pending images
       { $match: { 'gallery.status': GalleryImageStatus.PENDING } },
+    ];
 
-      // Stage 4: shape the output
+    // Stage 4: filter by uploadedAt date range  ← أضف هذا
+    if (dateFrom || dateTo) {
+      const dateMatch: any = {};
+      if (dateFrom) {
+        const from = new Date(dateFrom);
+        from.setHours(0, 0, 0, 0);
+        dateMatch.$gte = from;
+      }
+      if (dateTo) {
+        const to = new Date(dateTo);
+        to.setHours(23, 59, 59, 999);
+        dateMatch.$lte = to;
+      }
+      pipeline.push({ $match: { 'gallery.uploadedAt': dateMatch } });
+    }
+
+    pipeline.push(
+      // Stage 5: shape the output
       {
         $project: {
           _id: 0,
@@ -735,13 +750,15 @@ export class AdminService {
               input: { $concat: ['$firstName', ' ', '$lastName'] },
             },
           },
+          doctorImage: '$image', // ← أضف
+          publicSpecialization: '$publicSpecialization', // ← أضف
+          privateSpecialization: '$privateSpecialization', // ← أضف
           image: '$gallery',
         },
       },
-
-      // Stage 5: stable sort (newest uploaded first)
+      // Stage 6: stable sort (newest uploaded first)
       { $sort: { 'image.uploadedAt': -1 } },
-    ];
+    );
 
     // Count total before pagination
     const countResult = await this.doctorModel.aggregate([
@@ -755,7 +772,6 @@ export class AdminService {
     pipeline.push({ $limit: limit });
 
     const data = await this.doctorModel.aggregate(pipeline);
-
     const totalPages = Math.ceil(totalItems / limit);
 
     return {
@@ -782,11 +798,29 @@ export class AdminService {
 
     const pipeline: any[] = [];
 
+    // ==================== FILTERS ====================
+
     if (filters.status) {
       pipeline.push({ $match: { status: filters.status } });
     }
 
-    // Stage: Filter by doctor name requires fetching matching doctorIds first
+    // Filter by date range
+    if (filters.dateFrom || filters.dateTo) {
+      const dateMatch: any = {};
+      if (filters.dateFrom) {
+        const from = new Date(filters.dateFrom);
+        from.setHours(0, 0, 0, 0);
+        dateMatch.$gte = from;
+      }
+      if (filters.dateTo) {
+        const to = new Date(filters.dateTo);
+        to.setHours(23, 59, 59, 999);
+        dateMatch.$lte = to;
+      }
+      pipeline.push({ $match: { createdAt: dateMatch } });
+    }
+
+    // Filter by doctor name requires fetching matching doctorIds first
     if (filters.doctorName) {
       const searchRegex = this.buildDoctorNameRegex(filters.doctorName);
       const matchingDoctors = await this.doctorModel
@@ -795,49 +829,54 @@ export class AdminService {
         })
         .select('authAccountId')
         .lean();
-
       const matchingIds = matchingDoctors.map((d) => d.authAccountId);
       pipeline.push({ $match: { authorId: { $in: matchingIds } } });
     }
 
     pipeline.push({ $sort: { createdAt: -1 } });
 
-    // Count before pagination
+    // ==================== COUNT ====================
+
     const countPipeline = [...pipeline, { $count: 'total' }];
     const countResult = await this.postModel.aggregate(countPipeline);
     const totalItems = countResult[0]?.total || 0;
+
+    // ==================== PAGINATION ====================
 
     pipeline.push({ $skip: skip });
     pipeline.push({ $limit: limit });
 
     const posts = await this.postModel.aggregate(pipeline);
 
-    // Collect unique authorIds from the page result
+    // ==================== DOCTOR ENRICHMENT ====================
+
     const authorIds = [
       ...new Set(posts.map((p) => p.authorId?.toString()).filter(Boolean)),
     ];
 
-    // Fetch matching doctors in one query from their own DB/model
+    // ↓ أضفنا publicSpecialization و privateSpecialization هنا
     const doctors = await this.doctorModel
       .find({
         authAccountId: { $in: authorIds.map((id) => new Types.ObjectId(id)) },
       })
-      .select('firstName lastName image authAccountId')
+      .select(
+        'firstName lastName image authAccountId publicSpecialization privateSpecialization',
+      )
       .lean();
 
-    // Build a lookup map for O(1) access
     const doctorMap = new Map(
       doctors.map((d) => [d.authAccountId.toString(), d]),
     );
 
-    // Transform posts, injecting doctor info manually
     const postDtos = posts.map((post) => {
       const doctor = doctorMap.get(post.authorId?.toString());
       return this.transformToPostDto({ ...post, doctorInfo: doctor ?? null });
     });
 
+    // ==================== RESPONSE ====================
+
     const totalPages = Math.ceil(totalItems / limit);
-    const summary = await this.getPostsSummary();
+    const _summary = await this.getPostsSummary();
 
     return {
       posts: {
@@ -1027,9 +1066,27 @@ export class AdminService {
     const skip = (page - 1) * limit;
 
     const matchStage: any = {};
+
     if (filters.approvalStatus as ApprovalStatus) {
       matchStage.approvalStatus = filters.approvalStatus;
     }
+
+    // ==================== DATE FILTER ====================
+    if (filters.dateFrom || filters.dateTo) {
+      const dateMatch: any = {};
+      if (filters.dateFrom) {
+        const from = new Date(filters.dateFrom);
+        from.setHours(0, 0, 0, 0);
+        dateMatch.$gte = from;
+      }
+      if (filters.dateTo) {
+        const to = new Date(filters.dateTo);
+        to.setHours(23, 59, 59, 999);
+        dateMatch.$lte = to;
+      }
+      matchStage.createdAt = dateMatch;
+    }
+    // =====================================================
 
     const pipeline: any[] = [
       { $match: matchStage },
@@ -1048,21 +1105,41 @@ export class AdminService {
     const totalItems = countResult[0]?.total || 0;
     const totalPages = Math.ceil(totalItems / limit);
 
+    // ==================== USER ENRICHMENT ====================
+    const userIds = [
+      ...new Set(questions.map((q) => q.userId?.toString()).filter(Boolean)),
+    ];
+
+    const users = await this.patientModel
+      .find({
+        _id: { $in: userIds.map((id) => new Types.ObjectId(id)) },
+      })
+      .select('username profileImage')
+      .lean();
+
+    const userMap = new Map(users.map((u) => [u._id.toString(), u]));
+    // =========================================================
+
     return {
       questions: {
-        data: questions.map((q) => ({
-          questionId: q._id.toString(),
-          userId: q.userId?.toString(),
-          content: q.content,
-          images: q.images || [],
-          specializationIds:
-            q.specializationId?.map((id) => id.toString()) || [],
-          approvalStatus: q.approvalStatus,
-          hasText: q.hasText,
-          hasImages: q.hasImages,
-          createdAt: q.createdAt,
-          rejectionReason: q.rejectionReason,
-        })),
+        data: questions.map((q) => {
+          const user = userMap.get(q.userId?.toString());
+          return {
+            questionId: q._id.toString(),
+            userId: q.userId?.toString(),
+            username: user?.username ?? null, // ← أضف
+            userImage: user?.profileImage ?? null, // ← أضف
+            content: q.content,
+            images: q.images || [],
+            specializationIds:
+              q.specializationId?.map((id) => id.toString()) || [],
+            approvalStatus: q.approvalStatus,
+            hasText: q.hasText,
+            hasImages: q.hasImages,
+            createdAt: q.createdAt,
+            rejectionReason: q.rejectionReason,
+          };
+        }),
       },
       meta: {
         currentPage: page,
@@ -1351,7 +1428,7 @@ export class AdminService {
    * Transform aggregation result to DTO
    */
   private transformToPostDto(post: any): PostWithDoctorDto {
-    const doctor = post.doctorInfo;
+    // const doctorInfo = post.doctorInfo;
 
     return {
       postId: post._id.toString(),
@@ -1359,14 +1436,482 @@ export class AdminService {
       title: post.title,
       images: post.images || [],
       status: post.status,
-      doctor: {
-        doctorId: doctor?._id.toString(),
-        fullName: `${doctor?.firstName || ''} ${doctor?.lastName || ''}`.trim(),
-        image: doctor?.image,
-      },
+      doctorInfo: post.doctorInfo
+        ? {
+            fullName: `${post.doctorInfo.firstName} ${post.doctorInfo.lastName}`,
+            image: post.doctorInfo.image ?? null,
+            publicSpecialization: post.doctorInfo.publicSpecialization ?? null,
+            privateSpecialization:
+              post.doctorInfo.privateSpecialization ?? null,
+          }
+        : undefined,
       createdAt: post.createdAt,
       rejectionReason: post.rejectionReason,
       adminNotes: post.adminNotes,
+    } as PostWithDoctorDto;
+  }
+  async getDoctors(
+    filters: GetDoctorsFilterDto,
+  ): Promise<PaginatedDoctorsResponseDto> {
+    this.logger.log(
+      `Fetching doctors with filters: ${JSON.stringify(filters)}`,
+    );
+
+    const page = filters.page || 1;
+    const limit = filters.limit || 20;
+    const skip = (page - 1) * limit;
+
+    const matchStage: any = {};
+
+    if (filters.status) {
+      matchStage.status = filters.status;
+    }
+    if (filters.gender) {
+      matchStage.gender = filters.gender;
+    }
+    if (filters.city) {
+      matchStage.city = { $regex: filters.city, $options: 'i' };
+    }
+    if (filters.subCity) {
+      matchStage.subCity = { $regex: filters.city, $options: 'i' };
+    }
+    if (filters.publicSpecialization) {
+      matchStage.publicSpecialization = {
+        $regex: filters.publicSpecialization,
+        $options: 'i',
+      };
+    }
+    if (filters.privateSpecialization) {
+      matchStage.privateSpecialization = {
+        $regex: filters.privateSpecialization,
+        $options: 'i',
+      };
+    }
+    if (filters.name) {
+      const searchRegex = this.buildDoctorNameRegex(filters.name);
+      matchStage.$or = [
+        { firstName: searchRegex },
+        { middleName: searchRegex },
+        { lastName: searchRegex },
+        {
+          $expr: {
+            $regexMatch: {
+              input: {
+                $concat: ['$firstName', ' ', '$middleName', ' ', '$lastName'],
+              },
+              regex: filters.name,
+              options: 'i',
+            },
+          },
+        },
+      ];
+    }
+
+    // ==================== PROFILE COMPLETION ====================
+    // Adjust these fields to match your actual Doctor schema
+    const profileFields = [
+      '$firstName',
+      '$middleName',
+      '$lastName',
+      '$gender',
+      '$city',
+      '$subCity',
+      '$publicSpecialization',
+      '$privateSpecialization',
+      '$image',
+      '$phones',
+      '$bio',
+      '$dateOfBirth',
+      '$inspectionDuration',
+      '$inspectionPrice',
+      '$experienceStartDate',
+      '$yearsOfExperience',
+      '$workingHours',
+    ];
+
+    const totalFields = profileFields.length;
+
+    const completionFields = profileFields.map((field) => ({
+      $cond: [{ $gt: [field, null] }, 1, 0],
+    }));
+    // ============================================================
+
+    const pipeline: any[] = [
+      { $match: matchStage },
+      { $sort: { createdAt: -1 } },
+      {
+        $addFields: {
+          profileCompletionScore: {
+            $add: completionFields,
+          },
+        },
+      },
+      {
+        $addFields: {
+          profileCompletionPercentage: {
+            $round: [
+              {
+                $multiply: [
+                  { $divide: ['$profileCompletionScore', totalFields] },
+                  100,
+                ],
+              },
+              1,
+            ],
+          },
+        },
+      },
+    ];
+
+    console.log(matchStage);
+
+    const [countResult, doctors] = await Promise.all([
+      this.doctorModel.aggregate([...pipeline, { $count: 'total' }]),
+      this.doctorModel.aggregate([
+        ...pipeline,
+        { $skip: skip },
+        { $limit: limit },
+        {
+          $project: {
+            _id: 1,
+            firstName: 1,
+            middleName: 1,
+            lastName: 1,
+            gender: 1,
+            status: 1,
+            city: 1,
+            subcity: 1,
+            publicSpecialization: 1,
+            privateSpecialization: 1,
+            image: 1,
+            phones: 1,
+            rejectionReason: 1,
+            approvedAt: 1,
+            rejectedAt: 1,
+            registeredAt: 1,
+            lastLoginAt: 1,
+            createdAt: 1,
+            profileCompletionPercentage: 1,
+          },
+        },
+      ]),
+    ]);
+
+    const totalItems = countResult[0]?.total || 0;
+    const totalPages = Math.ceil(totalItems / limit);
+
+    return {
+      doctors: {
+        data: doctors.map((d) => this.transformToDoctorDto(d)),
+      },
+      meta: {
+        currentPage: page,
+        totalPages,
+        totalItems,
+        itemsPerPage: limit,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: page > 1,
+      },
     };
+  }
+
+  async getDoctorById(doctorId: string): Promise<{ doctor: DoctorDetailDto }> {
+    if (!Types.ObjectId.isValid(doctorId)) {
+      throw new BadRequestException('Invalid doctor ID');
+    }
+
+    // ==================== FETCH DOCTOR FIRST ====================
+    const doctor = await this.doctorModel
+      .findById(doctorId)
+      .select('-password -twoFactorSecret -sessions -deviceTokens')
+      .lean();
+
+    if (!doctor) {
+      throw new NotFoundException('Doctor not found');
+    }
+
+    // ==================== FETCH POSTS USING authAccountId ====================
+    const posts = await this.postModel
+      .find({ authorId: doctor.authAccountId })
+      .sort({ createdAt: -1 })
+      .lean();
+    // =========================================================================
+
+    const transformedPosts: PostItemDto[] = posts.map((post) => ({
+      postId: post._id.toString(),
+      content: post.content ?? '',
+      images: post.images || [],
+      status: post.status,
+      likesCount: post.likesCount ?? 0,
+      approvedAt: post.approvedAt,
+      rejectedAt: post.rejectedAt,
+      rejectionReason: post.rejectionReason,
+      createdAt: post.createdAt ?? new Date(),
+    }));
+
+    return {
+      doctor: this.transformToDoctorDetailDto(doctor, transformedPosts),
+    };
+  }
+
+  async getAdminStats(): Promise<AdminStatsResponseDto> {
+    this.logger.log('Fetching admin dashboard stats');
+
+    const now = new Date();
+
+    // ==================== DATE RANGES ====================
+    const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const thisMonthEnd = new Date(
+      now.getFullYear(),
+      now.getMonth() + 1,
+      0,
+      23,
+      59,
+      59,
+      999,
+    );
+    const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const lastMonthEnd = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      0,
+      23,
+      59,
+      59,
+      999,
+    );
+    // =====================================================
+
+    const [
+      // Doctors overall
+      totalDoctors,
+      thisMonthDoctors,
+      lastMonthDoctors,
+
+      // Doctors approved
+      totalApproved,
+      thisMonthApproved,
+      lastMonthApproved,
+
+      // Doctors rejected
+      totalRejected,
+      thisMonthRejected,
+      lastMonthRejected,
+
+      // Users
+      totalUsers,
+      thisMonthUsers,
+      lastMonthUsers,
+
+      // Bookings
+      totalBookings,
+      thisMonthBookings,
+      lastMonthBookings,
+    ] = await Promise.all([
+      // ==================== DOCTORS OVERALL ====================
+      this.doctorModel.countDocuments(),
+      this.doctorModel.countDocuments({
+        createdAt: { $gte: thisMonthStart, $lte: thisMonthEnd },
+      }),
+      this.doctorModel.countDocuments({
+        createdAt: { $gte: lastMonthStart, $lte: lastMonthEnd },
+      }),
+
+      // ==================== DOCTORS APPROVED ====================
+      this.doctorModel.countDocuments({ status: ApprovalStatus.APPROVED }),
+      this.doctorModel.countDocuments({
+        status: ApprovalStatus.APPROVED,
+        createdAt: { $gte: thisMonthStart, $lte: thisMonthEnd },
+      }),
+      this.doctorModel.countDocuments({
+        status: ApprovalStatus.APPROVED,
+        createdAt: { $gte: lastMonthStart, $lte: lastMonthEnd },
+      }),
+
+      // ==================== DOCTORS REJECTED ====================
+      this.doctorModel.countDocuments({ status: ApprovalStatus.REJECTED }),
+      this.doctorModel.countDocuments({
+        status: ApprovalStatus.REJECTED,
+        createdAt: { $gte: thisMonthStart, $lte: thisMonthEnd },
+      }),
+      this.doctorModel.countDocuments({
+        status: ApprovalStatus.REJECTED,
+        createdAt: { $gte: lastMonthStart, $lte: lastMonthEnd },
+      }),
+
+      // ==================== USERS ====================
+      this.patientModel.countDocuments(),
+      this.patientModel.countDocuments({
+        createdAt: { $gte: thisMonthStart, $lte: thisMonthEnd },
+      }),
+      this.patientModel.countDocuments({
+        createdAt: { $gte: lastMonthStart, $lte: lastMonthEnd },
+      }),
+
+      // ==================== BOOKINGS ====================
+      this.bookingModel.countDocuments(),
+      this.bookingModel.countDocuments({
+        createdAt: { $gte: thisMonthStart, $lte: thisMonthEnd },
+      }),
+      this.bookingModel.countDocuments({
+        createdAt: { $gte: lastMonthStart, $lte: lastMonthEnd },
+      }),
+    ]);
+
+    // ==================== CALCULATE CHANGE ====================
+    const calcChange = (
+      current: number,
+      previous: number,
+    ): { changePercentage: number; isIncreased: boolean } => {
+      if (previous === 0) {
+        return {
+          changePercentage: current > 0 ? 100 : 0,
+          isIncreased: current > 0,
+        };
+      }
+      const change = ((current - previous) / previous) * 100;
+      return {
+        changePercentage: Math.abs(Math.round(change * 10) / 10),
+        isIncreased: change >= 0,
+      };
+    };
+    // =========================================================
+
+    const doctorChange = calcChange(thisMonthDoctors, lastMonthDoctors);
+    const approvedChange = calcChange(thisMonthApproved, lastMonthApproved);
+    const rejectedChange = calcChange(thisMonthRejected, lastMonthRejected);
+    const userChange = calcChange(thisMonthUsers, lastMonthUsers);
+    const bookingChange = calcChange(thisMonthBookings, lastMonthBookings);
+
+    return {
+      doctors: {
+        total: totalDoctors,
+        thisMonth: thisMonthDoctors,
+        lastMonth: lastMonthDoctors,
+        changePercentage: doctorChange.changePercentage,
+        isIncreased: doctorChange.isIncreased,
+        approved: {
+          total: totalApproved,
+          thisMonth: thisMonthApproved,
+          lastMonth: lastMonthApproved,
+          changePercentage: approvedChange.changePercentage,
+          isIncreased: approvedChange.isIncreased,
+        },
+        rejected: {
+          total: totalRejected,
+          thisMonth: thisMonthRejected,
+          lastMonth: lastMonthRejected,
+          changePercentage: rejectedChange.changePercentage,
+          isIncreased: rejectedChange.isIncreased,
+        },
+      },
+      users: {
+        total: totalUsers,
+        thisMonth: thisMonthUsers,
+        lastMonth: lastMonthUsers,
+        changePercentage: userChange.changePercentage,
+        isIncreased: userChange.isIncreased,
+      },
+      bookings: {
+        total: totalBookings,
+        thisMonth: thisMonthBookings,
+        lastMonth: lastMonthBookings,
+        changePercentage: bookingChange.changePercentage,
+        isIncreased: bookingChange.isIncreased,
+      },
+    };
+  }
+  private transformToDoctorDetailDto(
+    doctor: any,
+    posts: PostItemDto[],
+  ): DoctorDetailDto {
+    return {
+      // ==================== BASE INFO ====================
+      doctorId: doctor._id.toString(),
+      firstName: doctor.firstName,
+      middleName: doctor.middleName,
+      lastName: doctor.lastName,
+      fullName:
+        `${doctor.firstName} ${doctor.middleName} ${doctor.lastName}`.trim(),
+      gender: doctor.gender,
+      status: doctor.status,
+      city: doctor.city,
+      subcity: doctor.subcity,
+      publicSpecialization: doctor.publicSpecialization,
+      privateSpecialization: doctor.privateSpecialization,
+      image: doctor.image ?? null,
+      lat: doctor.latitude ?? null,
+      lng: doctor.longitude ?? null,
+      isSubscribed: doctor.isSubscribed,
+      createdAt: doctor.createdAt,
+      profileCompletionPercentage: doctor.profileCompletionPercentage ?? 0,
+
+      // ==================== PROFILE INFO ====================
+      bio: doctor.bio ?? null,
+      address: doctor.address ?? null,
+      rating: doctor.rating ?? null,
+      inspectionPrice: doctor.inspectionPrice ?? null,
+      inspectionDuration: doctor.inspectionDuration ?? null,
+      yearsOfExperience: doctor.yearsOfExperience ?? null,
+      experienceStartDate: doctor.experienceStartDate ?? null,
+      phones: doctor.phones || [],
+
+      // ==================== WORK INFO ====================
+      workingHours: doctor.workingHours || [],
+      hospitals: doctor.hospitals || [],
+      centers: doctor.centers || [],
+      insuranceCompanies: doctor.insuranceCompanies || [],
+
+      // ==================== MEDIA ====================
+      gallery: doctor.gallery || [],
+      documents: doctor.documents ?? null,
+
+      // ==================== STATUS INFO ====================
+      rejectionReason: doctor.rejectionReason ?? null,
+      approvedAt: doctor.approvedAt ?? null,
+      rejectedAt: doctor.rejectedAt ?? null,
+      registeredAt: doctor.registeredAt ?? null,
+      lastLoginAt: doctor.lastLoginAt ?? null,
+
+      // ==================== SECURITY & STATS ====================
+      failedLoginAttempts: doctor.failedLoginAttempts ?? 0,
+      lockedUntil: doctor.lockedUntil ?? null,
+      lastLoginIp: doctor.lastLoginIp ?? null,
+      twoFactorEnabled: doctor.twoFactorEnabled ?? false,
+      searchCount: doctor.searchCount ?? 0,
+      profileViews: doctor.profileViews ?? 0,
+      maxSessions: doctor.maxSessions ?? 5,
+      workingHoursVersion: doctor.workingHoursVersion ?? 1,
+
+      // ==================== POSTS ====================
+      posts: posts,
+      postsCount: posts.length,
+    };
+  }
+  private transformToDoctorDto(doctor: any): DoctorListItemDto {
+    return {
+      doctorId: doctor._id.toString(),
+      firstName: doctor.firstName,
+      middleName: doctor.middleName,
+      lastName: doctor.lastName,
+      fullName:
+        `${doctor.firstName} ${doctor.middleName} ${doctor.lastName}`.trim(),
+      gender: doctor.gender,
+      status: doctor.status,
+      city: doctor.city,
+      subcity: doctor.subcity,
+      publicSpecialization: doctor.publicSpecialization,
+      privateSpecialization: doctor.privateSpecialization,
+      profileCompletionPercentage: doctor.profileCompletionPercentage ?? 0,
+      image: doctor.image,
+      phones: doctor.phones || [],
+      isSubscribed: doctor.isSubscribed,
+      rejectionReason: doctor.rejectionReason,
+      approvedAt: doctor.approvedAt,
+      rejectedAt: doctor.rejectedAt,
+      registeredAt: doctor.registeredAt,
+      lastLoginAt: doctor.lastLoginAt,
+      createdAt: doctor.createdAt,
+    } as DoctorListItemDto;
   }
 }

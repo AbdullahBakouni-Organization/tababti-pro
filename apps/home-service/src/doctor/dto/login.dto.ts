@@ -2,14 +2,7 @@
 // DTOs - Data Transfer Objects
 // ============================================
 
-import {
-  IsString,
-  IsNotEmpty,
-  MinLength,
-  MaxLength,
-  Matches,
-  ValidateNested,
-} from 'class-validator';
+import { IsString, IsNotEmpty, Matches, ValidateNested } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import { DeviceInfoDto } from 'libs/common/dtos/device-info.dto';
@@ -24,12 +17,6 @@ export class DoctorLoginDto {
   @ApiProperty({ example: 'SecureP@ss123' })
   @IsString()
   @IsNotEmpty()
-  @MinLength(8)
-  @MaxLength(128)
-  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/, {
-    message:
-      'Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character',
-  })
   password: string;
 
   @ApiProperty({ example: '+963991234567' })

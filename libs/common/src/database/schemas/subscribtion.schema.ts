@@ -147,7 +147,7 @@ export type SubscriptionDocument = HydratedDocument<
 
 export type SubscriptionModel = Model<
   SubscriptionDocument,
-  {},
+  object,
   SubscriptionMethods
 >;
 

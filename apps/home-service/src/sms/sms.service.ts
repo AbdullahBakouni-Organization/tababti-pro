@@ -27,7 +27,7 @@ export class SmsService {
       // Method 1: Using httpSMS API
       if (smsApiUrl && smsApiKey && fromPhone) {
         try {
-          const response = await axios.post(
+          await axios.post(
             smsApiUrl,
             {
               from: fromPhone,
@@ -140,7 +140,7 @@ export class SmsService {
       // Method 1: Using httpSMS API
       if (smsApiUrl && smsApiKey && fromPhone) {
         try {
-          const response = await axios.post(
+          await axios.post(
             smsApiUrl,
             {
               from: fromPhone,

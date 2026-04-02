@@ -13,7 +13,6 @@ import { ApiTags, ApiQuery } from '@nestjs/swagger';
 import { EntityProfileService } from './entity-profile.service';
 import { EntityType } from '../dto/get-entity-profile.dto';
 
-import { ApiResponse } from '../../common/response/api-response';
 import { UserRole } from '@app/common/database/schemas/common.enums';
 import { JwtUserGuard } from '@app/common/guards/jwt-user.guard';
 import { RolesGuard } from '@app/common/guards/role.guard';
@@ -36,7 +35,7 @@ export class EntityProfileController {
     @Query('type') type: UserRole,
     @Query('galleryPage') galleryPage: number = 1,
     @Query('galleryLimit') galleryLimit: number = 10,
-    @Headers('accept-language') lang: 'en' | 'ar' = 'en',
+    @Headers('accept-language') _lang: 'en' | 'ar' = 'en',
   ) {
     const data = await this.service.getEntityProfile(
       id,

@@ -27,7 +27,7 @@ export class SearchEnhancerService implements OnModuleInit {
     private readonly events: EventEmitter2,
   ) {}
 
-  async onModuleInit() {
+  onModuleInit() {
     this.startWarmup();
     this.startMetricsReporting();
   }
@@ -48,9 +48,9 @@ export class SearchEnhancerService implements OnModuleInit {
   }
 
   // ===== Background warmup =====
-  private async startWarmup() {
-    setTimeout(async () => {
-      const commonTerms = await this.getCommonSearchTerms();
+  private startWarmup() {
+    setTimeout(() => {
+      const commonTerms = this.getCommonSearchTerms();
       for (const term of commonTerms) {
         this.triggerBackgroundEnhancement(term);
       }
@@ -58,7 +58,7 @@ export class SearchEnhancerService implements OnModuleInit {
     }, 3000);
   }
 
-  private async getCommonSearchTerms(): Promise<string[]> {
+  private getCommonSearchTerms(): string[] {
     return [
       'قلب',
       'عيون',

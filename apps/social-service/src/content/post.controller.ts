@@ -30,7 +30,7 @@ import { Types } from 'mongoose';
 import { UpdatePostStatusDto } from './dto/update-post-status.dto';
 import { ApiOperation } from '@nestjs/swagger';
 import multer from 'multer';
-import { MinioService } from 'apps/home-service/src/minio/minio.service';
+import { MinioService } from '@app/common/file-storage';
 const postImagesMemoryConfig = {
   storage: multer.memoryStorage(),
   limits: {
@@ -38,6 +38,7 @@ const postImagesMemoryConfig = {
   },
   fileFilter: (req: any, file: Express.Multer.File, cb: any) => {
     const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
     allowedTypes.includes(file.mimetype)
       ? cb(null, true)
       : cb(

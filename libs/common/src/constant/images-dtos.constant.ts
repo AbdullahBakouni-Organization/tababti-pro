@@ -6,6 +6,7 @@ export const memoryStorageConfig = {
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
   fileFilter: (req: any, file: Express.Multer.File, cb: any) => {
     const allowed = ['image/jpeg', 'image/png', 'image/webp'];
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
     allowed.includes(file.mimetype)
       ? cb(null, true)
       : cb(

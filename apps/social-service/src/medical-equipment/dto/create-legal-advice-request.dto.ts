@@ -1,14 +1,16 @@
 import { IsEnum, IsOptional, IsString } from 'class-validator';
-import { LegalAdviceCategory, EntityRequestStatus } from '@app/common/database/schemas/common.enums';
+import {
+  LegalAdviceCategory,
+  EntityRequestStatus,
+} from '@app/common/database/schemas/common.enums';
 
 // ============================================
 // CREATE REQUEST DTO
 // ============================================
 
-
 export class CreateLegalAdviceRequestDto {
-    @IsEnum(LegalAdviceCategory, { message: 'Invalid legal advice category' })
-    legalAdviceType: LegalAdviceCategory;
+  @IsEnum(LegalAdviceCategory, { message: 'Invalid legal advice category' })
+  legalAdviceType: LegalAdviceCategory;
 }
 
 // ============================================
@@ -16,16 +18,16 @@ export class CreateLegalAdviceRequestDto {
 // ============================================
 
 export class UpdateLegalAdviceStatusDto {
-    @IsEnum(EntityRequestStatus, { message: 'Invalid status' })
-    status: EntityRequestStatus;
+  @IsEnum(EntityRequestStatus, { message: 'Invalid status' })
+  status: EntityRequestStatus;
 
-    @IsOptional()
-    @IsString({ message: 'Review notes must be a string' })
-    reviewNotes?: string;
+  @IsOptional()
+  @IsString({ message: 'Review notes must be a string' })
+  reviewNotes?: string;
 
-    @IsOptional()
-    @IsString({ message: 'Contact notes must be a string' })
-    contactNotes?: string;
+  @IsOptional()
+  @IsString({ message: 'Contact notes must be a string' })
+  contactNotes?: string;
 }
 
 // ============================================
@@ -33,33 +35,33 @@ export class UpdateLegalAdviceStatusDto {
 // ============================================
 
 export class LegalAdviceRequestResponseDto {
-    id: string;
-    requesterType: string;
-    requesterId: string;
-    legalAdviceType: LegalAdviceCategory;
-    status: EntityRequestStatus;
-    assignedTo?: string;
-    reviewNotes?: string;
-    contactNotes?: string;
-    createdAt: Date;
-    updatedAt: Date;
-    statusChangedAt?: Date;
+  id: string;
+  requesterType: string;
+  requesterId: string;
+  legalAdviceType: LegalAdviceCategory;
+  status: EntityRequestStatus;
+  assignedTo?: string;
+  reviewNotes?: string;
+  contactNotes?: string;
+  createdAt: Date;
+  updatedAt: Date;
+  statusChangedAt?: Date;
 }
 
 export class LegalAdviceRequestsPageResponseDto {
-    requests: LegalAdviceRequestResponseDto[];
-    total: number;
-    page: number;
-    limit: number;
-    totalPages: number;
+  requests: LegalAdviceRequestResponseDto[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
 }
 
 export class LegalAdviceStatisticsDto {
-    totalRequests: number;
-    pendingRequests: number;
-    underReviewRequests: number;
-    contactedRequests: number;
-    completedRequests: number;
-    cancelledRequests: number;
-    requestsByType: Record<string, number>;
+  totalRequests: number;
+  pendingRequests: number;
+  underReviewRequests: number;
+  contactedRequests: number;
+  completedRequests: number;
+  cancelledRequests: number;
+  requestsByType: Record<string, number>;
 }

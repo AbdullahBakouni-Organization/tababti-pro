@@ -1,7 +1,7 @@
 // ============================================
 // Doctor Registration Controller
 // ============================================
-
+import 'dotenv/config';
 import {
   Controller,
   Post,
@@ -94,7 +94,8 @@ import { DoctorBookingsQueryService } from './doctor.service.v2';
 import { RescheduleBookingDto } from './dto/resechedula-booking.dto,';
 import { ParseMongoIdPipe } from '../../../../libs/common/src/pipes/parse-mongo-id.pipe';
 import { Throttle } from '@nestjs/throttler';
-import { UploadResult, MinioService } from '../minio/minio.service';
+import { MinioService } from '@app/common/file-storage';
+import type { UploadResult } from '@app/common/file-storage';
 import {
   GalleryImagesResponseDto,
   ProfileImageResponseDto,
@@ -385,8 +386,8 @@ export class DoctorController {
     );
     res.cookie('token', tokens.refreshToken, {
       httpOnly: true,
-      secure: false,
-      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production', // true في production، false في development
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
       maxAge: 24 * 60 * 60 * 1000 * 30, // 30 days
       path: '/',
     });
@@ -518,8 +519,8 @@ export class DoctorController {
     const tokens = await this.authService.refreshAccessToken(refreshToken);
     res.cookie('token', tokens.refreshToken, {
       httpOnly: true,
-      secure: false,
-      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production', // true في production، false في development
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
       maxAge: 24 * 60 * 60 * 1000 * 30, // 30 days
       path: '/',
     });
@@ -621,8 +622,8 @@ export class DoctorController {
     await this.authService.logoutAllSessions(doctorId, role);
     res.cookie('token', '', {
       httpOnly: true,
-      secure: false,
-      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
       expires: new Date(0),
       path: '/',
     });
@@ -630,38 +631,6 @@ export class DoctorController {
       message: 'Logged out from all devices',
     };
   }
-
-  // @Get(':doctorId/bookings')
-  // @ApiOperation({
-  //   summary:
-  //     'Get doctor bookings filtered by slot location and date with pagination',
-  // })
-  // @ApiQuery({ name: 'doctorId', required: true, type: String })
-  // @ApiQuery({
-  //   name: 'locationType',
-  //   required: true,
-  //   enum: ['clinic', 'online'],
-  // }) // replace with your WorkigEntity enum
-  // @ApiQuery({
-  //   name: 'bookingDate',
-  //   required: true,
-  //   type: String,
-  //   description: 'YYYY-MM-DD',
-  // })
-  // @ApiQuery({ name: 'page', required: false, type: Number })
-  // @ApiQuery({ name: 'limit', required: false, type: Number })
-  // @ApiResponse({ status: 200, description: 'Paginated list of bookings' })
-  // async getDoctorBookingsByLocation(
-  //   @Param('doctorId') doctorId: string,
-  //   @Query() query: GetDoctorBookingsByLocationDto,
-  // ) {
-  //   // Ensure the DTO doctorId matches the param
-  //   if (query.doctorId && query.doctorId !== doctorId) {
-  //     query.doctorId = doctorId;
-  //   }
-
-  //   return this.DoctorService.getDoctorBookingsByLocation(query);
-  // }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.DOCTOR)
@@ -1419,6 +1388,8 @@ export class DoctorController {
     };
   }
 
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR, UserRole.ADMIN)
   @Get('search')
   async searchDoctors(@Query() dto: SearchDoctorsDto) {
     return this.DoctorServiceV2.searchDoctorsByName(dto);

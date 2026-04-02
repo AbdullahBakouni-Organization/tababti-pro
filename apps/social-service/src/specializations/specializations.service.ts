@@ -162,9 +162,7 @@ export class SpecializationsService {
     return privateSpecs.map((s) => s._id);
   }
 
-  async buildQuestionSpecializationMatch(
-    doctorPrivateSpecialization: string,
-  ): Promise<any> {
+  async buildQuestionSpecializationMatch(doctorPrivateSpecialization: string) {
     if (!doctorPrivateSpecialization) return null;
 
     const privateSpec = await this.specializationModel
@@ -173,6 +171,9 @@ export class SpecializationsService {
       .lean();
 
     if (!privateSpec) return null;
-    return { specializationId: { $in: [privateSpec._id] } };
+
+    return {
+      specializationId: privateSpec._id,
+    };
   }
 }

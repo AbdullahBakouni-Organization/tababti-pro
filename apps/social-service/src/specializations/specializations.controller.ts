@@ -42,8 +42,8 @@ export class SpecializationsController {
   }
 
   @Get('entities')
-  async getEntities(@Headers('accept-language') lang: 'en' | 'ar' = 'en') {
-    const data = await this.service.getEntities();
+  getEntities(@Headers('accept-language') lang: 'en' | 'ar' = 'en') {
+    const data = this.service.getEntities();
     return ApiResponse.success({
       lang,
       messageKey: 'entity.LIST',

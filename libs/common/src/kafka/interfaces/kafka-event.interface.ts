@@ -293,3 +293,19 @@ export interface AdminRejectedUserQuestionsEvent {
   };
   metadata: { source: string; version: string };
 }
+
+export interface WhatsappDoctorWelcomeEvent {
+  phone: string;
+  doctorName: string;
+}
+
+export interface WhatsappDoctorApprovedEvent {
+  phone: string;
+  doctorName: string;
+}
+
+export interface WhatsappDoctorRejectedEvent {
+  phone: string;
+  doctorName: string;
+  reason?: string; // اختياري
+}

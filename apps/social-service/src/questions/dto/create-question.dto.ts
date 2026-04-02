@@ -1,4 +1,3 @@
-import { PrivateMedicineSpecialty } from '@app/common/database/schemas/common.enums';
 import {
   IsString,
   IsMongoId,

@@ -21,7 +21,8 @@ import {
 import type { Response } from 'express';
 import { AuthValidateService } from '@app/common/auth-validate';
 import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
-import { MinioService, UploadResult } from '../minio/minio.service';
+import { MinioService } from '@app/common/file-storage';
+import type { UploadResult } from '@app/common/file-storage';
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -104,11 +105,13 @@ export class AuthService {
 
       await Promise.allSettled([
         //this.smsService.sendOTP(phone, otp),
-        // this.kafkaProducer.emit(KAFKA_TOPICS.WHATSAPP_SEND_OTP, {
-        //   phone,
-        //   otp,
-        //   lang: dto.lang ?? 'ar',
-        // }),
+        Promise.resolve(
+          this.kafkaProducer.emit(KAFKA_TOPICS.WHATSAPP_SEND_OTP, {
+            phone,
+            otp,
+            lang: dto.lang ?? 'ar',
+          }),
+        ),
       ]);
 
       console.log(
@@ -132,7 +135,7 @@ export class AuthService {
   // VERIFY OTP (SIGN-IN + AUTO-REGISTER USER)
   //---------------------------------------------------------
 
-  async verifyOtp(dto: VerifyOtpDto, res: Response) {
+  async verifyOtp(dto: VerifyOtpDto, _res: Response) {
     const session = await this.connection.startSession();
     session.startTransaction();
 

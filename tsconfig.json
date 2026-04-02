@@ -5,7 +5,7 @@
     "resolvePackageJsonExports": true,
     "esModuleInterop": true,
     "isolatedModules": true,
-    "declaration": true,
+    "declaration": false,
     "removeComments": true,
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
@@ -19,11 +19,17 @@
     "strictNullChecks": true,
     "forceConsistentCasingInFileNames": true,
     "noImplicitAny": false,
-    "strictBindCallApply": false,
-    "noFallthroughCasesInSwitch": false,
+    "strictBindCallApply": true,
+    "noFallthroughCasesInSwitch": true,
     "paths": {
       "@app/common": ["libs/common/src"],
       "@app/common/*": ["libs/common/src/*"],
     },
   },
+  "exclude": [
+    "node_modules",
+    "dist",
+    "libs/common/src/database/seeders",
+    "libs/common/src/database/mongo/mongo.service.ts"
+  ]
 }

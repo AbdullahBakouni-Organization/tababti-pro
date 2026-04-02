@@ -21,6 +21,7 @@ export class SearchCountMiddleware implements NestMiddleware {
     const originalJson = res.json.bind(res);
 
     res.json = (body: any): Response => {
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises
       (async () => {
         try {
           console.log('[Middleware] Parsing response body...');

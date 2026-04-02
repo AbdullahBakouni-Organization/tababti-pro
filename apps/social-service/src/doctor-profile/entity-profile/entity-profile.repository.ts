@@ -6,7 +6,7 @@ import { Doctor } from '@app/common/database/schemas/doctor.schema';
 import { Hospital } from '@app/common/database/schemas/hospital.schema';
 import { Center } from '@app/common/database/schemas/center.schema';
 import { CommonDepartment } from '@app/common/database/schemas/common_departments.schema';
-import { GalleryImage } from 'apps/home-service/src/doctor/dto/images.dto';
+import { GalleryImage } from '@app/common/interfaces/gallery-image.interface';
 
 @Injectable()
 export class EntityProfileRepository {

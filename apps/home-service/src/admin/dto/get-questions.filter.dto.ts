@@ -1,5 +1,11 @@
 // dto/get-questions.filter.dto.ts
-import { IsOptional, IsEnum, IsNumber, Min } from 'class-validator';
+import {
+  IsOptional,
+  IsEnum,
+  IsNumber,
+  Min,
+  IsDateString,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { ApprovalStatus } from '@app/common/database/schemas/common.enums';
@@ -23,4 +29,20 @@ export class GetQuestionsFilterDto {
   @IsOptional()
   @IsEnum(ApprovalStatus)
   approvalStatus?: ApprovalStatus;
+
+  @ApiPropertyOptional({
+    description: 'Filter questions from this date (YYYY-MM-DD)',
+    example: '2026-01-01',
+  })
+  @IsOptional()
+  @IsDateString()
+  dateFrom?: string;
+
+  @ApiPropertyOptional({
+    description: 'Filter questions to this date (YYYY-MM-DD)',
+    example: '2026-03-30',
+  })
+  @IsOptional()
+  @IsDateString()
+  dateTo?: string;
 }

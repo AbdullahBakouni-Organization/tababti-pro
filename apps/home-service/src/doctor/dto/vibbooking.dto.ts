@@ -5,10 +5,13 @@ import {
   IsOptional,
   IsDateString,
   IsBoolean,
+  ValidateIf,
+  IsEnum,
 } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { SlotStatus } from '@app/common/database/schemas/common.enums';
-
+import { ApiPropertyOptional } from '@nestjs/swagger';
+import { Days } from '@app/common/database/schemas/common.enums';
 /* ============================================================================
    SCENARIO 1: VIP BOOKING (Doctor Creates Manual Booking)
 ============================================================================ */
@@ -16,14 +19,26 @@ import { SlotStatus } from '@app/common/database/schemas/common.enums';
 /**
  * DTO for getting ALL slots (including booked ones) for VIP booking
  */
+
 export class GetAllSlotsDto {
-  @ApiProperty({
+  @ApiPropertyOptional({
     description: 'Date to get slots for (YYYY-MM-DD)',
     example: '2026-02-17',
   })
-  @IsNotEmpty()
+  @IsOptional()
   @IsDateString()
-  date: string;
+  @ValidateIf((o) => !o.dayName) // required if dayName not provided
+  date?: string;
+
+  @ApiPropertyOptional({
+    description: 'Day name to get recurring slots for',
+    enum: Days,
+    example: 'Monday',
+  })
+  @IsOptional()
+  @IsEnum(Days)
+  @ValidateIf((o) => !o.date) // required if date not provided
+  dayName?: Days;
 }
 
 /**

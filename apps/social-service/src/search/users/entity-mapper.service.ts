@@ -1,5 +1,4 @@
 import { Injectable } from '@nestjs/common';
-import { Types } from 'mongoose';
 import { formatDoctorName } from '../../common/utiles/formatname.util';
 import type { TravelMode } from './types/nearby.types';
 import { FALLBACK_SPEEDS } from './types/nearby.types';
@@ -29,7 +28,9 @@ export class EntityMapper {
 
     switch (entityType) {
       case 'doctor': {
-        const pubSpecArray: any[] = Array.isArray(entity.publicSpecializationId)
+        const _pubSpecArray: any[] = Array.isArray(
+          entity.publicSpecializationId,
+        )
           ? entity.publicSpecializationId
           : entity.publicSpecializationId
             ? [entity.publicSpecializationId]
@@ -37,7 +38,7 @@ export class EntityMapper {
 
         // privateSpecializationId → populated SINGLE object (or array edge-case)
         const privSpec = entity.privateSpecializationId;
-        const privateSpecializations: string[] = privSpec
+        const _privateSpecializations: string[] = privSpec
           ? Array.isArray(privSpec)
             ? privSpec.map((s: any) => s?.name).filter(Boolean)
             : privSpec?.name

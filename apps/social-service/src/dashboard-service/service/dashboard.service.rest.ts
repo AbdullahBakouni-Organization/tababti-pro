@@ -379,7 +379,7 @@ export class DashboardService {
     query: StatsQueryDto,
   ): Promise<DashboardStatsDto> {
     const doctor = await this.resolveDoctor(accountId);
-    const doctorId = doctor._id as Types.ObjectId;
+    const doctorId = doctor._id;
     const refDate = resolveRefDate(query.selectedDate);
     return this._getStatsRaw(doctorId, refDate);
   }

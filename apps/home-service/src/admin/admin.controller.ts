@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import {
   Controller,
   Post,
@@ -21,6 +22,7 @@ import type { Response } from 'express';
 import {
   ApiBearerAuth,
   ApiBody,
+  ApiOkResponse,
   ApiOperation,
   ApiParam,
   ApiQuery,
@@ -49,6 +51,12 @@ import { PaginatedQuestionsResponseDto } from './dto/question-response.dto';
 import { GetQuestionsFilterDto } from './dto/get-questions.filter.dto';
 import { ApproveQuestionsDto } from './dto/approve-questions.dto';
 import { RejectQuestionsDto } from './dto/reject-questions.dto';
+import {
+  DoctorListItemDto,
+  PaginatedDoctorsResponseDto,
+} from './dto/doctor-response.dto';
+import { GetDoctorsFilterDto } from './dto/get-doctors.filter.dto';
+import { AdminStatsResponseDto } from './dto/home-stats.dto';
 
 @Controller('admin')
 export class AdminController {
@@ -101,9 +109,9 @@ export class AdminController {
     );
     res.cookie('admin_token', tokens.refreshToken, {
       httpOnly: true,
-      secure: false,
-      sameSite: 'lax',
-      maxAge: 24 * 60 * 60 * 1000 * 30,
+      secure: process.env.NODE_ENV === 'production', // true في production، false في development
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      maxAge: 24 * 60 * 60 * 1000 * 30, // 30 days
       path: '/',
     });
     return {
@@ -141,8 +149,8 @@ export class AdminController {
     const tokens = await this.authService.refreshAccessToken(refreshToken);
     res.cookie('admin_token', tokens.refreshToken, {
       httpOnly: true,
-      secure: false,
-      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production', // true في production، false في development
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
       maxAge: 24 * 60 * 60 * 1000 * 30, // 30 days
       path: '/',
     });
@@ -158,11 +166,17 @@ export class AdminController {
   @ApiBearerAuth()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Logout from all devices' })
-  async logoutAll(@Req() req: any) {
+  async logoutAll(@Req() req: any, @Res({ passthrough: true }) res: Response) {
     const adminId: string = req.user.accountId;
     const role: UserRole.ADMIN = req.user.role;
     await this.authService.logoutAllSessions(adminId, role);
-
+    res.cookie('admin_token', '', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      expires: new Date(0),
+      path: '/',
+    });
     return {
       success: true,
       message: 'Logged out from all devices',
@@ -251,12 +265,16 @@ export class AdminController {
     },
   })
   async getAllPendingImages(
-    @Query('page') page = 1,
-    @Query('limit') limit = 20,
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 20,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
   ) {
     return this.adminService.getAllPendingGalleryImages(
-      Number(page),
-      Number(limit),
+      page,
+      limit,
+      dateFrom,
+      dateTo,
     );
   }
 
@@ -756,5 +774,44 @@ export class AdminController {
       rejectedBy: adminId,
       rejectedAt: new Date(),
     };
+  }
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Get('doctors')
+  @ApiOperation({
+    summary: 'Get all doctors',
+    description: `
+      Returns paginated list of doctors with optional filters.
+      **Filters:**
+      - approvalStatus: pending | draft | approved | rejected | suspended | active | deleted
+      - name: search by first or last name (Arabic/English)
+      - specializationId: filter by specialization MongoDB ObjectId
+    `,
+  })
+  @ApiResponse({ status: 200, type: PaginatedDoctorsResponseDto })
+  async getDoctors(@Query() filters: GetDoctorsFilterDto) {
+    return this.adminService.getDoctors(filters);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Get('doctors/:doctorId')
+  @ApiOperation({
+    summary: 'Get doctor by ID',
+    description: 'Returns full doctor profile by MongoDB ObjectId.',
+  })
+  @ApiParam({ name: 'doctorId', description: 'Doctor MongoDB ObjectId' })
+  @ApiResponse({ status: 200, type: DoctorListItemDto })
+  @ApiResponse({ status: 404, description: 'Doctor not found' })
+  @ApiResponse({ status: 400, description: 'Invalid doctor ID' })
+  async getDoctorById(@Param('doctorId') doctorId: string) {
+    return this.adminService.getDoctorById(doctorId);
+  }
+  @Get('stats')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Get admin dashboard statistics' })
+  @ApiOkResponse({ type: AdminStatsResponseDto })
+  async getAdminStats(): Promise<AdminStatsResponseDto> {
+    return this.adminService.getAdminStats();
   }
 }

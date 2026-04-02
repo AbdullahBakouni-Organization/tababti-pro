@@ -4,7 +4,7 @@ import { HomeServiceController } from './home-service.controller';
 import { HomeServiceService } from './home-service.service';
 import { DatabaseModule } from '@app/common/database/database.module';
 import { KafkaModule } from '@app/common/kafka/kafka.module';
-// import { WhatsappModule } from './whatsapp/whatsapp.module';
+import { WhatsappModule } from './whatsapp/whatsapp.module';
 import { SmsModule } from './sms/sms.module';
 import { DoctorModule } from './doctor/doctor.module';
 import { AdminModule } from './admin/admin.module';
@@ -12,9 +12,9 @@ import { AuthModule } from './auth/auth.module';
 import { WorkingHoursModule } from './working-hours/working-hours.module';
 import { BullModule } from '@nestjs/bull';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { FcmModule } from './fcm/fcm.module';
+import { FcmModule } from '@app/common/fcm';
 import { UsersModule } from './users/users.module';
-import { MinioModule } from './minio/minio.module';
+import { MinioModule } from '@app/common/file-storage';
 import { CacheModule } from '@app/common/cache/cache.module';
 
 @Module({
@@ -54,7 +54,7 @@ import { CacheModule } from '@app/common/cache/cache.module';
     }),
     DatabaseModule,
     SmsModule,
-    // WhatsappModule,
+    WhatsappModule,
     WorkingHoursModule,
     DoctorModule,
     AdminModule,

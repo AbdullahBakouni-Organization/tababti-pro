@@ -85,7 +85,7 @@ export class FcmService {
         },
       };
 
-      const response = await admin.messaging().send(message);
+      await admin.messaging().send(message);
 
       this.logger.log(`FCM notification sent successfully`);
 
@@ -923,7 +923,7 @@ export class FcmService {
         true, // dry run
       );
       return true;
-    } catch (error) {
+    } catch {
       return false;
     }
   }

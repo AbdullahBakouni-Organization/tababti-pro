@@ -4,7 +4,7 @@ import { UsersController } from './users.controller';
 import { DatabaseModule } from '@app/common/database/database.module';
 import { KafkaModule } from '@app/common/kafka/kafka.module';
 import { CacheModule } from '@app/common/cache/cache.module';
-import { MinioModule } from '../minio/minio.module';
+import { MinioModule } from '@app/common/file-storage';
 
 @Module({
   imports: [DatabaseModule, KafkaModule, CacheModule, MinioModule],

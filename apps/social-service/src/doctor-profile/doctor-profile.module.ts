@@ -8,7 +8,7 @@ import { DoctorProfileController } from './profile.controller';
 import { DoctorProfileService } from './profile.service';
 import { DoctorRepository } from './profile.repository';
 import { EntityProfileModule } from './entity-profile/entity-profile.module';
-import { MinioModule } from 'apps/home-service/src/minio/minio.module';
+import { MinioModule } from '@app/common/file-storage';
 import { CacheModule } from '@app/common/cache/cache.module';
 
 @Module({

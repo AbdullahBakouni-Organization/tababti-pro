@@ -70,7 +70,7 @@ export class NearbyBookingController {
   async getTopDoctors(
     @Query('page') page = '1',
     @Query('limit') limit = '10',
-    @Headers('accept-language') acceptLanguage?: string,
+    @Headers('accept-language') _acceptLanguage?: string,
   ) {
     const data = await this.service.getTopDoctors(Number(page), Number(limit));
     // return ApiResponse.success({
@@ -96,7 +96,7 @@ export class NearbyBookingController {
     @Query('doctorId') doctorId?: string,
     @Query('page') page = '1',
     @Query('limit') limit = '10',
-    @Headers('accept-language') acceptLanguage?: string,
+    @Headers('accept-language') _acceptLanguage?: string,
   ) {
     const data = await this.service.getNextBookingForUser(
       accountId,

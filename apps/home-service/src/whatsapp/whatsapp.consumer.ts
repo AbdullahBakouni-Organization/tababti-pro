@@ -6,6 +6,11 @@ import {
   WhatsappSendMessageEvent,
   WhatsappSendOtpEvent,
 } from '@app/common/kafka/events/whatsapp.events';
+import {
+  WhatsappDoctorApprovedEvent,
+  WhatsappDoctorRejectedEvent,
+  WhatsappDoctorWelcomeEvent,
+} from '@app/common/kafka/interfaces/kafka-event.interface';
 
 @Controller()
 export class WhatsappConsumer {
@@ -56,6 +61,74 @@ export class WhatsappConsumer {
     } catch (err) {
       this.logger.error(
         `❌ Failed to send OTP to ${phone}: ${err?.message}`,
+        err?.stack,
+      );
+    }
+  }
+  @EventPattern(KAFKA_TOPICS.WHATSAPP_DOCTOR_WELCOME)
+  async handleDoctorWelcome(@Payload() data: any) {
+    const payload: WhatsappDoctorWelcomeEvent = data?.value ?? data;
+    const { phone, doctorName } = payload ?? {};
+    if (!phone || !doctorName) {
+      this.logger.error(
+        `❌ Invalid doctor welcome payload: ${JSON.stringify(payload)}`,
+      );
+      return;
+    }
+    try {
+      await this.whatsappService.sendDoctorWelcome(phone, doctorName);
+      this.logger.log(
+        `✅ Welcome message sent to Dr. ${doctorName} [${phone}]`,
+      );
+    } catch (err) {
+      this.logger.error(
+        `❌ Failed to send welcome message to ${phone}: ${err?.message}`,
+        err?.stack,
+      );
+    }
+  }
+
+  @EventPattern(KAFKA_TOPICS.WHATSAPP_DOCTOR_APPROVED)
+  async handleDoctorApproved(@Payload() data: any) {
+    const payload: WhatsappDoctorApprovedEvent = data?.value ?? data;
+    const { phone, doctorName } = payload ?? {};
+    if (!phone || !doctorName) {
+      this.logger.error(
+        `❌ Invalid doctor approved payload: ${JSON.stringify(payload)}`,
+      );
+      return;
+    }
+    try {
+      await this.whatsappService.sendDoctorApproved(phone, doctorName);
+      this.logger.log(
+        `✅ Approval message sent to Dr. ${doctorName} [${phone}]`,
+      );
+    } catch (err) {
+      this.logger.error(
+        `❌ Failed to send approval message to ${phone}: ${err?.message}`,
+        err?.stack,
+      );
+    }
+  }
+
+  @EventPattern(KAFKA_TOPICS.WHATSAPP_DOCTOR_REJECTED)
+  async handleDoctorRejected(@Payload() data: any) {
+    const payload: WhatsappDoctorRejectedEvent = data?.value ?? data;
+    const { phone, doctorName, reason } = payload ?? {};
+    if (!phone || !doctorName) {
+      this.logger.error(
+        `❌ Invalid doctor rejected payload: ${JSON.stringify(payload)}`,
+      );
+      return;
+    }
+    try {
+      await this.whatsappService.sendDoctorRejected(phone, doctorName, reason);
+      this.logger.log(
+        `✅ Rejection message sent to Dr. ${doctorName} [${phone}]`,
+      );
+    } catch (err) {
+      this.logger.error(
+        `❌ Failed to send rejection message to ${phone}: ${err?.message}`,
         err?.stack,
       );
     }

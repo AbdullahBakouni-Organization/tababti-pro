@@ -40,7 +40,8 @@ import {
   GalleryImagesResponseDto,
   ProfileImageResponseDto,
 } from './dto/images.dto';
-import { MinioService, UploadResult } from '../minio/minio.service';
+import { MinioService } from '@app/common/file-storage';
+import type { UploadResult } from '@app/common/file-storage';
 import { uploadDoctorProfileImage } from '@app/common/utils/upload-profile-images.util';
 import { Post } from '@app/common/database/schemas/post.schema';
 import { SearchDoctorsDto } from './dto/search-of-another-doctor.dto';
@@ -134,13 +135,17 @@ export class DoctorBookingsQueryService {
 
     // Fetch bookings with all related data
     const bookings = await this.bookingModel
-      .find(filters)
+      .find({
+        ...filters,
+        patientId: { $ne: null }, // ← skip orphaned
+        slotId: { $ne: null },
+      })
       .populate<{ patientId: User }>('patientId', 'username phone gender')
       .populate<{ slotId: AppointmentSlot }>(
         'slotId',
         'date startTime endTime status location',
       )
-      .sort({ bookingTime: 1 }) // Sort by time (small to big)
+      .sort({ bookingTime: 1 })
       .skip(skip)
       .limit(limit)
       .lean()
@@ -191,13 +196,11 @@ export class DoctorBookingsQueryService {
 
     // Date filters
     if (dto.date) {
-      // Specific date
-      const date = new Date(dto.date);
-      const startOfDay = new Date(date);
-      startOfDay.setHours(0, 0, 0, 0);
-      const endOfDay = new Date(date);
-      endOfDay.setHours(23, 59, 59, 999);
-
+      const [year, month, day] = dto.date.split('-').map(Number);
+      const startOfDay = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+      const endOfDay = new Date(
+        Date.UTC(year, month - 1, day, 23, 59, 59, 999),
+      );
       filters.bookingDate = {
         $gte: startOfDay,
         $lte: endOfDay,
@@ -268,24 +271,24 @@ export class DoctorBookingsQueryService {
               cancelledAt: booking.cancellation.cancelledAt,
             }
           : undefined,
-        patient: {
-          patientId: patient._id.toString(),
-          username: patient.username,
-          phone: patient.phone,
-          gender: patient.gender,
-        },
-        slot: {
-          slotId: slot._id.toString(),
-          date: slot.date,
-          startTime: slot.startTime,
-          endTime: slot.endTime,
-          status: slot.status,
-          location: {
-            type: slot.location.type,
-            entity_name: slot.location.entity_name,
-            address: slot.location.address,
-          },
-        },
+        patient: patient
+          ? {
+              patientId: patient._id.toString(), // ← was 'id', also toString()
+              username: patient.username,
+              phone: patient.phone,
+              gender: patient.gender,
+            }
+          : null,
+        slot: slot
+          ? {
+              slotId: slot._id.toString(), // ← was 'id', also toString()
+              date: slot.date,
+              startTime: slot.startTime,
+              endTime: slot.endTime,
+              status: slot.status,
+              location: slot.location,
+            }
+          : null,
       };
     });
   }
@@ -1078,7 +1081,7 @@ export class DoctorBookingsQueryService {
       this.doctorModel
         .find(query)
         .select(
-          'firstName middleName lastName image publicSpecialization privateSpecialization',
+          'firstName middleName lastName image publicSpecialization privateSpecialization gender',
         )
         .skip(skip)
         .limit(limit)
@@ -1095,6 +1098,7 @@ export class DoctorBookingsQueryService {
         image: doctor.image ?? null,
         publicSpecialization: doctor.publicSpecialization,
         privateSpecialization: doctor.privateSpecialization,
+        gender: doctor.gender,
       };
     });
 

@@ -184,7 +184,7 @@ export class AuthController {
   @ApiOperation({ summary: 'Refresh access token' })
   async refreshToken(
     @Body('refreshToken') refreshToken: string,
-    @Res({ passthrough: true }) res: Response,
+    @Res({ passthrough: true }) _res: Response,
   ): Promise<{
     success: boolean;
     accessToken: string;

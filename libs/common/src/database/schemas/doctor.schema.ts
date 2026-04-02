@@ -35,8 +35,8 @@ const scryptAsync = promisify(scrypt);
 @Schema({ timestamps: true, collection: 'doctors' })
 export class Doctor extends Document {
   updateMany(
-    arg0: { _id: { $in: any } },
-    arg1: { $inc: { searchCount: number } },
+    _arg0: { _id: { $in: any } },
+    _arg1: { $inc: { searchCount: number } },
   ) {
     throw new Error('Method not implemented.');
   }

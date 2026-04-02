@@ -19,7 +19,7 @@ import { Center } from '@app/common/database/schemas/center.schema';
 import { InjectModel } from '@nestjs/mongoose';
 import { PostStats } from './post.interface';
 import { Post, PostDocument } from '@app/common/database/schemas/post.schema';
-import { MinioService } from 'apps/home-service/src/minio/minio.service';
+import { MinioService } from '@app/common/file-storage';
 import { formatDate } from '@app/common/utils/get-syria-date';
 import { invalidateProfileDoctorPostCaches } from '@app/common/utils/cache-invalidation.util';
 import { CacheService } from '@app/common/cache/cache.service';
@@ -214,7 +214,7 @@ export class PostService {
   /* ======================================================
       DELETE POST
   ====================================================== */
-  async remove(postId: string, authAccountId: string, role: UserRole) {
+  async remove(postId: string, authAccountId: string, _role: UserRole) {
     const post = await this.postRepo.findOne(postId);
 
     if (!post) {

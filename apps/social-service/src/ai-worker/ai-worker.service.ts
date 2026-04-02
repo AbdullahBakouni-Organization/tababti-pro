@@ -3,7 +3,6 @@ import { Job } from 'bullmq';
 import { Injectable, Logger } from '@nestjs/common';
 import { TranslationAiService } from '../translation-ai/translation-ai.service';
 
-
 @Processor('ai', {
   concurrency: 10,
   limiter: {

@@ -132,14 +132,14 @@ export class DoctorBookingDetailDto {
     cancelledAt: Date;
   };
 
-  @ApiProperty({ description: 'Patient information' })
+  @ApiProperty({ description: 'Patient information', nullable: true })
   patient: {
     patientId: string;
     phone: string;
     gender?: string;
-  };
+  } | null;
 
-  @ApiProperty({ description: 'Slot information' })
+  @ApiProperty({ description: 'Slot information', nullable: true })
   slot: {
     slotId: string;
     date: Date;
@@ -156,7 +156,7 @@ export class DoctorBookingDetailDto {
         longitude: number;
       };
     };
-  };
+  } | null;
 }
 
 /**

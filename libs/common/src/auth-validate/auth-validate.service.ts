@@ -25,6 +25,7 @@ import { UserRole } from '../database/schemas/common.enums';
 
 export interface JwtPayload {
   sub: string; // AuthAccount ID
+  entityId: string;
   phone: string;
   role: UserRole; // 'doctor' | 'admin' | 'user'
   sessionId: string; // Unique session identifier
@@ -104,6 +105,7 @@ export class AuthValidateService {
    */
   async generateTokenPair(
     accountId: string,
+    entityId: string,
     phone: string,
     role: UserRole,
     sessionId: string,
@@ -114,6 +116,7 @@ export class AuthValidateService {
 
     const accessPayload: JwtPayload = {
       sub: accountId,
+      entityId,
       phone,
       role,
       sessionId,
@@ -125,6 +128,7 @@ export class AuthValidateService {
     // Refresh Token Payload
     const refreshPayload: JwtPayload = {
       sub: accountId,
+      entityId,
       phone,
       role,
       sessionId,
@@ -253,6 +257,7 @@ export class AuthValidateService {
     const entity = await entityModel.findOne({
       authAccountId: new Types.ObjectId(accountId.toString()),
     });
+    const entityId = entity._id.toString() as string;
     if (!entity) {
       throw new UnauthorizedException(`${role} entity not found`);
     }
@@ -262,6 +267,7 @@ export class AuthValidateService {
     // 3. Generate token pair
     const tokens = await this.generateTokenPair(
       accountId,
+      entityId,
       phone,
       role,
       sessionId,
@@ -342,6 +348,7 @@ export class AuthValidateService {
     const entity = await entityModel.findOne({
       authAccountId: new Types.ObjectId(account._id.toString()),
     });
+    const entityId = entity._id.toString() as string;
     if (!entity) {
       throw new UnauthorizedException(`${payload.role} entity not found`);
     }
@@ -367,6 +374,7 @@ export class AuthValidateService {
     // 7. Generate new token pair
     const tokens = await this.generateTokenPair(
       account._id.toString(),
+      entityId,
       payload.phone,
       payload.role,
       session.sessionId,
