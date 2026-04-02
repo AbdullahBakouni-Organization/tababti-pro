@@ -234,7 +234,7 @@ services:
       interval: 15s
       timeout: 50s
       retries: 5
-      start_period: 120s
+      start_period: 60s
   # ============================================
   # Home Service — Instance 2
   # ============================================
@@ -291,7 +291,7 @@ services:
       interval: 15s
       timeout: 50s
       retries: 5
-      start_period: 120s
+      start_period: 60s
 
   # ============================================
   # Social Service — Instance 1
@@ -350,7 +350,7 @@ services:
       interval: 15s
       timeout: 50s
       retries: 5
-      start_period: 240s
+      start_period: 90s
 
   # ============================================
   # Social Service — Instance 2
@@ -409,7 +409,7 @@ services:
       interval: 15s
       timeout: 50s
       retries: 5
-      start_period: 240s
+      start_period: 90s
 
   # ============================================
   # Notification Service
@@ -460,7 +460,7 @@ services:
       interval: 15s
       timeout: 50s
       retries: 5
-      start_period: 240s
+      start_period: 90s
   # ============================================
   # Booking Service
   # ============================================
@@ -517,7 +517,7 @@ services:
       interval: 15s
       timeout: 50s
       retries: 5
-      start_period: 240s
+      start_period: 90s
 
   # ============================================
   # Kafka (KRaft mode — no Zookeeper)
