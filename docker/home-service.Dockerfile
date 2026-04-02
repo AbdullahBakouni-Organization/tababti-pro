@@ -29,6 +29,10 @@ RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=builder /app/dist/apps/home-service ./dist
 
+# whatsapp-web.js writes session data to /app/.wwebjs_auth at runtime
+RUN mkdir -p /app/.wwebjs_auth /app/.wwebjs_cache \
+    && chown -R appuser:appgroup /app
+
 USER appuser
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
