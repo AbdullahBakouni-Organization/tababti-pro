@@ -474,6 +474,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3003
+      BOOKING_PORT: 3003
       MONGO_URI: ${MONGO_URI}
       MONGO_DB: ${MONGO_DB}
       REDIS_HOST: redis

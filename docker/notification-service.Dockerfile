@@ -30,8 +30,8 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY --from=builder /app/dist/apps/notification-service ./dist
 
 USER appuser
-EXPOSE 3000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:3000/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
+EXPOSE 3006
+HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=5 \
+  CMD node -e "require('net').connect(3006,'localhost',()=>process.exit(0)).on('error',()=>process.exit(1))"
 
 CMD ["node", "dist/main"]
