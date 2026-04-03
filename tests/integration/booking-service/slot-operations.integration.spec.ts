@@ -33,7 +33,12 @@ import {
   SlotStatus,
 } from '@app/common/database/schemas/common.enums';
 
-import { buildDoctor, buildSlot, newObjectId } from '../fixtures';
+import {
+  buildDoctor,
+  buildSlot,
+  buildMongoUri,
+  newObjectId,
+} from '../fixtures';
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017';
 const DB_NAME = 'tababti_integration_slots';
@@ -46,7 +51,7 @@ describe('AppointmentSlot — Schema & Instance Methods (Integration)', () => {
   beforeAll(async () => {
     module = await Test.createTestingModule({
       imports: [
-        MongooseModule.forRoot(`${MONGO_URI}/${DB_NAME}`, {
+        MongooseModule.forRoot(buildMongoUri(MONGO_URI, DB_NAME), {
           serverSelectionTimeoutMS: 10_000,
         }),
         MongooseModule.forFeature([

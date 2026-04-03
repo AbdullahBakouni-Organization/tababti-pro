@@ -354,7 +354,7 @@ jobs:
             "REDIS_PASSWORD=ci-test-password",
             "MONGO_URI=mongodb://mongo:27017/?replicaSet=rs0&directConnection=true",
             "MONGO_DB=tababti_ci",
-            "KAFKA_CLUSTER_ID=ci-test-cluster",
+            "KAFKA_CLUSTER_ID=wdLj9KW2eJASNKvN71Z4kA",
             "MINIO_ROOT_USER=minioadmin",
             "MINIO_ROOT_PASSWORD=minioadmin123",
             "MINIO_ACCESS_KEY=minioadmin",

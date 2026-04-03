@@ -58,6 +58,7 @@ import {
   buildDoctor,
   buildSlot,
   buildBooking,
+  buildMongoUri,
   newObjectId,
 } from '../fixtures';
 
@@ -77,7 +78,7 @@ describe('UsersService — Booking Validation (Integration)', () => {
   beforeAll(async () => {
     module = await Test.createTestingModule({
       imports: [
-        MongooseModule.forRoot(`${MONGO_URI}/${DB_NAME}`, {
+        MongooseModule.forRoot(buildMongoUri(MONGO_URI, DB_NAME), {
           serverSelectionTimeoutMS: 10_000,
         }),
         MongooseModule.forFeature([

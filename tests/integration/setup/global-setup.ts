@@ -5,6 +5,7 @@
  */
 import mongoose from 'mongoose';
 import Redis from 'ioredis';
+import { buildMongoUri } from '../fixtures';
 
 export default async function globalSetup() {
   const mongoUri = process.env.MONGO_URI || 'mongodb://localhost:27017';
@@ -12,9 +13,10 @@ export default async function globalSetup() {
   const redisPort = Number(process.env.REDIS_PORT || 6379);
 
   // --- MongoDB connectivity probe ---
-  const conn = await mongoose.connect(`${mongoUri}/tababti_integration_probe`, {
-    serverSelectionTimeoutMS: 10_000,
-  });
+  const conn = await mongoose.connect(
+    buildMongoUri(mongoUri, 'tababti_integration_probe'),
+    { serverSelectionTimeoutMS: 10_000 },
+  );
   await conn.connection.db!.command({ ping: 1 });
   await conn.disconnect();
 
