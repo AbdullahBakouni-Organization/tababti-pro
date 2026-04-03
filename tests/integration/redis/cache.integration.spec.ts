@@ -7,12 +7,16 @@
  *   - invalidate() removes a key from both layers.
  *   - invalidatePattern() removes all matching keys from both layers.
  *   - del() is an alias for invalidate().
- *   - TTL is respected: a key set with a very short TTL expires.
+ *   - TTL is respected: a key set with a very short Redis TTL expires.
  *   - Redis raw operations via RedisService (set/get/del/exists/ttl).
  *
- * What is NOT tested here:
- *   - Redis pub/sub invalidation across multiple service instances
- *     (requires two connected CacheService instances; covered by E2E).
+ * NOTE on keyPrefix:
+ *   RedisModule is configured WITHOUT a keyPrefix here. The k() helper already
+ *   namespaces every key with KEY_PREFIX, so there is no need for ioredis-level
+ *   prefixing. Using keyPrefix together with k() would cause double-prefixing:
+ *   ioredis prepends the prefix to keys passed to set/get, but client.keys()
+ *   returns the full Redis key names (already prefixed), and the subsequent
+ *   client.del() call re-adds the prefix — meaning the wrong keys are deleted.
  */
 
 import { Test, TestingModule } from '@nestjs/testing';
@@ -27,6 +31,7 @@ const REDIS_PORT = Number(process.env.REDIS_PORT || 6379);
 /** Unique key prefix per test run to prevent cross-test pollution. */
 const KEY_PREFIX = `inttest:${Date.now()}:`;
 
+/** Prefix every key with KEY_PREFIX for test isolation. */
 function k(name: string) {
   return `${KEY_PREFIX}${name}`;
 }
@@ -44,10 +49,11 @@ describe('CacheService (Integration)', () => {
   beforeAll(async () => {
     module = await Test.createTestingModule({
       imports: [
+        // No keyPrefix — k() already namespaces all keys.
         RedisModule.forRoot({
           host: REDIS_HOST,
           port: REDIS_PORT,
-          keyPrefix: KEY_PREFIX,
+          password: process.env.REDIS_PASSWORD || undefined,
         }),
       ],
       providers: [CacheService],
@@ -60,14 +66,12 @@ describe('CacheService (Integration)', () => {
   });
 
   afterAll(async () => {
-    // Clean up all keys created during the test run
-    await redisService.deletePattern(`*`);
+    await redisService.deletePattern(`${KEY_PREFIX}*`);
     await module.close();
   });
 
   afterEach(async () => {
-    // Remove all keys created in this test
-    await redisService.deletePattern(`*`);
+    await redisService.deletePattern(`${KEY_PREFIX}*`);
   });
 
   // ── Basic get / set ───────────────────────────────────────────────────────
@@ -110,7 +114,7 @@ describe('CacheService (Integration)', () => {
 
   describe('TTL expiry', () => {
     it('key becomes unavailable in Redis after redisTTL expires', async () => {
-      // Set with 1-second Redis TTL (memory TTL irrelevant for this check)
+      // Set with 1-second Redis TTL
       await cacheService.set(k('ttl-key'), 'temporary', 1, 1);
 
       // Immediately readable
@@ -155,15 +159,14 @@ describe('CacheService (Integration)', () => {
       await cacheService.set(k('user:1:profile'), { name: 'A' });
       await cacheService.set(k('user:1:bookings'), [1, 2]);
       await cacheService.set(k('user:2:profile'), { name: 'B' });
-      // This key should NOT be removed
       await cacheService.set(k('doctor:1:profile'), { specialty: 'cardio' });
 
-      // Invalidate all keys for user:1
+      // Invalidate all keys for user:1 only
       await cacheService.invalidatePattern(`${KEY_PREFIX}user:1:*`);
 
       expect(await cacheService.get(k('user:1:profile'))).toBeNull();
       expect(await cacheService.get(k('user:1:bookings'))).toBeNull();
-      // user:2 and doctor:1 keys should still be present
+      // user:2 and doctor:1 keys must still be present
       expect(await cacheService.get(k('user:2:profile'))).toEqual({
         name: 'B',
       });
@@ -177,43 +180,40 @@ describe('CacheService (Integration)', () => {
 
   describe('RedisService raw operations', () => {
     it('set / get / del cycle works correctly', async () => {
-      await redisService.set('raw:key', { data: 1 });
-      expect(await redisService.get('raw:key')).toEqual({ data: 1 });
-      await redisService.del('raw:key');
-      expect(await redisService.get('raw:key')).toBeNull();
+      await redisService.set(k('raw'), { data: 1 });
+      expect(await redisService.get(k('raw'))).toEqual({ data: 1 });
+      await redisService.del(k('raw'));
+      expect(await redisService.get(k('raw'))).toBeNull();
     });
 
     it('exists() returns true for a key that was set', async () => {
-      await redisService.set('exists:key', 'yes');
-      expect(await redisService.exists('exists:key')).toBe(true);
+      await redisService.set(k('exists'), 'yes');
+      expect(await redisService.exists(k('exists'))).toBe(true);
     });
 
     it('exists() returns false for a key that does not exist', async () => {
-      expect(await redisService.exists('exists:missing')).toBe(false);
+      expect(await redisService.exists(k('missing-exists'))).toBe(false);
     });
 
     it('ttl() returns a positive number for a key with expiry', async () => {
-      await redisService.set('ttl:key', 'val', 60);
-      const remaining = await redisService.ttl('ttl:key');
+      await redisService.set(k('ttl'), 'val', 60);
+      const remaining = await redisService.ttl(k('ttl'));
       expect(remaining).toBeGreaterThan(0);
       expect(remaining).toBeLessThanOrEqual(60);
     });
 
     it('incr() atomically increments a counter', async () => {
-      await redisService.set('counter', 0);
-      const a = await redisService.incr('counter');
-      const b = await redisService.incr('counter');
+      await redisService.set(k('counter'), 0);
+      const a = await redisService.incr(k('counter'));
+      const b = await redisService.incr(k('counter'));
       expect(a).toBe(1);
       expect(b).toBe(2);
     });
 
     it('hset / hget round-trip preserves the object', async () => {
       const value = { name: 'Slot A', price: 5000 };
-      await redisService.hset('hash:key', 'slot_1', value);
-      const result = await redisService.hget<typeof value>(
-        'hash:key',
-        'slot_1',
-      );
+      await redisService.hset(k('hash'), 'slot_1', value);
+      const result = await redisService.hget<typeof value>(k('hash'), 'slot_1');
       expect(result).toEqual(value);
     });
   });

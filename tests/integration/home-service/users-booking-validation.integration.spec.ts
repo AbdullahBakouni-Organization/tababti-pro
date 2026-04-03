@@ -17,11 +17,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import {
   MongooseModule,
+  getConnectionToken,
   getModelToken,
-  InjectConnection,
 } from '@nestjs/mongoose';
-import { Model, Connection } from 'mongoose';
-import mongoose from 'mongoose';
+import { Connection, Model } from 'mongoose';
 
 import { UsersService } from '../../../apps/home-service/src/users/users.service';
 import {
@@ -124,7 +123,8 @@ describe('UsersService — Booking Validation (Integration)', () => {
   });
 
   afterAll(async () => {
-    await mongoose.connection.dropDatabase();
+    const connection = module.get<Connection>(getConnectionToken());
+    await connection.dropDatabase();
     await module.close();
   });
 
@@ -277,22 +277,24 @@ describe('UsersService — Booking Validation (Integration)', () => {
       const patient = await userModel.create(buildUser());
 
       // Create 3 different doctors + slots + bookings for the same day
-      const times = ['08:00', '10:00', '12:00'];
-      for (const time of times) {
+      // firstName must match /^[\p{L}._-]+$/u — no digits or colons allowed
+      const slots = [
+        { firstName: 'DoctorAlpha', startTime: '08:00', endTime: '08:30' },
+        { firstName: 'DoctorBeta',  startTime: '10:00', endTime: '10:30' },
+        { firstName: 'DoctorGamma', startTime: '12:00', endTime: '12:30' },
+      ];
+      for (const s of slots) {
         const doctor = await doctorModel.create(
-          buildDoctor({ firstName: `Doc${time}` }),
+          buildDoctor({ firstName: s.firstName }),
         );
         const slot = await slotModel.create(
-          buildSlot(doctor._id, {
-            startTime: time,
-            endTime: `${time.split(':')[0].padStart(2, '0')}:30`,
-          }),
+          buildSlot(doctor._id, { startTime: s.startTime, endTime: s.endTime }),
         );
         await bookingModel.create(
           buildBooking(patient._id, doctor._id, slot._id, {
             bookingDate: tomorrow,
-            bookingTime: time,
-            bookingEndTime: `${time.split(':')[0].padStart(2, '0')}:30`,
+            bookingTime: s.startTime,
+            bookingEndTime: s.endTime,
           }),
         );
       }

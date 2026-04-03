@@ -13,10 +13,9 @@
  *   - Cross-service Kafka events (unit tests)
  */
 
-import { getModelToken, MongooseModule } from '@nestjs/mongoose';
+import { getConnectionToken, getModelToken, MongooseModule } from '@nestjs/mongoose';
 import { Test, TestingModule } from '@nestjs/testing';
-import { Model } from 'mongoose';
-import mongoose from 'mongoose';
+import { Connection, Model } from 'mongoose';
 
 import {
   AppointmentSlot,
@@ -61,12 +60,22 @@ describe('AppointmentSlot — Schema & Instance Methods (Integration)', () => {
       ],
     }).compile();
 
+    // init() triggers onModuleInit lifecycle hooks, including MongooseModule's
+    // index-creation logic.  Without it the unique compound index on
+    // AppointmentSlot is not yet in place when the first test runs.
+    await module.init();
+
     slotModel = module.get(getModelToken(AppointmentSlot.name));
     doctorModel = module.get(getModelToken(Doctor.name));
+
+    // Belt-and-suspenders: explicitly ensure indexes are synced before any
+    // test that relies on uniqueness constraints.
+    await slotModel.createIndexes();
   });
 
   afterAll(async () => {
-    await mongoose.connection.dropDatabase();
+    const connection = module.get<Connection>(getConnectionToken());
+    await connection.dropDatabase();
     await module.close();
   });
 

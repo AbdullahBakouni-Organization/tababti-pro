@@ -24,6 +24,7 @@ export default async function globalSetup() {
   const redis = new Redis({
     host: redisHost,
     port: redisPort,
+    password: process.env.REDIS_PASSWORD || undefined,
     connectTimeout: 10_000,
     lazyConnect: true,
   });
