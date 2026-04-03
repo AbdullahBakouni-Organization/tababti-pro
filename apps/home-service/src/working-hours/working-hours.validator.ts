@@ -23,7 +23,7 @@ export class WorkingHoursValidator {
     }
 
     // استخراج الأيام التي سيتم استبدالها
-    const updatedDays = [...new Set(newHours.map((h) => h.day))];
+    const _updatedDays = [...new Set(newHours.map((h) => h.day))];
 
     // 1️⃣ فحص صحة الوقت
     this.validateTimeRanges(newHours);

@@ -1,0 +1,120 @@
+# ============================================
+# CI override — do NOT use in production.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.ci.yml ...
+#
+# What this override does:
+#   1. Adds a single-node MongoDB replica set (rs0) so services don't need
+#      Atlas in CI. rs.initiate() runs inside the healthcheck on first pass.
+#   2. Overrides MONGO_URI in every app service to point at that local Mongo
+#      with replicaSet=rs0 — matches how the dev compose is configured.
+#   3. Disables restart policies (CI containers must fail-fast, not loop).
+#   4. Keeps all other production settings unchanged.
+# ============================================
+
+services:
+  # ── Local MongoDB replica set (CI only) ─────────────────────────────────────
+  mongo:
+    image: mongo:7
+    container_name: tababti-mongo-ci
+    restart: 'no'
+    # Start in replica-set mode — rs.initiate() is called inside the healthcheck
+    # on the first passing probe, so the container becomes "healthy" only after
+    # the replica set is fully initialised.
+    command: mongod --replSet rs0 --bind_ip_all
+    networks:
+      - tababti-network
+    healthcheck:
+      test:
+        - CMD
+        - mongosh
+        - --quiet
+        - --eval
+        - |
+          try { rs.status() }
+          catch(e) {
+            rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'mongo:27017' }] });
+            sleep(2000);
+          }
+          db.adminCommand('ping')
+      interval: 10s
+      timeout: 15s
+      retries: 15
+      start_period: 30s
+
+  # ── Disable restarts on infra services ──────────────────────────────────────
+  redis:
+    restart: 'no'
+
+  kafka:
+    restart: 'no'
+
+  kafka-ui:
+    restart: 'no'
+
+  minio:
+    restart: 'no'
+
+  nginx-primary:
+    restart: 'no'
+
+  nginx-internal:
+    restart: 'no'
+
+  # ── App services — replica-set URI, disable restarts ────────────────────────
+  # directConnection=true is required when talking to a single-node replica set
+  # that advertises its own hostname (mongo:27017) as the primary.
+  api-gateway:
+    restart: 'no'
+    environment:
+      MONGO_URI: mongodb://mongo:27017/?replicaSet=rs0&directConnection=true
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  home-service-1:
+    restart: 'no'
+    environment:
+      MONGO_URI: mongodb://mongo:27017/?replicaSet=rs0&directConnection=true
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  home-service-2:
+    restart: 'no'
+    environment:
+      MONGO_URI: mongodb://mongo:27017/?replicaSet=rs0&directConnection=true
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  social-service-1:
+    restart: 'no'
+    environment:
+      MONGO_URI: mongodb://mongo:27017/?replicaSet=rs0&directConnection=true
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  social-service-2:
+    restart: 'no'
+    environment:
+      MONGO_URI: mongodb://mongo:27017/?replicaSet=rs0&directConnection=true
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  notification-service:
+    restart: 'no'
+    environment:
+      MONGO_URI: mongodb://mongo:27017/?replicaSet=rs0&directConnection=true
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  booking-service:
+    restart: 'no'
+    environment:
+      MONGO_URI: mongodb://mongo:27017/?replicaSet=rs0&directConnection=true
+    depends_on:
+      mongo:
+        condition: service_healthy

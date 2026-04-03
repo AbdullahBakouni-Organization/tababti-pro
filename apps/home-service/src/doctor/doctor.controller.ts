@@ -408,8 +408,6 @@ export class DoctorController {
     };
   }
   @Throttle({ short: { ttl: 1000, limit: 3 } })
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.DOCTOR)
   @Post('forgot-password/request-otp')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -436,8 +434,6 @@ export class DoctorController {
     return this.DoctorService.requestPasswordResetOtp(dto);
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.DOCTOR)
   @Post('forgot-password/verify-otp')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -463,8 +459,7 @@ export class DoctorController {
   async verifyPasswordResetOtp(@Body() dto: VerifyOtpForPasswordResetDto) {
     return this.DoctorService.verifyPasswordResetOtp(dto);
   }
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.DOCTOR)
+
   @Post('forgot-password/reset')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({

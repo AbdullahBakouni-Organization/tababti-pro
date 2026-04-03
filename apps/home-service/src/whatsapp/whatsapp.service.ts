@@ -30,7 +30,8 @@ export class WhatsappService implements OnModuleInit {
       }),
       puppeteer: {
         headless: true,
-        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH ?? 'chromium-browser',
+        executablePath:
+          process.env.PUPPETEER_EXECUTABLE_PATH ?? 'chromium-browser',
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',

@@ -1,0 +1,17 @@
+{
+  "moduleFileExtensions": ["js", "json", "ts"],
+  "rootDir": "../../",
+  "testRegex": "tests/integration/.*\\.spec\\.ts$",
+  "transform": {
+    "^.+\\.(t|j)s$": "ts-jest"
+  },
+  "testEnvironment": "node",
+  "testTimeout": 30000,
+  "globalSetup": "<rootDir>/tests/integration/setup/global-setup.ts",
+  "globalTeardown": "<rootDir>/tests/integration/setup/global-teardown.ts",
+  "forceExit": true,
+  "moduleNameMapper": {
+    "^@app/common(|/.*)$": "<rootDir>/libs/common/src/$1",
+    "^libs/common/dtos(|/.*)$": "<rootDir>/libs/common/dtos/$1"
+  }
+}
