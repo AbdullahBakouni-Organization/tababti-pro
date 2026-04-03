@@ -4,7 +4,7 @@
  * This file is a safety net to drop the probe DB created in global-setup.
  */
 import mongoose from 'mongoose';
-import { buildMongoUri } from '../fixtures';
+import { buildMongoUri } from './mongo-uri';
 
 export default async function globalTeardown() {
   const mongoUri = process.env.MONGO_URI || 'mongodb://localhost:27017';

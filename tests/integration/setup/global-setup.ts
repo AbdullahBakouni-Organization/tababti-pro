@@ -5,7 +5,7 @@
  */
 import mongoose from 'mongoose';
 import Redis from 'ioredis';
-import { buildMongoUri } from '../fixtures';
+import { buildMongoUri } from './mongo-uri';
 
 export default async function globalSetup() {
   const mongoUri = process.env.MONGO_URI || 'mongodb://localhost:27017';

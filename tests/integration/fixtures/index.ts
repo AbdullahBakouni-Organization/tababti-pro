@@ -7,27 +7,9 @@
 import { Types } from 'mongoose';
 
 // ─── URI helper ───────────────────────────────────────────────────────────────
-
-/**
- * Safely append a database name to a MongoDB base URI.
- *
- * Handles URIs that already carry query parameters, e.g.:
- *   mongodb://127.0.0.1:27017/?replicaSet=rs0&directConnection=true
- * → mongodb://127.0.0.1:27017/mydb?replicaSet=rs0&directConnection=true
- *
- * Without this, naively doing `${uri}/${db}` would turn
- * `directConnection=true` into `directConnection=true/mydb`, which the
- * MongoDB driver rejects with "directConnection must be true or false".
- */
-export function buildMongoUri(baseUri: string, dbName: string): string {
-  if (baseUri.includes('?')) {
-    const [hostPart, queryPart] = baseUri.split('?');
-    const cleanHost = hostPart.replace(/\/$/, '');
-    return `${cleanHost}/${dbName}?${queryPart}`;
-  }
-  const sep = baseUri.endsWith('/') ? '' : '/';
-  return `${baseUri}${sep}${dbName}`;
-}
+// Re-exported from setup/mongo-uri.ts which has no external imports and is
+// therefore safe to use from globalSetup / globalTeardown as well.
+export { buildMongoUri } from '../setup/mongo-uri';
 import {
   ApprovalStatus,
   BookingStatus,
