@@ -1195,8 +1195,10 @@ describe('DoctorService', () => {
         }),
       });
       const authId = new Types.ObjectId();
-      authModel.findOne.mockReturnValue({ _id: authId });
-      otpModel.findOne.mockReturnValue({
+      authModel.findOne.mockReturnValue({
+        session: jest.fn().mockResolvedValue({ _id: authId }),
+      });
+      const mockOtpDoc = {
         _id: new Types.ObjectId(),
         code: '654321',
         isExpired: jest.fn().mockReturnValue(false),
@@ -1205,6 +1207,9 @@ describe('DoctorService', () => {
         attempts: 1,
         maxAttempts: 5,
         save: jest.fn().mockResolvedValue(undefined),
+      };
+      otpModel.findOne.mockReturnValue({
+        session: jest.fn().mockResolvedValue(mockOtpDoc),
       });
 
       await expect(
