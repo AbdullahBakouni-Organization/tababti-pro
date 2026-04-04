@@ -62,22 +62,17 @@ export class AuthService {
           { session },
         );
         authAccount = created;
-        console.log(`✅ [requestOtp] Auth account created: ${authAccount._id}`);
       } else {
         console.log(
           `🔍 [requestOtp] Existing auth account found: ${authAccount._id}`,
         );
       }
 
-      console.log(
-        `🗑️  [requestOtp] Deleting previous OTPs for account: ${authAccount._id}`,
-      );
       await this.otpModel
         .deleteMany({ authAccountId: authAccount._id })
         .session(session);
 
       const otp = this.smsService.generateOTP();
-      console.log(`🔐 [requestOtp] Generated OTP: ${otp} for phone: ${phone}`);
 
       await this.otpModel.create(
         [
@@ -92,10 +87,8 @@ export class AuthService {
         ],
         { session },
       );
-      console.log(`💾 [requestOtp] OTP saved to DB, expires in 10 minutes`);
 
       await session.commitTransaction();
-      console.log(`✅ [requestOtp] Transaction committed`);
 
       // SMS: direct (synchronous — we want to know it was dispatched)
       // WhatsApp: via Kafka (async, decoupled — won't fail the OTP flow)
@@ -374,7 +367,16 @@ export class AuthService {
       await session.commitTransaction();
       await session.endSession();
 
-      await this.smsService.sendOTP(phone, otp);
+      await Promise.allSettled([
+        //this.smsService.sendOTP(phone, otp),
+        Promise.resolve(
+          this.kafkaProducer.emit(KAFKA_TOPICS.WHATSAPP_SEND_OTP, {
+            phone,
+            otp,
+            lang: 'ar',
+          }),
+        ),
+      ]);
 
       return {
         success: true,

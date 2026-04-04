@@ -725,8 +725,7 @@ export class DoctorService {
           .findOne({ phones: phone })
           .session(session);
 
-        if (!authAccount)
-          throw new NotFoundException('Auth account not found');
+        if (!authAccount) throw new NotFoundException('Auth account not found');
 
         const otpRecord = await this.otpModel
           .findOne({ authAccountId: authAccount._id, phone })
@@ -778,9 +777,7 @@ export class DoctorService {
         }
 
         const labels: string[] =
-          (error as any)?.errorLabels ??
-          (error as any)?.errorResponse?.errorLabels ??
-          [];
+          error?.errorLabels ?? error?.errorResponse?.errorLabels ?? [];
         const isTransient = labels.includes('TransientTransactionError');
 
         if (isTransient && attempt < MAX_RETRIES) {
