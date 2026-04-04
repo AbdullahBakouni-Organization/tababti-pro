@@ -280,7 +280,7 @@ describe('UsersService — Booking Validation (Integration)', () => {
       // firstName must match /^[\p{L}._-]+$/u — no digits or colons allowed
       const slots = [
         { firstName: 'DoctorAlpha', startTime: '08:00', endTime: '08:30' },
-        { firstName: 'DoctorBeta',  startTime: '10:00', endTime: '10:30' },
+        { firstName: 'DoctorBeta', startTime: '10:00', endTime: '10:30' },
         { firstName: 'DoctorGamma', startTime: '12:00', endTime: '12:30' },
       ];
       for (const s of slots) {

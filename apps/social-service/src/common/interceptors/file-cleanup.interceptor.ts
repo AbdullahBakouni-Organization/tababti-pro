@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   NestInterceptor,
   ExecutionContext,
   CallHandler,
@@ -10,18 +11,20 @@ import { unlinkSync, existsSync } from 'fs';
 
 @Injectable()
 export class FileCleanupInterceptor implements NestInterceptor {
-  intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
+  private readonly logger = new Logger(FileCleanupInterceptor.name);
+
+  intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     const request = context.switchToHttp().getRequest();
 
     return next.handle().pipe(
       catchError((error) => {
-        const file = request.file; // ✅ read AFTER Multer
+        const file = request.file as { path?: string } | undefined;
 
         if (file?.path && existsSync(file.path)) {
           try {
             unlinkSync(file.path);
           } catch (err) {
-            console.error('Failed to delete file:', err);
+            this.logger.error('Failed to delete temporary file', err);
           }
         }
 

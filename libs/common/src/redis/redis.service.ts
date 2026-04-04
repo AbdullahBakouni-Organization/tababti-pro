@@ -1,6 +1,7 @@
 import {
   Injectable,
   Inject,
+  Logger,
   OnModuleInit,
   OnModuleDestroy,
 } from '@nestjs/common';
@@ -9,6 +10,7 @@ import type { RedisModuleOptions } from './redis.module';
 
 @Injectable()
 export class RedisService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(RedisService.name);
   private client: Redis;
   private subscriber: Redis;
   private publisher: Redis;
@@ -36,11 +38,11 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     this.publisher = this.client.duplicate();
 
     this.client.on('connect', () => {
-      console.log('Redis client connected');
+      this.logger.log('Redis client connected');
     });
 
     this.client.on('error', (err) => {
-      console.error('Redis client error:', err);
+      this.logger.error('Redis client error', err);
     });
   }
 

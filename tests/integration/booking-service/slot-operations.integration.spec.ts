@@ -13,7 +13,11 @@
  *   - Cross-service Kafka events (unit tests)
  */
 
-import { getConnectionToken, getModelToken, MongooseModule } from '@nestjs/mongoose';
+import {
+  getConnectionToken,
+  getModelToken,
+  MongooseModule,
+} from '@nestjs/mongoose';
 import { Test, TestingModule } from '@nestjs/testing';
 import { Connection, Model } from 'mongoose';
 

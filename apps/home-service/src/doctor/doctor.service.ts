@@ -1745,12 +1745,10 @@ export class DoctorService {
     if (!doctor) {
       throw new NotFoundException('Doctor not found');
     }
-    console.log(doctor);
     const doctorName = `${doctor.firstName} ${doctor.middleName} ${doctor.lastName}`;
 
     const startDate = new Date(dto.startDate);
     const endDate = new Date(dto.endDate);
-    console.log(startDate);
     // Get all slot IDs in range
     const slots = await this.slotModel
       .find({
@@ -1778,7 +1776,6 @@ export class DoctorService {
     });
 
     this.logger.log(`Holiday block job queued: ${job.id}`);
-    console.log(slots);
     return {
       message:
         'Holiday is being created. Bookings will be cancelled and patients notified.',

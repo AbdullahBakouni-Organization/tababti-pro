@@ -32,7 +32,6 @@ export class LegalAdviceRepository {
     requesterId: string,
     legalAdviceType: LegalAdviceCategory,
   ): Promise<LegalAdviceRequest> {
-    console.log('requesterId:', requesterId);
     if (!Types.ObjectId.isValid(requesterId)) {
       throw new BadRequestException('user.INVALID_ID');
     }

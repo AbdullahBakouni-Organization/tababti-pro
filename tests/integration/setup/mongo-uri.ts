@@ -11,11 +11,30 @@
  *   "directConnection must be either true or false".
  */
 export function buildMongoUri(baseUri: string, dbName: string): string {
-  if (baseUri.includes('?')) {
-    const [hostPart, queryPart] = baseUri.split('?');
-    const cleanHost = hostPart.replace(/\/$/, '');
-    return `${cleanHost}/${dbName}?${queryPart}`;
+  // Split off query string first
+  const [uriPart, queryPart] = baseUri.split('?') as [
+    string,
+    string | undefined,
+  ];
+
+  // Isolate the scheme (e.g. "mongodb://") from the authority+path
+  const schemeEnd = uriPart.indexOf('://');
+  if (schemeEnd === -1) {
+    // Not a standard URI — fall back to simple append
+    const sep = uriPart.endsWith('/') ? '' : '/';
+    return queryPart !== undefined
+      ? `${uriPart}${sep}${dbName}?${queryPart}`
+      : `${uriPart}${sep}${dbName}`;
   }
-  const sep = baseUri.endsWith('/') ? '' : '/';
-  return `${baseUri}${sep}${dbName}`;
+
+  const scheme = uriPart.slice(0, schemeEnd + 3); // e.g. "mongodb://"
+  const rest = uriPart.slice(schemeEnd + 3); // e.g. "user:pass@host:27017/existingDb"
+
+  // Strip any existing db name — the first "/" in `rest` separates host:port from db
+  const slashIdx = rest.indexOf('/');
+  const authority = slashIdx === -1 ? rest : rest.slice(0, slashIdx);
+
+  return queryPart !== undefined
+    ? `${scheme}${authority}/${dbName}?${queryPart}`
+    : `${scheme}${authority}/${dbName}`;
 }

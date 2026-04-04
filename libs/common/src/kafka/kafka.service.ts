@@ -1,9 +1,10 @@
-import { Injectable, Inject, OnModuleInit } from '@nestjs/common';
+import { Injectable, Inject, Logger, OnModuleInit } from '@nestjs/common';
 import { ClientKafka } from '@nestjs/microservices';
 import { firstValueFrom } from 'rxjs';
 
 @Injectable()
 export class KafkaService implements OnModuleInit {
+  private readonly logger = new Logger(KafkaService.name);
   constructor(
     @Inject('KAFKA_SERVICE') private readonly kafkaClient: ClientKafka,
   ) {}
@@ -40,7 +41,7 @@ export class KafkaService implements OnModuleInit {
       // Subscribe to the topic for response handling
       this.kafkaClient.subscribeToResponseOf(topic);
 
-      console.log(
+      this.logger.log(
         `Setting up consumer for topic: ${topic} with groupId: ${options.groupId}`,
       );
 
@@ -57,9 +58,11 @@ export class KafkaService implements OnModuleInit {
       // Call the message handler with the mock message
       await onMessage(mockMessage);
 
-      console.log(`Consumer registered and handler called for topic: ${topic}`);
+      this.logger.log(
+        `Consumer registered and handler called for topic: ${topic}`,
+      );
     } catch (error) {
-      console.error(`Failed to set up consumer for topic ${topic}:`, error);
+      this.logger.error(`Failed to set up consumer for topic ${topic}`, error);
       throw error;
     }
   }

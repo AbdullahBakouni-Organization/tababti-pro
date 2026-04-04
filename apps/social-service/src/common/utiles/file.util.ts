@@ -1,13 +1,16 @@
 import 'dotenv/config'; // Load env first
 import { unlinkSync, existsSync } from 'fs';
+import { Logger } from '@nestjs/common';
 
 export class FileUtil {
+  private static readonly logger = new Logger(FileUtil.name);
+
   static deleteFile(filePath: string): void {
     if (filePath && existsSync(filePath)) {
       try {
         unlinkSync(filePath);
       } catch (error) {
-        console.error('Error deleting file:', error);
+        FileUtil.logger.error('Error deleting file', error);
       }
     }
   }

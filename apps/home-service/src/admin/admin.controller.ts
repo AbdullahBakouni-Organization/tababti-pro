@@ -807,6 +807,8 @@ export class AdminController {
   async getDoctorById(@Param('doctorId') doctorId: string) {
     return this.adminService.getDoctorById(doctorId);
   }
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
   @Get('stats')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Get admin dashboard statistics' })

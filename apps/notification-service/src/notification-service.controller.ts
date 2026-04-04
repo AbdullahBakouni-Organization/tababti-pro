@@ -15,7 +15,7 @@ import {
   Controller,
   Get,
   Post,
-  Param,
+  Body,
   HttpCode,
   HttpStatus,
   Logger,
@@ -323,7 +323,7 @@ export class NotificationServiceController {
     status: 200,
     description: 'Notification marked as read',
   })
-  async markAsRead(@Param('notificationId') notificationId: string) {
+  async markAsRead(@Body('notificationId') notificationId: string) {
     await this.notificationService.markAsRead(notificationId);
     return { message: 'Notification marked as read' };
   }

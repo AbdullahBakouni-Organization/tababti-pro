@@ -74,6 +74,7 @@ describe('SlotGenerationService', () => {
       });
       slotModel.find.mockReturnValue({
         sort: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockReturnThis(),
         lean: jest.fn().mockReturnThis(),
         exec: jest.fn().mockResolvedValue(mockSlots),
       });
@@ -157,6 +158,7 @@ describe('SlotGenerationService', () => {
       });
       slotModel.find.mockReturnValue({
         sort: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockReturnThis(),
         lean: jest.fn().mockReturnThis(),
         exec: jest
           .fn()

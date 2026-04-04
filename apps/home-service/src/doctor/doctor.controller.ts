@@ -21,6 +21,7 @@ import {
   BadRequestException,
   UploadedFile,
   Delete,
+  Logger,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -108,27 +109,13 @@ import { SearchDoctorsDto } from './dto/search-of-another-doctor.dto';
 import { PaginateDto } from './dto/paginate.dto';
 
 // ============================================
-// Login DTO
-// ============================================
-
-export class LoginDto {
-  phone: string;
-  password: string;
-  deviceInfo: {
-    deviceId: string;
-    deviceName: string;
-    deviceType: 'mobile' | 'tablet' | 'desktop';
-    platform: 'ios' | 'android' | 'web';
-  };
-}
-
-// ============================================
 // Registration Controller
 // ============================================
 
 @ApiTags('Doctor Registration')
 @Controller('doctors')
 export class DoctorController {
+  private readonly logger = new Logger(DoctorController.name);
   constructor(
     private DoctorService: DoctorService,
     private DoctorServiceV2: DoctorBookingsQueryService,
@@ -337,7 +324,7 @@ export class DoctorController {
       await this.DoctorService.deleteDoctorRecord(doctorId);
     } catch (error) {
       // Log but don't throw - original error is more important
-      console.error('Cleanup failed:', error);
+      this.logger.error('Cleanup failed', error);
     }
   }
   /**

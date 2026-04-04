@@ -1,4 +1,4 @@
-import { Controller, All, Req, Res } from '@nestjs/common';
+import { Controller, All, Logger, Req, Res } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import type { Request, Response } from 'express';
 import { firstValueFrom } from 'rxjs';
@@ -6,6 +6,7 @@ import { AxiosRequestConfig } from 'axios';
 
 @Controller('social')
 export class SocialProxyController {
+  private readonly logger = new Logger(SocialProxyController.name);
   constructor(private readonly httpService: HttpService) {}
 
   @All('*')
@@ -50,12 +51,15 @@ export class SocialProxyController {
 
       res.status(response.status).json(response.data);
     } catch (error) {
-      console.error('Proxy error:', error.message);
-      console.error('Error details:', error.response?.data);
-      const status = error.response?.status || 500;
-      const data = error.response?.data || {
+      const err = error as {
+        message: string;
+        response?: { status: number; data: unknown };
+      };
+      this.logger.error(`Proxy error: ${err.message}`, err.response?.data);
+      const status = err.response?.status ?? 500;
+      const data = err.response?.data ?? {
         message: 'Service unavailable',
-        error: error.message,
+        error: err.message,
       };
       res.status(status).json(data);
     }

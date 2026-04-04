@@ -47,15 +47,15 @@ export class AuthService {
     try {
       const { phone } = dto;
 
-      console.log(`📨 [requestOtp] Received OTP request for phone: ${phone}`);
+      this.logger.log(`[requestOtp] Received OTP request for phone: ${phone}`);
 
       let authAccount = await this.authModel
         .findOne({ phones: phone })
         .session(session);
 
       if (!authAccount) {
-        console.log(
-          `🆕 [requestOtp] No auth account found — creating new one for: ${phone}`,
+        this.logger.log(
+          `[requestOtp] No auth account found — creating new one for: ${phone}`,
         );
         const [created] = await this.authModel.create(
           [{ phones: [phone], role: UserRole.USER, isActive: false }],
@@ -63,8 +63,8 @@ export class AuthService {
         );
         authAccount = created;
       } else {
-        console.log(
-          `🔍 [requestOtp] Existing auth account found: ${authAccount._id}`,
+        this.logger.log(
+          `[requestOtp] Existing auth account found: ${authAccount._id}`,
         );
       }
 
@@ -92,8 +92,8 @@ export class AuthService {
 
       // SMS: direct (synchronous — we want to know it was dispatched)
       // WhatsApp: via Kafka (async, decoupled — won't fail the OTP flow)
-      console.log(
-        `📡 [requestOtp] Emitting Kafka event: ${KAFKA_TOPICS.WHATSAPP_SEND_OTP}`,
+      this.logger.log(
+        `[requestOtp] Emitting Kafka event: ${KAFKA_TOPICS.WHATSAPP_SEND_OTP}`,
       );
 
       await Promise.allSettled([
@@ -107,16 +107,15 @@ export class AuthService {
         ),
       ]);
 
-      console.log(
-        `🎉 [requestOtp] OTP flow completed successfully for: ${phone}`,
+      this.logger.log(
+        `[requestOtp] OTP flow completed successfully for: ${phone}`,
       );
 
       return { success: true, message: 'OTP sent' };
     } catch (err) {
       const error = err as Error;
-      console.error(
-        `❌ [requestOtp] Error for phone ${dto.phone}:`,
-        error.message,
+      this.logger.error(
+        `[requestOtp] Error for phone ${dto.phone}: ${error.message}`,
       );
       await session.abortTransaction();
       throw err;
@@ -175,7 +174,7 @@ export class AuthService {
       authAccount.lastLoginAt = new Date();
       await authAccount.save({ session });
       let entityExists = false;
-      let entityData: any = null;
+      let entityData: User | null = null;
       if (authAccount) {
         entityData = await this.userModel
           .findOne({ authAccountId: authAccount._id })
@@ -222,7 +221,7 @@ export class AuthService {
         access_token: tokens.accessToken,
         refresh_token: tokens.refreshToken,
         needsCompletion: false,
-        entityId: entityData._id,
+        entityId: entityData!._id,
       };
     } catch (err) {
       if (session.inTransaction()) {
@@ -239,7 +238,11 @@ export class AuthService {
   async completeRegistration(
     dto: RequestOtpDto,
     profileImage?: Express.Multer.File,
-  ): Promise<any> {
+  ): Promise<{
+    success: boolean;
+    message: string;
+    user: Record<string, unknown>;
+  }> {
     const session = await this.connection.startSession();
     session.startTransaction();
 

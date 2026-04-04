@@ -1,4 +1,4 @@
-import { Injectable, NestMiddleware } from '@nestjs/common';
+import { Injectable, Logger, NestMiddleware } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
 import { Types, Model } from 'mongoose';
 import { InjectModel } from '@nestjs/mongoose';
@@ -9,6 +9,8 @@ import { Center } from '@app/common/database/schemas/center.schema';
 
 @Injectable()
 export class SearchCountMiddleware implements NestMiddleware {
+  private readonly logger = new Logger(SearchCountMiddleware.name);
+
   constructor(
     @InjectModel(Doctor.name) private readonly doctorModel: Model<Doctor>,
     @InjectModel(Hospital.name) private readonly hospitalModel: Model<Hospital>,
@@ -16,27 +18,33 @@ export class SearchCountMiddleware implements NestMiddleware {
   ) {}
 
   use(req: Request, res: Response, next: NextFunction) {
-    console.log(`🔥 [Middleware HIT] ${req.method} ${req.originalUrl}`);
+    this.logger.debug(`[Middleware HIT] ${req.method} ${req.originalUrl}`);
 
     const originalJson = res.json.bind(res);
 
-    res.json = (body: any): Response => {
+    res.json = (body: unknown): Response => {
       // eslint-disable-next-line @typescript-eslint/no-floating-promises
       (async () => {
         try {
-          console.log('[Middleware] Parsing response body...');
           const data = typeof body === 'string' ? JSON.parse(body) : body;
 
-          const updatePromises: Promise<any>[] = [];
+          const updatePromises: Promise<unknown>[] = [];
 
           // ===== Doctors =====
-          if (data?.doctors?.data?.length) {
-            const doctorIds = data.doctors.data
-              .map((d: { _id: any }) => d._id)
+          if (
+            (data as { doctors?: { data?: { _id: unknown }[] } })?.doctors?.data
+              ?.length
+          ) {
+            const doctorIds = (
+              data as { doctors: { data: { _id: string }[] } }
+            ).doctors.data
+              .map((d) => d._id)
               .filter(Boolean)
-              .map((id: string) => new Types.ObjectId(id));
+              .map((id) => new Types.ObjectId(id));
 
-            console.log(`[Middleware] Doctors found: ${doctorIds.length}`);
+            this.logger.debug(
+              `[Middleware] Doctors found: ${doctorIds.length}`,
+            );
 
             updatePromises.push(
               this.doctorModel.updateMany(
@@ -47,13 +55,20 @@ export class SearchCountMiddleware implements NestMiddleware {
           }
 
           // ===== Hospitals =====
-          if (data?.hospitals?.data?.length) {
-            const hospitalIds = data.hospitals.data
-              .map((h: { _id: any }) => h._id)
+          if (
+            (data as { hospitals?: { data?: { _id: unknown }[] } })?.hospitals
+              ?.data?.length
+          ) {
+            const hospitalIds = (
+              data as { hospitals: { data: { _id: string }[] } }
+            ).hospitals.data
+              .map((h) => h._id)
               .filter(Boolean)
-              .map((id: string) => new Types.ObjectId(id));
+              .map((id) => new Types.ObjectId(id));
 
-            console.log(`[Middleware] Hospitals found: ${hospitalIds.length}`);
+            this.logger.debug(
+              `[Middleware] Hospitals found: ${hospitalIds.length}`,
+            );
 
             updatePromises.push(
               this.hospitalModel.updateMany(
@@ -64,13 +79,20 @@ export class SearchCountMiddleware implements NestMiddleware {
           }
 
           // ===== Centers =====
-          if (data?.centers?.data?.length) {
-            const centerIds = data.centers.data
-              .map((c: { _id: any }) => c._id)
+          if (
+            (data as { centers?: { data?: { _id: unknown }[] } })?.centers?.data
+              ?.length
+          ) {
+            const centerIds = (
+              data as { centers: { data: { _id: string }[] } }
+            ).centers.data
+              .map((c) => c._id)
               .filter(Boolean)
-              .map((id: string) => new Types.ObjectId(id));
+              .map((id) => new Types.ObjectId(id));
 
-            console.log(`[Middleware] Centers found: ${centerIds.length}`);
+            this.logger.debug(
+              `[Middleware] Centers found: ${centerIds.length}`,
+            );
 
             updatePromises.push(
               this.centerModel.updateMany(
@@ -81,14 +103,11 @@ export class SearchCountMiddleware implements NestMiddleware {
           }
 
           if (updatePromises.length) {
-            console.log('[Middleware] Updating searchCount...');
             await Promise.all(updatePromises);
-            console.log('✅ [Middleware] searchCount updated');
-          } else {
-            console.log('[Middleware] Nothing to update');
+            this.logger.debug('[Middleware] searchCount updated');
           }
         } catch (err) {
-          console.error('❌ Middleware error:', err);
+          this.logger.error('[Middleware] Error updating searchCount', err);
         }
       })();
 
