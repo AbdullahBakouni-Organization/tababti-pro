@@ -176,7 +176,9 @@ describe('AdminService', () => {
     };
 
     it('returns admin document on valid credentials', async () => {
-      adminModel.findOne.mockReturnValue({ session: jest.fn().mockResolvedValue(mockAdmin) });
+      adminModel.findOne.mockReturnValue({
+        session: jest.fn().mockResolvedValue(mockAdmin),
+      });
       authAccountModel.findByIdAndUpdate.mockResolvedValue(undefined);
 
       const result = await service.signIn(dto as any);
@@ -186,7 +188,9 @@ describe('AdminService', () => {
     });
 
     it('throws UnauthorizedException when admin not found', async () => {
-      adminModel.findOne.mockReturnValue({ session: jest.fn().mockResolvedValue(null) });
+      adminModel.findOne.mockReturnValue({
+        session: jest.fn().mockResolvedValue(null),
+      });
 
       await expect(service.signIn(dto as any)).rejects.toThrow(
         UnauthorizedException,
@@ -198,7 +202,9 @@ describe('AdminService', () => {
         ...mockAdmin,
         lockedUntil: new Date(Date.now() + 3600000), // locked for 1 hour
       };
-      adminModel.findOne.mockReturnValue({ session: jest.fn().mockResolvedValue(lockedAdmin) });
+      adminModel.findOne.mockReturnValue({
+        session: jest.fn().mockResolvedValue(lockedAdmin),
+      });
 
       await expect(service.signIn(dto as any)).rejects.toThrow(
         UnauthorizedException,
@@ -207,7 +213,9 @@ describe('AdminService', () => {
 
     it('increments failed attempts on wrong password', async () => {
       (bcrypt.compare as jest.Mock).mockResolvedValue(false);
-      adminModel.findOne.mockReturnValue({ session: jest.fn().mockResolvedValue(mockAdmin) });
+      adminModel.findOne.mockReturnValue({
+        session: jest.fn().mockResolvedValue(mockAdmin),
+      });
 
       await expect(service.signIn(dto as any)).rejects.toThrow(
         UnauthorizedException,
@@ -221,7 +229,9 @@ describe('AdminService', () => {
         ...mockAdmin,
         getActiveSessionsCount: jest.fn().mockReturnValue(5),
       };
-      adminModel.findOne.mockReturnValue({ session: jest.fn().mockResolvedValue(maxSessionAdmin) });
+      adminModel.findOne.mockReturnValue({
+        session: jest.fn().mockResolvedValue(maxSessionAdmin),
+      });
 
       await expect(service.signIn(dto as any)).rejects.toThrow(
         UnauthorizedException,
@@ -230,7 +240,9 @@ describe('AdminService', () => {
 
     it('throws UnauthorizedException when admin account is deactivated', async () => {
       const inactiveAdmin = { ...mockAdmin, isActive: false };
-      adminModel.findOne.mockReturnValue({ session: jest.fn().mockResolvedValue(inactiveAdmin) });
+      adminModel.findOne.mockReturnValue({
+        session: jest.fn().mockResolvedValue(inactiveAdmin),
+      });
 
       await expect(service.signIn(dto as any)).rejects.toThrow(
         UnauthorizedException,
