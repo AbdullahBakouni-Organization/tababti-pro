@@ -552,6 +552,45 @@ jobs:
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
         run: |
+          echo "Triggering Dokploy compose deployment for commit ${{ github.sha }}..."
+          response=$(curl -s -o /tmp/dokploy_response.json -w "%{http_code}" \
+            -X POST "${{ secrets.DOKPLOY_URL }}/api/compose.deploy" \
+            -H "Content-Type: application/json" \
+            -H "x-api-key: ${{ secrets.DOKPLOY_TOKEN }}" \
+            -d "{\"composeId\": \"${{ secrets.DOKPLOY_COMPOSE_ID }}\"}")
+          echo "HTTP status: $response"
+          cat /tmp/dokploy_response.json
+          if [ "$response" != "200" ]; then
+            echo "Dokploy deploy failed with status $response"
+            exit 1
+          fi
+          echo "Deployment triggered successfully."
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # GATE — CI Complete
+  # Single required status check for branch protection.
+  # Passes only when every non-optional stage has succeeded (or was skipped).
+  # ──────────────────────────────────────────────────────────────────────────
+  ci-complete:
+    name: CI Complete
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - install
+      - typecheck
+      - lint
+      - unit-tests
+      - check-integration
+      - integration-tests
+      - build
+      - docker-build
+      - docker-compose-test
+      - security-scan
+    steps:
+      - name: Check all required jobs passed
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
           echo "$NEEDS_JSON" | python3 -c "
           import sys, json
           data = json.load(sys.stdin)
