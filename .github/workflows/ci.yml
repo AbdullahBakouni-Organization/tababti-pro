@@ -528,16 +528,29 @@ jobs:
         run: echo "All Docker images pushed to ${{ env.REGISTRY }} by docker-build job."
 
   # ──────────────────────────────────────────────────────────────────────────
-  # STAGE 10 — Deployment Trigger (main branch only)
+  # GATE — CI Complete
+  # Single required status check for branch protection.
+  # Passes only when every non-optional stage has succeeded (or was skipped).
   # ──────────────────────────────────────────────────────────────────────────
-  deploy:
-    name: Deployment Trigger
+  ci-complete:
+    name: CI Complete
     runs-on: ubuntu-latest
-    needs: push-image
-    if: github.ref == 'refs/heads/main'
-    environment: production
+    if: always()
+    needs:
+      - install
+      - typecheck
+      - lint
+      - unit-tests
+      - check-integration
+      - integration-tests
+      - build
+      - docker-build
+      - docker-compose-test
+      - security-scan
     steps:
-      - name: Trigger Dokploy deployment
+      - name: Check all required jobs passed
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
         run: |
           echo "Triggering Dokploy compose deployment for commit ${{ github.sha }}..."
           response=$(curl -s -o /tmp/dokploy_response.json -w "%{http_code}" \
