@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { SearchFilterDto } from './dto/search-filter.dto';
 import { SearchOrchestratorService } from './orchestrators/search-orchestrator.service';
 import { SearchVariantsCache } from './cache/search-variants.cache';
@@ -12,6 +12,7 @@ import { Model, Types } from 'mongoose';
 import { ApprovalStatus } from '@app/common/database/schemas/common.enums';
 @Injectable()
 export class SearchService {
+  private readonly logger = new Logger(SearchService.name);
   constructor(
     private readonly orchestrator: SearchOrchestratorService,
     private readonly cache: SearchVariantsCache,
@@ -24,7 +25,7 @@ export class SearchService {
 
   clearCache() {
     this.cache.clear();
-    console.log('✅ Search cache cleared');
+    this.logger.log('Search cache cleared');
   }
 
   async getSimilarDoctors(dto: SimilarDoctorsDto, authAccountId: string) {

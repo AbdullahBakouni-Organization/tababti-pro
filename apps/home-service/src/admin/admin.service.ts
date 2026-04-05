@@ -77,10 +77,12 @@ export class AdminService {
     try {
       session.startTransaction();
 
-      const admin = await this.adminModel.findOne({
-        username: dto.username,
-        phone: dto.phone,
-      });
+      const admin = await this.adminModel
+        .findOne({
+          username: dto.username,
+          phone: dto.phone,
+        })
+        .session(session);
 
       if (!admin) {
         throw new UnauthorizedException('Invalid credentials');
@@ -1562,8 +1564,6 @@ export class AdminService {
         },
       },
     ];
-
-    console.log(matchStage);
 
     const [countResult, doctors] = await Promise.all([
       this.doctorModel.aggregate([...pipeline, { $count: 'total' }]),

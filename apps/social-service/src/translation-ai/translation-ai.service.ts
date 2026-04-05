@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
-import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import type { Cache } from 'cache-manager';
 import pLimit from 'p-limit';
 import { LRUCache } from 'lru-cache';
@@ -23,6 +23,7 @@ import { Model } from 'mongoose';
  */
 @Injectable()
 export class TranslationAiService implements OnModuleInit {
+  private readonly logger = new Logger(TranslationAiService.name);
   private flaskBaseUrl: string;
   private memoryCache: LRUCache<string, string[]>;
 
@@ -69,16 +70,18 @@ export class TranslationAiService implements OnModuleInit {
       await this.loadCacheFromDatabase();
 
       if (data.status === 'healthy') {
-        console.log('✅ Flask API connected (EN→AR only)');
-        console.log(`📊 Model loaded: ${data.model_loaded}`);
-        console.log(`🖥️  Device: ${data.device}`);
-        console.log(`⚡ ${data.note || 'Arabic variants handled locally'}`);
+        this.logger.log('Flask API connected (EN→AR only)');
+        this.logger.log(
+          `Model loaded: ${data.model_loaded}, device: ${data.device}`,
+        );
+        this.logger.log(data.note ?? 'Arabic variants handled locally');
       }
     } catch (err) {
       const error = toError(err);
-      console.error('❌ Flask API not available:', error.message);
-      console.log('⚠️  English→Arabic translation will fail');
-      console.log('✅ Arabic variants will still work (local processing)');
+      this.logger.error(`Flask API not available: ${error.message}`);
+      this.logger.warn(
+        'English→Arabic translation will fail; Arabic variants will still work',
+      );
     }
   }
 
@@ -94,9 +97,9 @@ export class TranslationAiService implements OnModuleInit {
         this.memoryCache.set(key, item.variants);
       });
 
-      console.log(`Loaded ${cached.length} cached translations`);
+      this.logger.log(`Loaded ${cached.length} cached translations from DB`);
     } catch (error) {
-      console.error('Failed to load cache:', error);
+      this.logger.error('Failed to load cache from DB', error);
     }
   }
 
@@ -140,15 +143,15 @@ export class TranslationAiService implements OnModuleInit {
 
     if (from === 'ar') {
       // ARABIC INPUT → Use local utility (INSTANT!)
-      console.log(`⚡ Generating Arabic variants for: "${text}"`);
+      this.logger.debug(`Generating Arabic variants for: "${text}"`);
       this.metrics.arabicVariantRequests++;
 
       variants = ArabicVariantsUtils.getArabicVariants(text);
 
-      console.log(`✅ Generated ${variants.length} Arabic variants locally`);
+      this.logger.debug(`Generated ${variants.length} Arabic variants locally`);
     } else if (from === 'en' && to === 'ar') {
       // ENGLISH INPUT → Call Flask API
-      console.log(`🌐 Calling Flask API for: "${text}"`);
+      this.logger.debug(`Calling Flask API for: "${text}"`);
 
       // Check for pending request (deduplication)
       if (this.pendingRequests.has(cacheKey)) {
@@ -166,7 +169,7 @@ export class TranslationAiService implements OnModuleInit {
         this.pendingRequests.delete(cacheKey);
       }
     } else {
-      console.warn(`⚠️ Unsupported direction: ${from}→${to}`);
+      this.logger.warn(`Unsupported transliteration direction: ${from}→${to}`);
       return [text, text.toLowerCase()];
     }
 
@@ -199,8 +202,8 @@ export class TranslationAiService implements OnModuleInit {
       }
     }
 
-    console.log(
-      `📊 Batch: ${results.size}/${texts.length} cached, ${uncachedTexts.length} need processing`,
+    this.logger.debug(
+      `Batch: ${results.size}/${texts.length} cached, ${uncachedTexts.length} need processing`,
     );
 
     if (uncachedTexts.length > 0) {
@@ -251,7 +254,7 @@ export class TranslationAiService implements OnModuleInit {
 
       return cached.variants.slice(0, 7);
     } catch (error) {
-      console.error('Mongo cache error:', error);
+      this.logger.error('Mongo cache lookup error', error);
       return null;
     }
   }
@@ -279,7 +282,7 @@ export class TranslationAiService implements OnModuleInit {
         { upsert: true },
       );
     } catch (error) {
-      console.error('Failed to cache transliteration:', error);
+      this.logger.error('Failed to save transliteration to cache', error);
     }
   }
 
@@ -319,14 +322,14 @@ export class TranslationAiService implements OnModuleInit {
 
         // Check if Flask returned empty (Arabic input detected)
         if (data.is_arabic) {
-          console.log(
-            `⚠️ Flask detected Arabic input: "${text}" - using local variants`,
+          this.logger.debug(
+            `Flask detected Arabic input: "${text}" - using local variants`,
           );
           return ArabicVariantsUtils.getArabicVariants(text);
         }
 
-        console.log(
-          `✅ Flask API success: "${text}" in ${duration}ms (attempt ${attempt})`,
+        this.logger.debug(
+          `Flask API success: "${text}" in ${duration}ms (attempt ${attempt})`,
         );
 
         this.updateAvgResponseTime(duration);
@@ -337,8 +340,8 @@ export class TranslationAiService implements OnModuleInit {
 
         if (attempt === retries) {
           this.metrics.errors++;
-          console.error(
-            `❌ Flask API failed after ${retries} attempts: "${text}" (${duration}ms)`,
+          this.logger.error(
+            `Flask API failed after ${retries} attempts: "${text}" (${duration}ms)`,
             error,
           );
 
@@ -346,7 +349,7 @@ export class TranslationAiService implements OnModuleInit {
           return [text, text.toLowerCase()];
         }
 
-        console.warn(`⚠️ Attempt ${attempt} failed, retrying...`);
+        this.logger.warn(`Flask attempt ${attempt} failed, retrying...`);
         await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
       }
     }
@@ -419,9 +422,9 @@ export class TranslationAiService implements OnModuleInit {
       await fetch(`${this.flaskBaseUrl}/cache/clear`, {
         method: 'POST',
       });
-      console.log('✅ All caches cleared (NestJS + Flask)');
+      this.logger.log('All caches cleared (NestJS + Flask)');
     } catch (error) {
-      console.error('Failed to clear Flask cache:', error);
+      this.logger.error('Failed to clear Flask cache', error);
     }
   }
 

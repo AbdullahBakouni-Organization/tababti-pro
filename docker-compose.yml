@@ -544,7 +544,7 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_MIN_INSYNC_REPLICAS: 1
       KAFKA_LOG_DIRS: /var/lib/kafka/data
-      CLUSTER_ID: ${KAFKA_CLUSTER_ID:-tababti-cluster-prod}
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID:-obLD1OX2eJCrze8SNFZ4kA}
     volumes:
       - kafka_data:/var/lib/kafka/data
     networks:

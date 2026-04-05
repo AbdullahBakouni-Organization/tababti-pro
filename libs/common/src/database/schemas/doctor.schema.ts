@@ -34,12 +34,6 @@ interface GalleryImageWithStatus {
 const scryptAsync = promisify(scrypt);
 @Schema({ timestamps: true, collection: 'doctors' })
 export class Doctor extends Document {
-  updateMany(
-    _arg0: { _id: { $in: any } },
-    _arg1: { $inc: { searchCount: number } },
-  ) {
-    throw new Error('Method not implemented.');
-  }
   @Prop({ type: Types.ObjectId, ref: 'AuthAccount', unique: true })
   authAccountId: Types.ObjectId;
 

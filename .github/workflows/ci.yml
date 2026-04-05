@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, develop, prod-test-pipline]
+    branches: [main, develop, prod-test-pipline, update-cicd]
   pull_request:
     branches: [main, develop]
 
@@ -160,6 +160,10 @@ jobs:
 
   # ──────────────────────────────────────────────────────────────────────────
   # STAGE 5 — Integration Tests (skipped when no files present)
+  #
+  # MongoDB runs as a single-node replica set (rs0) so that Mongoose
+  # multi-document transactions work exactly as they do in production.
+  # Redis 7 provides the cache layer for CacheService tests.
   # ──────────────────────────────────────────────────────────────────────────
   integration-tests:
     name: Integration Tests
@@ -167,14 +171,15 @@ jobs:
     needs: check-integration
     if: needs.check-integration.outputs.has_tests == 'true'
     services:
-      mongo:
-        image: mongo:7
-        ports:
-          - 27017:27017
       redis:
         image: redis:7-alpine
         ports:
           - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -190,11 +195,33 @@ jobs:
           path: node_modules
           key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
 
+      # Start MongoDB as a replica set (required for Mongoose transactions)
+      - name: Start MongoDB replica set
+        run: |
+          docker run -d \
+            --name mongo-rs \
+            -p 27017:27017 \
+            mongo:7 \
+            mongod --replSet rs0 --bind_ip_all
+
+          # Wait until mongod accepts connections, then initialise the replica set
+          echo "Waiting for mongod to start..."
+          timeout 60 bash -c \
+            "until docker exec mongo-rs mongosh --quiet --eval 'db.adminCommand(\"ping\")' &>/dev/null; do sleep 2; done"
+
+          docker exec mongo-rs mongosh --quiet --eval \
+            "rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: '127.0.0.1:27017' }] })"
+
+          # Wait for the replica set primary to be elected
+          timeout 60 bash -c \
+            "until docker exec mongo-rs mongosh --quiet --eval 'rs.isMaster().ismaster' 2>/dev/null | grep -q 'true'; do sleep 2; done"
+          echo "MongoDB replica set ready."
+
       - name: Run integration tests
-        run: npx jest --testPathPattern="tests/integration" --forceExit
+        run: npm run test:integration
         env:
           NODE_ENV: test
-          MONGO_URI: mongodb://localhost:27017
+          MONGO_URI: mongodb://127.0.0.1:27017/?replicaSet=rs0&directConnection=true
           REDIS_HOST: localhost
           REDIS_PORT: '6379'
 
@@ -297,6 +324,145 @@ jobs:
             SERVICE=${{ matrix.service }}
 
   # ──────────────────────────────────────────────────────────────────────────
+  # STAGE 7b — Docker Compose Test
+  # Spins up the full stack using docker-compose.yml + docker-compose.ci.yml
+  # (CI override swaps MongoDB Atlas for a local container).
+  # The job fails if any service does not reach "healthy" within the timeout.
+  # ──────────────────────────────────────────────────────────────────────────
+  docker-compose-test:
+    name: Docker Compose Test
+    runs-on: ubuntu-latest
+    needs: docker-build
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Write a .env file from secrets + safe CI defaults ──────────────────
+      - name: Create CI .env
+        env:
+          JWT_ACCESS_SECRET: ${{ secrets.JWT_ACCESS_SECRET }}
+          JWT_REFRESH_SECRET: ${{ secrets.JWT_REFRESH_SECRET }}
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          FIREBASE_CLIENT_EMAIL: ${{ secrets.FIREBASE_CLIENT_EMAIL }}
+          FIREBASE_PRIVATE_KEY: ${{ secrets.FIREBASE_PRIVATE_KEY }}
+        run: |
+          python3 - <<'PY'
+          import os
+          lines = [
+            "DOCKER_USERNAME=abdullahbakouni",
+            "IMAGE_TAG=ci-test",
+            "REDIS_PASSWORD=ci-test-password",
+            "MONGO_URI=mongodb://mongo:27017/?replicaSet=rs0&directConnection=true",
+            "MONGO_DB=tababti_ci",
+            "KAFKA_CLUSTER_ID=wdLj9KW2eJASNKvN71Z4kA",
+            "MINIO_ROOT_USER=minioadmin",
+            "MINIO_ROOT_PASSWORD=minioadmin123",
+            "MINIO_ACCESS_KEY=minioadmin",
+            "MINIO_SECRET_KEY=minioadmin123",
+            "MINIO_BUCKET_DOCTORS=tababti-doctors",
+            "MINIO_BUCKET_PATIENTS=tababti-patients",
+            "MINIO_BUCKET_GENERAL=tababti-general",
+            "MINIO_PUBLIC_URL_DEV=http://minio:9000",
+            "KAFKA_UI_USER=admin",
+            "KAFKA_UI_PASSWORD=admin123",
+            "JWT_ACCESS_EXPIRES_IN=15m",
+            "JWT_REFRESH_EXPIRES_IN=7d",
+            "ALLOWED_ORIGINS=http://localhost:3000",
+            "FLASK_API_URL=http://localhost:5000",
+            "OPENROUTE_API_KEY=ci-dummy-key",
+            "MINIO_API_PORT=9000",
+            "MINIO_CONSOLE_PORT=9001",
+            "KAFKA_UI_PORT=8090",
+          ]
+          # Append secrets sourced from the environment
+          for key in ("JWT_ACCESS_SECRET", "JWT_REFRESH_SECRET",
+                      "FIREBASE_PROJECT_ID", "FIREBASE_CLIENT_EMAIL",
+                      "FIREBASE_PRIVATE_KEY"):
+            val = os.environ.get(key, "")
+            lines.append(f"{key}={val}")
+          with open(".env", "w") as f:
+            f.write("\n".join(lines) + "\n")
+          print("CI .env written.")
+          PY
+
+      # ── Validate compose YAML + env interpolation ─────────────────────────
+      - name: Validate compose config
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml config --quiet
+
+      # ── Build all service images ──────────────────────────────────────────
+      - name: Build images
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml build --parallel
+        timeout-minutes: 25
+
+      # ── Start stack in background ─────────────────────────────────────────
+      - name: Start stack
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d --no-build
+        env:
+          COMPOSE_HTTP_TIMEOUT: 300
+
+      # ── Wait for infrastructure services ─────────────────────────────────
+      - name: Wait — infrastructure healthy
+        run: |
+          wait_healthy() {
+            local cname="$1" timeout="${2:-180}"
+            echo ":: Waiting for $cname ..."
+            timeout "$timeout" bash -c \
+              "until [ \"\$(docker inspect --format='{{.State.Health.Status}}' $cname 2>/dev/null)\" = 'healthy' ]; do sleep 5; done" \
+            || { echo "TIMEOUT: $cname never became healthy"; docker logs "$cname" --tail 40; return 1; }
+            echo "   $cname is healthy."
+          }
+          wait_healthy tababti-mongo-ci       180
+          wait_healthy tababti-redis          120
+          wait_healthy tababti-kafka          300
+          wait_healthy tababti-minio          120
+          # kafka-init is a one-shot container — wait for it to exit 0
+          echo ":: Waiting for kafka-init to complete ..."
+          timeout 180 bash -c \
+            "until docker inspect --format='{{.State.ExitCode}}' tababti-kafka-init 2>/dev/null | grep -q '^0$'; do sleep 5; done" \
+          || { echo "TIMEOUT: kafka-init did not complete"; docker logs tababti-kafka-init --tail 40; exit 1; }
+          echo "   kafka-init done."
+        timeout-minutes: 10
+
+      # ── Wait for application services ─────────────────────────────────────
+      - name: Wait — app services healthy
+        run: |
+          wait_healthy() {
+            local cname="$1" timeout="${2:-300}"
+            echo ":: Waiting for $cname ..."
+            timeout "$timeout" bash -c \
+              "until [ \"\$(docker inspect --format='{{.State.Health.Status}}' $cname 2>/dev/null)\" = 'healthy' ]; do sleep 10; done" \
+            || { echo "FAIL: $cname did not become healthy"; docker logs "$cname" --tail 50; return 1; }
+            echo "   $cname is healthy."
+          }
+          failed=0
+          wait_healthy tababti-home-service-1        || failed=1
+          wait_healthy tababti-home-service-2        || failed=1
+          wait_healthy tababti-social-service-1      || failed=1
+          wait_healthy tababti-social-service-2      || failed=1
+          wait_healthy tababti-notification-service  || failed=1
+          wait_healthy tababti-booking-service       || failed=1
+          wait_healthy tababti-nginx-internal        || failed=1
+          wait_healthy tababti-api-gateway           || failed=1
+          wait_healthy tababti-nginx-primary         || failed=1
+          exit $failed
+        timeout-minutes: 12
+
+      # ── Summary ───────────────────────────────────────────────────────────
+      - name: Compose status
+        if: always()
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml ps --all
+
+      - name: Dump logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --tail 80
+
+      # ── Tear down ─────────────────────────────────────────────────────────
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v --remove-orphans
+
+  # ──────────────────────────────────────────────────────────────────────────
   # STAGE 8 — Security Scan
   # ──────────────────────────────────────────────────────────────────────────
   security-scan:
@@ -355,7 +521,7 @@ jobs:
   push-image:
     name: Push Images
     runs-on: ubuntu-latest
-    needs: [docker-build, security-scan]
+    needs: [docker-build, docker-compose-test, security-scan]
     if: github.ref == 'refs/heads/main'
     steps:
       - name: Images pushed successfully
@@ -386,3 +552,38 @@ jobs:
             exit 1
           fi
           echo "Deployment triggered successfully."
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # GATE — CI Complete
+  # Single required status check for branch protection.
+  # Passes only when every non-optional stage has succeeded (or was skipped).
+  # ──────────────────────────────────────────────────────────────────────────
+  ci-complete:
+    name: CI Complete
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - install
+      - typecheck
+      - lint
+      - unit-tests
+      - check-integration
+      - integration-tests
+      - build
+      - docker-build
+      - docker-compose-test
+      - security-scan
+    steps:
+      - name: Check all required jobs passed
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS_JSON" | python3 -c "
+          import sys, json
+          data = json.load(sys.stdin)
+          failed = [n for n, v in data.items() if v['result'] not in ('success', 'skipped')]
+          if failed:
+              print('FAILED jobs:', failed)
+              sys.exit(1)
+          print('All required jobs passed or were skipped.')
+          "

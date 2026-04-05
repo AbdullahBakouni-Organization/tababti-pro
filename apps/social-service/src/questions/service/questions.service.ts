@@ -70,7 +70,7 @@ function visibleMatch(extra: Record<string, any> = {}): Record<string, any> {
 
 @Injectable()
 export class QuestionsService {
-  private readonly logger = new Logger(QuestionsRepository.name);
+  private readonly logger = new Logger(QuestionsService.name);
   constructor(
     private readonly repo: QuestionsRepository,
     private readonly specializationsService: SpecializationsService,
@@ -311,7 +311,7 @@ export class QuestionsService {
         throw error;
       }
 
-      console.error('[QuestionsService.getQuestions]', error);
+      this.logger.error('[QuestionsService.getQuestions]', error);
       throw new InternalServerErrorException('common.ERROR');
     }
   }
@@ -544,7 +544,7 @@ export class QuestionsService {
         error instanceof ForbiddenException
       )
         throw error;
-      console.error('[QuestionsService.getStats]', error);
+      this.logger.error('[QuestionsService.getStats]', error);
       throw new InternalServerErrorException('common.ERROR');
     }
   }

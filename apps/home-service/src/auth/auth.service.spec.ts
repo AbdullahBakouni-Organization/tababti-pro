@@ -407,7 +407,10 @@ describe('AuthService', () => {
       expect(result.success).toBe(true);
       expect(otpModel.deleteMany).toHaveBeenCalled();
       expect(otpModel.create).toHaveBeenCalled();
-      expect(mockSmsService.sendOTP).toHaveBeenCalledWith(dto.phone, '123456');
+      expect(kafkaService.emit).toHaveBeenCalledWith(
+        expect.stringContaining('whatsapp'),
+        expect.objectContaining({ phone: dto.phone, otp: '123456' }),
+      );
     });
 
     it('throws NotFoundException when phone not registered', async () => {

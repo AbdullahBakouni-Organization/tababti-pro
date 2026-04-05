@@ -695,100 +695,112 @@ export class DoctorService {
   }
 
   async resetPassword(dto: ResetDoctorPasswordDto) {
-    const session = await this.connection.startSession();
+    // TransientTransactionError (code 112) means a write conflict was detected
+    // by the storage engine while another operation held a lock on the same
+    // document (e.g. concurrent login updating lastLoginAt).  MongoDB marks it
+    // as safe to retry the entire transaction from scratch.
+    const MAX_RETRIES = 3;
 
-    try {
-      session.startTransaction();
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      const session = await this.connection.startSession();
+      let shouldRetry = false;
 
-      const { phone, otp, newPassword } = dto;
+      try {
+        session.startTransaction();
 
-      // Find doctor
-      const doctor = await this.doctorModel
-        .findOne({
-          phones: {
-            $elemMatch: {
-              normal: phone,
-            },
-          },
-        })
-        .select('+password')
-        .session(session)
-        .exec();
+        const { phone, otp, newPassword } = dto;
 
-      if (!doctor) {
-        throw new NotFoundException('لا يوجد حساب طبيب مسجل بهذا الرقم');
-      }
+        const doctor = await this.doctorModel
+          .findOne({ phones: { $elemMatch: { normal: phone } } })
+          .select('+password')
+          .session(session)
+          .exec();
 
-      // Find and verify OTP
-      const authAccount = await this.authModel.findOne({ phones: phone });
+        if (!doctor)
+          throw new NotFoundException('لا يوجد حساب طبيب مسجل بهذا الرقم');
 
-      if (!authAccount) throw new NotFoundException('Auth account not found');
+        // All reads use the same session so they share the transaction snapshot
+        // and MongoDB can detect version conflicts on every document we touch.
+        const authAccount = await this.authModel
+          .findOne({ phones: phone })
+          .session(session);
 
-      const otpRecord = await this.otpModel.findOne({
-        authAccountId: authAccount._id,
-        phone,
-      });
+        if (!authAccount) throw new NotFoundException('Auth account not found');
 
-      if (!otpRecord) {
-        throw new UnauthorizedException('لم يتم العثور على رمز تحقق صالح');
-      }
+        const otpRecord = await this.otpModel
+          .findOne({ authAccountId: authAccount._id, phone })
+          .session(session);
 
-      // Check expiration
-      if (otpRecord.isExpired()) {
-        throw new UnauthorizedException('رمز التحقق منتهي الصلاحية');
-      }
+        if (!otpRecord)
+          throw new UnauthorizedException('لم يتم العثور على رمز تحقق صالح');
 
-      // Check max attempts (optional)
-      if (otpRecord.isMaxAttemptsReached()) {
-        throw new UnauthorizedException(
-          'تجاوزت الحد الأقصى من المحاولات. يرجى طلب رمز جديد',
-        );
-      }
-      if (otpRecord.code !== otp) {
-        otpRecord.incrementAttempts();
+        if (otpRecord.isExpired())
+          throw new UnauthorizedException('رمز التحقق منتهي الصلاحية');
+
+        if (otpRecord.isMaxAttemptsReached())
+          throw new UnauthorizedException(
+            'تجاوزت الحد الأقصى من المحاولات. يرجى طلب رمز جديد',
+          );
+
+        if (otpRecord.code !== otp) {
+          otpRecord.incrementAttempts();
+          await otpRecord.save({ session });
+          await session.commitTransaction();
+          throw new UnauthorizedException('رمز التحقق غير صحيح');
+        }
+
+        doctor.password = newPassword;
+        doctor.resetFailedAttempts?.();
+        doctor.lastLoginAt = new Date();
+        await doctor.removeAllSessions?.();
+        await doctor.save({ session });
+
+        otpRecord.isUsed = true;
         await otpRecord.save({ session });
+
+        await this.otpModel
+          .deleteMany({
+            authAccountId: authAccount._id,
+            _id: { $ne: otpRecord._id },
+          })
+          .session(session);
+
         await session.commitTransaction();
-        throw new UnauthorizedException('رمز التحقق غير صحيح');
+
+        return {
+          success: true,
+          message: 'تم إعادة تعيين كلمة المرور بنجاح',
+        };
+      } catch (error) {
+        if (session.inTransaction()) {
+          await session.abortTransaction();
+        }
+
+        const labels: string[] =
+          error?.errorLabels ?? error?.errorResponse?.errorLabels ?? [];
+        const isTransient = labels.includes('TransientTransactionError');
+
+        if (isTransient && attempt < MAX_RETRIES) {
+          shouldRetry = true;
+          this.logger.warn(
+            `WriteConflict on resetPassword attempt ${attempt}/${MAX_RETRIES} — retrying`,
+          );
+        } else {
+          throw error;
+        }
+      } finally {
+        await session.endSession();
       }
 
-      // Update password (pre-save hook will hash it)
-      doctor.password = newPassword;
-
-      // Reset security fields
-      doctor.resetFailedAttempts?.();
-      doctor.lastLoginAt = new Date();
-
-      // Optionally: clear all sessions to force re-login on all devices
-      await doctor.removeAllSessions?.();
-
-      await doctor.save({ session });
-
-      // Mark OTP as used
-      otpRecord.isUsed = true;
-      await otpRecord.save({ session });
-
-      // Delete all other OTPs for this doctor
-      await this.otpModel
-        .deleteMany({
-          authAccountId: authAccount._id,
-          _id: { $ne: otpRecord._id },
-        })
-        .session(session);
-
-      await session.commitTransaction();
-
-      return {
-        success: true,
-        message: 'تم إعادة تعيين كلمة المرور بنجاح',
-      };
-    } catch (error) {
-      if (session.inTransaction()) {
-        await session.abortTransaction();
+      if (shouldRetry) {
+        // Exponential backoff: 50 ms, 100 ms between retries
+        await new Promise((r) => setTimeout(r, attempt * 50));
       }
-      throw error;
-    } finally {
-      await session.endSession();
     }
+
+    throw new Error(
+      'resetPassword failed after maximum retries due to persistent write conflicts',
+    );
   }
   // ============================================
   // File Processing Methods
@@ -1733,12 +1745,10 @@ export class DoctorService {
     if (!doctor) {
       throw new NotFoundException('Doctor not found');
     }
-    console.log(doctor);
     const doctorName = `${doctor.firstName} ${doctor.middleName} ${doctor.lastName}`;
 
     const startDate = new Date(dto.startDate);
     const endDate = new Date(dto.endDate);
-    console.log(startDate);
     // Get all slot IDs in range
     const slots = await this.slotModel
       .find({
@@ -1766,7 +1776,6 @@ export class DoctorService {
     });
 
     this.logger.log(`Holiday block job queued: ${job.id}`);
-    console.log(slots);
     return {
       message:
         'Holiday is being created. Bookings will be cancelled and patients notified.',

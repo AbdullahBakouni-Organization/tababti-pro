@@ -73,7 +73,6 @@ export class SlotGenerationService {
     // ✅ NEW: specific date override
     if (query.date) {
       const requestedDate = new Date(query.date);
-      const today = getSyriaDate();
 
       // Normalize both to start of day (important)
       requestedDate.setHours(0, 0, 0, 0);
@@ -110,6 +109,7 @@ export class SlotGenerationService {
     const slots = await this.slotModel
       .find(filter)
       .sort({ date: 1, startTime: 1 })
+      .limit(500)
       .lean()
       .exec();
 

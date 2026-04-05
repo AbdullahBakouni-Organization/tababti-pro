@@ -1,4 +1,4 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { SearchVariantsCache } from '../cache/search-variants.cache';
 import { TranslationAiService } from '../../translation-ai/translation-ai.service';
@@ -13,6 +13,7 @@ interface SearchMetrics {
 
 @Injectable()
 export class SearchEnhancerService implements OnModuleInit {
+  private readonly logger = new Logger(SearchEnhancerService.name);
   private readonly metrics: SearchMetrics = {
     cacheHits: 0,
     cacheMisses: 0,
@@ -54,7 +55,7 @@ export class SearchEnhancerService implements OnModuleInit {
       for (const term of commonTerms) {
         this.triggerBackgroundEnhancement(term);
       }
-      console.log(`🔥 Warmup triggered for ${commonTerms.length} terms`);
+      this.logger.log(`Warmup triggered for ${commonTerms.length} terms`);
     }, 3000);
   }
 
@@ -91,10 +92,9 @@ export class SearchEnhancerService implements OnModuleInit {
 
   private startMetricsReporting() {
     setInterval(() => {
-      console.log('📊 Search Metrics', {
-        ...this.metrics,
-        cacheSize: this.cache.size(),
-      });
+      this.logger.log(
+        `Search Metrics: ${JSON.stringify({ ...this.metrics, cacheSize: this.cache.size() })}`,
+      );
     }, 60_000);
   }
 }

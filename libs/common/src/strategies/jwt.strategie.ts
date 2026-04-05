@@ -13,10 +13,13 @@ import { refreshAdminTokenFromCookie } from './refresh-toekn-admin-extracter';
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   constructor(private readonly authValidateService: AuthValidateService) {
+    const secret = process.env.JWT_ACCESS_SECRET;
+    if (!secret)
+      throw new Error('JWT_ACCESS_SECRET environment variable is not set');
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: process.env.JWT_ACCESS_SECRET || 'supersecret',
+      secretOrKey: secret,
     });
   }
 
@@ -84,12 +87,15 @@ export class JwtRefreshStrategy extends PassportStrategy(
   'jwt-refresh',
 ) {
   constructor(private readonly authValidateService: AuthValidateService) {
+    const secret = process.env.JWT_REFRESH_SECRET;
+    if (!secret)
+      throw new Error('JWT_REFRESH_SECRET environment variable is not set');
     super({
       jwtFromRequest: ExtractJwt.fromExtractors([
         refreshTokenFromCookie, // 👈 cookie extractor
       ]),
       ignoreExpiration: false,
-      secretOrKey: process.env.JWT_REFRESH_SECRET || 'supersecret',
+      secretOrKey: secret,
       passReqToCallback: true,
     });
   }
@@ -125,12 +131,15 @@ export class JwtRefreshAdminStrategy extends PassportStrategy(
   'jwt-refresh-admin',
 ) {
   constructor(private readonly authValidateService: AuthValidateService) {
+    const secret = process.env.JWT_REFRESH_SECRET;
+    if (!secret)
+      throw new Error('JWT_REFRESH_SECRET environment variable is not set');
     super({
       jwtFromRequest: ExtractJwt.fromExtractors([
         refreshAdminTokenFromCookie, // 👈 cookie extractor
       ]),
       ignoreExpiration: false,
-      secretOrKey: process.env.JWT_REFRESH_SECRET || 'supersecret',
+      secretOrKey: secret,
       passReqToCallback: true,
     });
   }
@@ -163,10 +172,13 @@ export class JwtRefreshAdminStrategy extends PassportStrategy(
 @Injectable()
 export class JwtUserStrategy extends PassportStrategy(Strategy, 'jwt-user') {
   constructor(private readonly authValidateService: AuthValidateService) {
+    const secret = process.env.JWT_ACCESS_SECRET;
+    if (!secret)
+      throw new Error('JWT_ACCESS_SECRET environment variable is not set');
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: process.env.JWT_ACCESS_SECRET || 'supersecret',
+      secretOrKey: secret,
     });
   }
 
@@ -230,12 +242,15 @@ export class JwtUserRefreshStrategy extends PassportStrategy(
   'jwt-user-refresh',
 ) {
   constructor(private readonly authValidateService: AuthValidateService) {
+    const secret = process.env.JWT_REFRESH_SECRET;
+    if (!secret)
+      throw new Error('JWT_REFRESH_SECRET environment variable is not set');
     super({
       jwtFromRequest: (req: Request) => {
         return req?.body?.refreshToken; // ✅ FROM BODY
       },
       ignoreExpiration: false,
-      secretOrKey: process.env.JWT_REFRESH_SECRET || 'supersecret',
+      secretOrKey: secret,
       passReqToCallback: true,
     });
   }
