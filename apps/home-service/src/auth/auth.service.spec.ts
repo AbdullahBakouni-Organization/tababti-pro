@@ -60,7 +60,7 @@ describe('AuthService', () => {
     authAccountId: accountId,
     phone: '+963912345678',
     code: '123456',
-    expiresAt: new Date(Date.now() + 600000),
+    expiresAt: new Date(Date.now() + 900000),
     isUsed: false,
     attempts: 0,
     isExpired: jest.fn().mockReturnValue(false),

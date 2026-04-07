@@ -421,6 +421,7 @@ export class DoctorController {
     return this.DoctorService.requestPasswordResetOtp(dto);
   }
 
+  @Throttle({ short: { ttl: 1000, limit: 3 } })
   @Post('forgot-password/verify-otp')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -447,6 +448,7 @@ export class DoctorController {
     return this.DoctorService.verifyPasswordResetOtp(dto);
   }
 
+  @Throttle({ short: { ttl: 1000, limit: 3 } })
   @Post('forgot-password/reset')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({

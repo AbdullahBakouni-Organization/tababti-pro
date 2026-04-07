@@ -39,6 +39,7 @@ import { AuthValidateService } from '@app/common/auth-validate';
 import { JwtUserRefreshGuard } from '@app/common/guards/jwt-refresh-user.guard';
 import { ParseMongoIdPipe } from '@app/common/pipes/parse-mongo-id.pipe';
 import { memoryStorageConfig } from '@app/common/constant/images-dtos.constant';
+import { Throttle } from '@nestjs/throttler';
 
 export interface RequestWithUser extends Request {
   user: User;
@@ -52,6 +53,7 @@ export class AuthController {
     private authValidateService: AuthValidateService,
   ) {}
 
+  @Throttle({ short: { ttl: 1000, limit: 3 } })
   @Post('request-otp')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -74,6 +76,7 @@ export class AuthController {
     return await this.authService.requestOtp(requestOtpDto);
   }
 
+  @Throttle({ short: { ttl: 1000, limit: 3 } })
   @Post('verify-otp')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -100,6 +103,7 @@ export class AuthController {
     return await this.authService.verifyOtp(verifyOtpDto, res);
   }
 
+  @Throttle({ short: { ttl: 1000, limit: 3 } })
   @Post('resend-otp')
   @ApiOperation({ summary: 'Resend OTP code' })
   @ApiResponse({

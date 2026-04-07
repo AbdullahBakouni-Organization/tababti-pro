@@ -80,7 +80,7 @@ export class AuthService {
             authAccountId: authAccount._id,
             phone,
             code: otp,
-            expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+            expiresAt: new Date(Date.now() + 15 * 60 * 1000),
             isUsed: false,
             attempts: 0,
           },
@@ -359,7 +359,7 @@ export class AuthService {
             authAccountId: authAccount._id,
             phone,
             code: otp,
-            expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+            expiresAt: new Date(Date.now() + 15 * 60 * 1000),
             isUsed: false,
             attempts: 0, // reset attempts
           },

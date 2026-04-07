@@ -583,7 +583,7 @@ export class DoctorService {
             authAccountId: doctor.authAccountId,
             phone,
             code: otp,
-            expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+            expiresAt: new Date(Date.now() + 15 * 60 * 1000),
             isUsed: false,
             attempts: 0,
           },
@@ -1392,13 +1392,13 @@ export class DoctorService {
     };
 
     if (dto.date) {
-      const date = new Date(dto.date);
-      const startOfDay = new Date(date);
-      startOfDay.setHours(0, 0, 0, 0);
-      const endOfDay = new Date(date);
-      endOfDay.setHours(23, 59, 59, 999);
+      const [year, month, day] = dto.date.split('-').map(Number);
 
-      query.date = { $gte: startOfDay, $lte: endOfDay };
+      // Syria UTC+3: midnight Syria = 21:00 UTC previous day
+      query.date = {
+        $gte: new Date(Date.UTC(year, month - 1, day - 1, 21, 0, 0, 0)),
+        $lte: new Date(Date.UTC(year, month - 1, day, 20, 59, 59, 999)),
+      };
     } else if (dto.dayName) {
       query.dayOfWeek = dto.dayName;
 

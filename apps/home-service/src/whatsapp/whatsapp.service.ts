@@ -121,7 +121,7 @@ export class WhatsappService implements OnModuleInit {
   رمز التحقق الخاص بك هو:
   *${otp}*
 
-  ⏱ هذا الرمز صالح لمدة *5 دقائق* فقط.
+  ⏱ هذا الرمز صالح لمدة *15 دقيقة* فقط.
 
   🔒 حفاظاً على أمان حسابك، يرجى عدم مشاركة هذا الرمز مع أي شخص تحت أي ظرف.
 
@@ -134,7 +134,7 @@ export class WhatsappService implements OnModuleInit {
   Your verification code is:
   *${otp}*
 
-  ⏱ This code is valid for *5 minutes* only.
+  ⏱ This code is valid for *15 minutes* only.
 
   🔒 For your account security, please do not share this code with anyone under any circumstances.
 
