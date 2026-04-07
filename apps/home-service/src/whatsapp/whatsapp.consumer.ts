@@ -10,6 +10,7 @@ import {
   WhatsappDoctorApprovedEvent,
   WhatsappDoctorRejectedEvent,
   WhatsappDoctorWelcomeEvent,
+  WhatsappDoctorWelcomeEventByAdmin,
 } from '@app/common/kafka/interfaces/kafka-event.interface';
 
 @Controller()
@@ -129,6 +130,29 @@ export class WhatsappConsumer {
     } catch (err) {
       this.logger.error(
         `❌ Failed to send rejection message to ${phone}: ${err?.message}`,
+        err?.stack,
+      );
+    }
+  }
+
+  @EventPattern(KAFKA_TOPICS.WHATSAPP_DOCTOR_WELCOME_BY_ADMIN)
+  async handleDoctorWelcomeByAdmin(@Payload() data: any) {
+    const payload: WhatsappDoctorWelcomeEventByAdmin = data?.value ?? data;
+    const { phone, doctorName } = payload ?? {};
+    if (!phone || !doctorName) {
+      this.logger.error(
+        `❌ Invalid doctor welcome payload: ${JSON.stringify(payload)}`,
+      );
+      return;
+    }
+    try {
+      await this.whatsappService.sendDoctorWelcomeByAdmin(phone, doctorName);
+      this.logger.log(
+        `✅ Welcome message sent to Dr. ${doctorName} [${phone}]`,
+      );
+    } catch (err) {
+      this.logger.error(
+        `❌ Failed to send welcome message to ${phone}: ${err?.message}`,
         err?.stack,
       );
     }

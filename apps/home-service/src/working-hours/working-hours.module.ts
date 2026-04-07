@@ -10,5 +10,6 @@ import { ConflictDetectionService } from './conflict-detection.service';
   imports: [KafkaModule, DatabaseModule, CacheModule],
   controllers: [WorkingHoursController],
   providers: [WorkingHoursService, ConflictDetectionService],
+  exports: [WorkingHoursService],
 })
 export class WorkingHoursModule {}

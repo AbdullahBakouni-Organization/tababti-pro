@@ -119,31 +119,29 @@ export class WhatsappService implements OnModuleInit {
         ? `مرحباً بك في *طبابتي* 👨‍⚕️
 
   رمز التحقق الخاص بك هو:
+  *${otp}*
 
-  ┌─────────────────┐
-        *${otp}*
-  └─────────────────┘
+  ⏱ هذا الرمز صالح لمدة *5 دقائق* فقط.
 
-  ⏱ صالح لمدة *5 دقائق* فقط.
-  🔒 لا تشارك هذا الرمز مع أي شخص كان.
+  🔒 حفاظاً على أمان حسابك، يرجى عدم مشاركة هذا الرمز مع أي شخص تحت أي ظرف.
 
-  إذا لم تكن أنت من طلب هذا الرمز، فتجاهل هذه الرسالة وقم بتغيير كلمة مرورك فوراً.
+  إذا لم تكن أنت من طلب رمز التحقق، يمكنك تجاهل هذه الرسالة بأمان. كما ننصحك بمراجعة إعدادات الأمان الخاصة بحسابك.
 
-  — فريق *طبابتي* الطبي`
+  نتمنى لك تجربة صحية مميزة معنا 💙
+  — فريق *طبابتي*`
         : `Welcome to *Tababti* 👨‍⚕️
 
   Your verification code is:
+  *${otp}*
 
-  ┌─────────────────┐
-        *${otp}*
-  └─────────────────┘
+  ⏱ This code is valid for *5 minutes* only.
 
-  ⏱ Valid for *5 minutes* only.
-  🔒 Never share this code with anyone.
+  🔒 For your account security, please do not share this code with anyone under any circumstances.
 
-  If you didn't request this code, ignore this message and change your password immediately.
+  If you did not request this verification code, you may safely ignore this message. We also recommend reviewing your account security settings.
 
-  — The *Tababti* Medical Team`;
+  Wishing you a healthy and seamless experience with us 💙
+  — *Tababti* Team`;
 
     await this.sendMessage(phone, text, lang);
   }
@@ -190,7 +188,26 @@ export class WhatsappService implements OnModuleInit {
 
     await this.sendMessage(phone, text, 'ar');
   }
+  async sendDoctorWelcomeByAdmin(
+    phone: string,
+    doctorName: string,
+  ): Promise<void> {
+    const text = `👋 أهلاً وسهلاً د. ${doctorName}،
 
+  يسعدنا إبلاغك بأن فريق الإدارة في منصة *طبابتي* 🩺
+  قام بإنشاء حساب خاص بك على المنصة.
+
+  يمكنك الآن تسجيل الدخول إلى حسابك والبدء باستخدام المنصة
+  لإدارة مواعيدك والتواصل مع المرضى بسهولة.
+
+  في حال كان لديك أي استفسار أو احتجت إلى مساعدة،
+  فريق *طبابتي* جاهز دائماً لدعمك.
+
+  نتمنى لك تجربة موفقة معنا 💙
+  — فريق *طبابتي*`;
+
+    await this.sendMessage(phone, text, 'ar');
+  }
   async sendDoctorApproved(phone: string, doctorName: string): Promise<void> {
     const text = `✅ تهانينا د. ${doctorName}!
 

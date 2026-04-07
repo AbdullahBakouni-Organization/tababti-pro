@@ -19,7 +19,10 @@ import { Post } from '@app/common/database/schemas/post.schema';
 import { Booking } from '@app/common/database/schemas/booking.schema';
 import { KafkaService } from '@app/common/kafka/kafka.service';
 import { MinioService } from '@app/common/file-storage';
+import { CacheService } from '@app/common';
+import { WorkingHoursService } from '../working-hours/working-hours.service';
 import {
+  createMockCacheService,
   createMockKafkaService,
   createMockMinioService,
   createMockModel,
@@ -156,6 +159,16 @@ describe('AdminService', () => {
         },
         { provide: KafkaService, useValue: kafkaService },
         { provide: MinioService, useValue: minioService },
+        { provide: CacheService, useValue: createMockCacheService() },
+        {
+          provide: WorkingHoursService,
+          useValue: {
+            addWorkingHours: jest.fn(),
+            checkWorkingHoursConflicts: jest.fn(),
+            updateWorkingHours: jest.fn(),
+            getWorkingHours: jest.fn(),
+          },
+        },
       ],
     }).compile();
 
@@ -483,7 +496,7 @@ describe('AdminService', () => {
       ],
     };
 
-    it('deletes images from MinIO and removes from doctor record', async () => {
+    it('marks images as REJECTED in doctor gallery', async () => {
       doctorModel.findOne.mockReturnValue({
         select: jest.fn().mockReturnThis(),
         lean: jest.fn().mockResolvedValue(doctorWithGallery),
@@ -497,15 +510,12 @@ describe('AdminService', () => {
         adminId.toString(),
       );
 
-      expect(minioService.deleteFile).toHaveBeenCalledWith(
-        'doctors',
-        'img-1.jpg',
-      );
       expect(doctorModel.updateOne).toHaveBeenCalledWith(
         { _id: doctorId.toString() },
         expect.objectContaining({
-          $pull: { gallery: { imageId: { $in: imageIds } } },
+          $set: { 'gallery.$[img].status': GalleryImageStatus.REJECTED },
         }),
+        expect.objectContaining({ arrayFilters: expect.any(Array) }),
       );
     });
 

@@ -52,6 +52,21 @@ import {
 } from './dto/doctor-response.dto';
 import { AdminStatsResponseDto } from './dto/home-stats.dto';
 import { Booking } from '@app/common/database/schemas/booking.schema';
+import {
+  invalidateMainProfileCaches,
+  invalidateProfileDoctorGalleryCaches,
+  invalidateProfileDoctorPostCaches,
+  invalidateQuestionsCaches,
+} from '@app/common/utils/cache-invalidation.util';
+import { CacheService } from '@app/common';
+import { ConflictException } from '@nestjs/common';
+import { UserRole } from '@app/common/database/schemas/common.enums';
+import type { UploadResult } from '@app/common/file-storage';
+import { uploadDoctorProfileImage } from '@app/common/utils/upload-profile-images.util';
+import { AdminCreateDoctorDto } from './dto/create-doctor.dto';
+import { AdminUpdateDoctorDto } from './dto/update-doctor.dto';
+import { CityMapping, SpecialtyMapping } from '../doctor/dto/sign-up.dto';
+import { WorkingHoursService } from '../working-hours/working-hours.service';
 
 @Injectable()
 export class AdminService {
@@ -68,6 +83,8 @@ export class AdminService {
     @InjectModel(Booking.name) private bookingModel: Model<Booking>,
     private kafkaProducer: KafkaService,
     private readonly minioService: MinioService,
+    private readonly ca: CacheService,
+    private readonly workingHoursService: WorkingHoursService,
   ) {}
 
   // Admin Sign In
@@ -421,11 +438,17 @@ export class AdminService {
       throw new BadRequestException('No images were approved');
     }
     this.sendDoctorApprovedGallery(doctor, imageIds);
+    await invalidateProfileDoctorGalleryCaches(this.ca, doctorId, this.logger);
+    await invalidateMainProfileCaches(
+      this.ca,
+      doctor.authAccountId.toString(),
+      this.logger,
+    );
     this.logger.log(`${result.modifiedCount} images approved`);
   }
 
   /**
-   * Admin rejects gallery image and deletes from MinIO
+   * Admin rejects gallery images — sets status to REJECTED (does not delete files).
    */
   async rejectGalleryImages(
     doctorId: string,
@@ -443,45 +466,41 @@ export class AdminService {
 
     const doctor = await this.doctorModel
       .findOne({ _id: doctorId })
-      .select('gallery fcmToken firstName lastName') // fetch full gallery, filter in JS
+      .select('gallery fcmToken firstName lastName')
       .lean();
-
-    // then filter:
 
     if (!doctor) {
       throw new NotFoundException('Doctor not found');
     }
 
-    const imagesToDelete =
+    const matchedImages =
       doctor.gallery?.filter((img) => imageIds.includes(img.imageId)) || [];
 
-    if (!imagesToDelete.length) {
+    if (!matchedImages.length) {
       throw new NotFoundException('Images not found');
-    }
-
-    for (const image of imagesToDelete) {
-      try {
-        await this.minioService.deleteFile(image.bucket, image.fileName);
-
-        this.logger.log(`Deleted from MinIO: ${image.fileName}`);
-      } catch (error) {
-        const err = error instanceof Error ? error.message : String(error);
-        this.logger.warn(`Failed deleting ${image.fileName}: ${err}`);
-      }
     }
 
     await this.doctorModel.updateOne(
       { _id: doctorId },
+      { $set: { 'gallery.$[img].status': GalleryImageStatus.REJECTED } },
       {
-        $pull: {
-          gallery: {
-            imageId: { $in: imageIds },
+        arrayFilters: [
+          {
+            'img.imageId': { $in: imageIds },
+            'img.status': { $ne: GalleryImageStatus.REJECTED },
           },
-        },
+        ],
       },
     );
+
     this.sendDoctorRejectedGallery(doctor, reason, imageIds);
-    this.logger.log(`${imagesToDelete.length} images rejected and removed`);
+    await invalidateProfileDoctorGalleryCaches(this.ca, doctorId, this.logger);
+    await invalidateMainProfileCaches(
+      this.ca,
+      doctor.authAccountId.toString(),
+      this.logger,
+    );
+    this.logger.log(`${matchedImages.length} images marked as REJECTED`);
   }
 
   /**
@@ -604,7 +623,16 @@ export class AdminService {
 
     // Send Kafka notification to doctor
     this.sendDoctorApprovedPost(doctor, postId);
-
+    await invalidateProfileDoctorPostCaches(
+      this.ca,
+      doctor._id.toString(),
+      this.logger,
+    );
+    await invalidateMainProfileCaches(
+      this.ca,
+      doctor.authAccountId.toString(),
+      this.logger,
+    );
     const doctorName = `${doctor.firstName} ${doctor.lastName}`;
 
     return {
@@ -666,7 +694,16 @@ export class AdminService {
 
     // Send Kafka notification to doctor
     this.sendDoctorRejectedPost(doctor, dto.reason, postId);
-
+    await invalidateProfileDoctorPostCaches(
+      this.ca,
+      doctor._id.toString(),
+      this.logger,
+    );
+    await invalidateMainProfileCaches(
+      this.ca,
+      doctor.authAccountId.toString(),
+      this.logger,
+    );
     const doctorName = `${doctor.firstName} ${doctor.lastName}`;
 
     return {
@@ -1223,6 +1260,7 @@ export class AdminService {
     }
 
     this.logger.log(`${result.modifiedCount} question(s) approved`);
+    await invalidateQuestionsCaches(this.ca, this.logger);
   }
 
   async rejectQuestions(
@@ -1293,6 +1331,7 @@ export class AdminService {
     }
 
     this.logger.log(`${result.modifiedCount} question(s) rejected`);
+    await invalidateQuestionsCaches(this.ca, this.logger);
   }
 
   // ─── Kafka event emitters ────────────────────────────────────────────────────
@@ -1888,6 +1927,432 @@ export class AdminService {
       postsCount: posts.length,
     };
   }
+  // ============================================
+  // Admin Create Doctor
+  // ============================================
+
+  async createDoctor(
+    dto: AdminCreateDoctorDto,
+    files?: {
+      profileImage?: Express.Multer.File[];
+      certificateImage?: Express.Multer.File[];
+      licenseImage?: Express.Multer.File[];
+      certificateDocument?: Express.Multer.File[];
+      licenseDocument?: Express.Multer.File[];
+    },
+  ): Promise<{
+    success: boolean;
+    message: string;
+    doctorId: string;
+    doctor: DoctorDocument;
+  }> {
+    this.logger.log(`Admin creating doctor: ${dto.firstName} ${dto.lastName}`);
+
+    // Validate nested enums
+    const validSubcities = CityMapping[dto.city] as string[] | undefined;
+    if (!validSubcities || !validSubcities.includes(dto.subcity)) {
+      throw new BadRequestException(
+        `Subcity "${dto.subcity}" is not valid for city "${dto.city}"`,
+      );
+    }
+
+    const validPrivateSpecs = SpecialtyMapping[dto.publicSpecialization] as
+      | string[]
+      | undefined;
+    if (
+      !validPrivateSpecs ||
+      !validPrivateSpecs.includes(dto.privateSpecialization)
+    ) {
+      throw new BadRequestException(
+        `Private specialization "${dto.privateSpecialization}" does not belong to public specialization "${dto.publicSpecialization}"`,
+      );
+    }
+
+    // Check phone uniqueness
+    const normalizedPhone = dto.phone;
+    const phoneExists = await this.doctorModel.exists({
+      'phones.normal': normalizedPhone,
+    });
+    if (phoneExists) {
+      throw new ConflictException(
+        'A doctor with this phone number already exists',
+      );
+    }
+
+    const session = await this.doctorModel.db.startSession();
+    let doctor: DoctorDocument;
+
+    try {
+      session.startTransaction();
+
+      // Check if an AuthAccount already exists for this phone
+      const existingAuth = await this.authAccountModel
+        .findOne({ phones: normalizedPhone })
+        .session(session);
+      if (existingAuth) {
+        throw new ConflictException(
+          'This phone number is already linked to an account',
+        );
+      }
+
+      // Create AuthAccount — isActive=true since admin approves on creation
+      const [authAccount] = await this.authAccountModel.create(
+        [
+          {
+            role: UserRole.DOCTOR,
+            phones: [normalizedPhone],
+            isActive: true,
+            tokenVersion: 0,
+          },
+        ],
+        { session },
+      );
+
+      // Build doctor document
+      doctor = new this.doctorModel({
+        authAccountId: authAccount._id,
+        firstName: dto.firstName,
+        middleName: dto.middleName,
+        lastName: dto.lastName,
+        password: dto.password,
+        city: dto.city,
+        subcity: dto.subcity,
+        publicSpecialization: dto.publicSpecialization,
+        privateSpecialization: dto.privateSpecialization,
+        gender: dto.gender,
+        phones: [{ normal: [normalizedPhone], clinic: [], whatsup: [] }],
+        status: dto.status ?? ApprovalStatus.APPROVED,
+        latitude: dto.latitude,
+        longitude: dto.longitude,
+        bio: dto.bio,
+        address: dto.address,
+        yearsOfExperience: dto.yearsOfExperience,
+        inspectionDuration: dto.inspectionDuration,
+        inspectionPrice: dto.inspectionPrice,
+        workingHours: [], // populated via addWorkingHours after creation
+        profileViews: dto.profileViews ?? 0,
+        sessions: [],
+        maxSessions: 5,
+        failedLoginAttempts: 0,
+        registeredAt: new Date(),
+        ...(dto.status === ApprovalStatus.APPROVED || !dto.status
+          ? { approvedAt: new Date() }
+          : {}),
+      });
+
+      await doctor.save({ session });
+      await session.commitTransaction();
+    } catch (error) {
+      if (session.inTransaction()) {
+        await session.abortTransaction();
+      }
+      throw error;
+    } finally {
+      await session.endSession();
+    }
+
+    const doctorId = doctor._id.toString();
+
+    // Upload files outside transaction
+    const uploadedFiles = await this.uploadAdminDoctorFiles(doctorId, files);
+    if (uploadedFiles) {
+      await this.applyFileUpdatesToDoctor(doctorId, uploadedFiles);
+    }
+
+    // Apply working hours — runs all validations, publishes slot-generation event,
+    // and invalidates booking caches (same flow as WorkingHoursService.addWorkingHours).
+    if (dto.workingHours && dto.workingHours.length > 0) {
+      if (!dto.inspectionDuration) {
+        throw new BadRequestException(
+          'inspectionDuration is required when workingHours are provided',
+        );
+      }
+
+      await this.workingHoursService.addWorkingHours(doctorId, {
+        workingHours: dto.workingHours,
+        inspectionDuration: dto.inspectionDuration,
+        inspectionPrice: dto.inspectionPrice ?? 0,
+      });
+    }
+    if (doctor) {
+      try {
+        const phone = doctor.phones?.[0]?.normal?.[0];
+        const doctorName = `${doctor.firstName} ${doctor.lastName}`;
+
+        this.kafkaProducer.emit(KAFKA_TOPICS.WHATSAPP_DOCTOR_WELCOME_BY_ADMIN, {
+          phone,
+          doctorName,
+        });
+      } catch (error) {
+        this.logger.error('Failed to publish Kafka event', error);
+      }
+    }
+    this.logger.log(`Doctor created by admin: ${doctorId}`);
+
+    return {
+      success: true,
+      message: 'Doctor created successfully',
+      doctorId,
+      doctor,
+    };
+  }
+
+  // ============================================
+  // Admin Update Doctor
+  // ============================================
+
+  async updateDoctor(
+    doctorId: string,
+    dto: AdminUpdateDoctorDto,
+    files?: {
+      profileImage?: Express.Multer.File[];
+      certificateImage?: Express.Multer.File[];
+      licenseImage?: Express.Multer.File[];
+      certificateDocument?: Express.Multer.File[];
+      licenseDocument?: Express.Multer.File[];
+    },
+  ): Promise<{ success: boolean; message: string; doctor: DoctorDocument }> {
+    this.logger.log(`Admin updating doctor: ${doctorId}`);
+
+    if (!Types.ObjectId.isValid(doctorId)) {
+      throw new BadRequestException('Invalid doctor ID');
+    }
+
+    const doctor = await this.doctorModel.findById(doctorId);
+    if (!doctor) {
+      throw new NotFoundException('Doctor not found');
+    }
+
+    // Validate city/subcity if both provided, or city changes with existing subcity
+    const newCity = dto.city ?? doctor.city;
+    const newSubcity = dto.subcity ?? doctor.subcity;
+    const validSubcities = CityMapping[newCity] as string[] | undefined;
+    if (!validSubcities || !validSubcities.includes(newSubcity)) {
+      throw new BadRequestException(
+        `Subcity "${newSubcity}" is not valid for city "${newCity}"`,
+      );
+    }
+
+    // Validate specialization if either changes
+    const newPublicSpec =
+      dto.publicSpecialization ?? doctor.publicSpecialization;
+    const newPrivateSpec =
+      dto.privateSpecialization ?? doctor.privateSpecialization;
+    const validPrivateSpecs = SpecialtyMapping[newPublicSpec] as
+      | string[]
+      | undefined;
+    if (!validPrivateSpecs || !validPrivateSpecs.includes(newPrivateSpec)) {
+      throw new BadRequestException(
+        `Private specialization "${newPrivateSpec}" does not belong to public specialization "${newPublicSpec}"`,
+      );
+    }
+
+    // Build update payload — only include fields that were provided
+    const updatePayload: Record<string, unknown> = {};
+
+    if (dto.firstName !== undefined) updatePayload.firstName = dto.firstName;
+    if (dto.middleName !== undefined) updatePayload.middleName = dto.middleName;
+    if (dto.lastName !== undefined) updatePayload.lastName = dto.lastName;
+    if (dto.city !== undefined) updatePayload.city = dto.city;
+    if (dto.subcity !== undefined) updatePayload.subcity = dto.subcity;
+    if (dto.publicSpecialization !== undefined)
+      updatePayload.publicSpecialization = dto.publicSpecialization;
+    if (dto.privateSpecialization !== undefined)
+      updatePayload.privateSpecialization = dto.privateSpecialization;
+    if (dto.gender !== undefined) updatePayload.gender = dto.gender;
+    if (dto.latitude !== undefined) updatePayload.latitude = dto.latitude;
+    if (dto.longitude !== undefined) updatePayload.longitude = dto.longitude;
+    if (dto.bio !== undefined) updatePayload.bio = dto.bio;
+    if (dto.address !== undefined) updatePayload.address = dto.address;
+    if (dto.yearsOfExperience !== undefined)
+      updatePayload.yearsOfExperience = dto.yearsOfExperience;
+    if (dto.inspectionDuration !== undefined)
+      updatePayload.inspectionDuration = dto.inspectionDuration;
+    if (dto.inspectionPrice !== undefined)
+      updatePayload.inspectionPrice = dto.inspectionPrice;
+    if (dto.profileViews !== undefined)
+      updatePayload.profileViews = dto.profileViews;
+    if (dto.status !== undefined) updatePayload.status = dto.status;
+
+    // Handle phone update — update the phones array and the linked AuthAccount
+    if (dto.phone !== undefined) {
+      const newPhone = dto.phone;
+      const phoneConflict = await this.doctorModel.exists({
+        _id: { $ne: new Types.ObjectId(doctorId) },
+        'phones.normal': newPhone,
+      });
+      if (phoneConflict) {
+        throw new ConflictException(
+          'This phone number is already registered to another doctor',
+        );
+      }
+      updatePayload.phones = [{ normal: [newPhone], clinic: [], whatsup: [] }];
+
+      // Sync AuthAccount phones
+      if (doctor.authAccountId) {
+        await this.authAccountModel.findByIdAndUpdate(doctor.authAccountId, {
+          phones: [newPhone],
+        });
+      }
+    }
+
+    if (Object.keys(updatePayload).length > 0) {
+      await this.doctorModel.findByIdAndUpdate(doctorId, {
+        $set: updatePayload,
+      });
+    }
+
+    // Upload files if provided
+    const uploadedFiles = await this.uploadAdminDoctorFiles(doctorId, files);
+    if (uploadedFiles) {
+      await this.applyFileUpdatesToDoctor(doctorId, uploadedFiles);
+    }
+
+    const updatedDoctor = (await this.doctorModel
+      .findById(doctorId)
+      .select('-password -twoFactorSecret -sessions -deviceTokens')
+      .lean()) as DoctorDocument;
+
+    this.logger.log(`Doctor updated by admin: ${doctorId}`);
+
+    return {
+      success: true,
+      message: 'Doctor updated successfully',
+      doctor: updatedDoctor,
+    };
+  }
+
+  // ============================================
+  // File Upload Helpers
+  // ============================================
+
+  private async uploadAdminDoctorFiles(
+    doctorId: string,
+    files?: {
+      profileImage?: Express.Multer.File[];
+      certificateImage?: Express.Multer.File[];
+      licenseImage?: Express.Multer.File[];
+      certificateDocument?: Express.Multer.File[];
+      licenseDocument?: Express.Multer.File[];
+    },
+  ): Promise<{
+    profileImage?: UploadResult;
+    certificateImage?: UploadResult;
+    licenseImage?: UploadResult;
+    certificateDocument?: UploadResult;
+    licenseDocument?: UploadResult;
+  } | null> {
+    if (!files) return null;
+
+    const result: {
+      profileImage?: UploadResult;
+      certificateImage?: UploadResult;
+      licenseImage?: UploadResult;
+      certificateDocument?: UploadResult;
+      licenseDocument?: UploadResult;
+    } = {};
+
+    if (files.profileImage?.[0]) {
+      result.profileImage = await uploadDoctorProfileImage(
+        this.minioService,
+        doctorId,
+        files.profileImage[0],
+      );
+    }
+
+    if (files.certificateImage?.[0]) {
+      result.certificateImage = await this.minioService.uploadDoctorDocument(
+        files.certificateImage[0],
+        doctorId,
+        'certificate',
+        'image',
+      );
+    }
+
+    if (files.licenseImage?.[0]) {
+      result.licenseImage = await this.minioService.uploadDoctorDocument(
+        files.licenseImage[0],
+        doctorId,
+        'license',
+        'image',
+      );
+    }
+
+    if (files.certificateDocument?.[0]) {
+      result.certificateDocument = await this.minioService.uploadDoctorDocument(
+        files.certificateDocument[0],
+        doctorId,
+        'certificate',
+        'pdf',
+      );
+    }
+
+    if (files.licenseDocument?.[0]) {
+      result.licenseDocument = await this.minioService.uploadDoctorDocument(
+        files.licenseDocument[0],
+        doctorId,
+        'license',
+        'pdf',
+      );
+    }
+
+    return Object.keys(result).length > 0 ? result : null;
+  }
+
+  private async applyFileUpdatesToDoctor(
+    doctorId: string,
+    files: {
+      profileImage?: UploadResult;
+      certificateImage?: UploadResult;
+      licenseImage?: UploadResult;
+      certificateDocument?: UploadResult;
+      licenseDocument?: UploadResult;
+    },
+  ): Promise<void> {
+    const update: Record<string, unknown> = {};
+
+    if (files.profileImage) {
+      update.image = files.profileImage.url;
+      update.imageFileName = files.profileImage.fileName;
+      update.imageBucket = files.profileImage.bucket;
+    }
+
+    const documents: Record<string, unknown> = {};
+
+    if (files.certificateImage) {
+      documents.certificateImage = files.certificateImage.url;
+      documents.certificateImageFileName = files.certificateImage.fileName;
+      documents.certificateImageBucket = files.certificateImage.bucket;
+    }
+
+    if (files.licenseImage) {
+      documents.licenseImage = files.licenseImage.url;
+      documents.licenseImageFileName = files.licenseImage.fileName;
+      documents.licenseImageBucket = files.licenseImage.bucket;
+    }
+
+    if (files.certificateDocument) {
+      documents.certificateDocument = files.certificateDocument.url;
+      documents.certificateDocumentFileName =
+        files.certificateDocument.fileName;
+      documents.certificateDocumentBucket = files.certificateDocument.bucket;
+    }
+
+    if (files.licenseDocument) {
+      documents.licenseDocument = files.licenseDocument.url;
+      documents.licenseDocumentFileName = files.licenseDocument.fileName;
+      documents.licenseDocumentBucket = files.licenseDocument.bucket;
+    }
+
+    if (Object.keys(documents).length > 0) {
+      update.documents = documents;
+    }
+
+    if (Object.keys(update).length > 0) {
+      await this.doctorModel.findByIdAndUpdate(doctorId, { $set: update });
+    }
+  }
+
   private transformToDoctorDto(doctor: any): DoctorListItemDto {
     return {
       doctorId: doctor._id.toString(),

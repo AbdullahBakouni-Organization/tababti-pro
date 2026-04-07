@@ -145,7 +145,7 @@ export class DoctorBookingsQueryService {
         'slotId',
         'date startTime endTime status location',
       )
-      .sort({ bookingTime: 1 })
+      .sort({ bookingDate: 1, bookingTime: 1 })
       .skip(skip)
       .limit(limit)
       .lean()
@@ -197,28 +197,22 @@ export class DoctorBookingsQueryService {
     // Date filters
     if (dto.date) {
       const [year, month, day] = dto.date.split('-').map(Number);
-      const startOfDay = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
-      const endOfDay = new Date(
-        Date.UTC(year, month - 1, day, 23, 59, 59, 999),
-      );
       filters.bookingDate = {
-        $gte: startOfDay,
-        $lte: endOfDay,
+        $gte: new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0)),
+        $lte: new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999)),
       };
     } else if (dto.startDate || dto.endDate) {
-      // Date range
       filters.bookingDate = {};
 
       if (dto.startDate) {
-        const startDate = new Date(dto.startDate);
-        startDate.setHours(0, 0, 0, 0);
-        filters.bookingDate.$gte = startDate;
+        const [y, m, d] = dto.startDate.split('-').map(Number); // ✅ UTC consistent
+        filters.bookingDate.$gte = new Date(Date.UTC(y, m - 1, d, 0, 0, 0, 0));
       }
-
       if (dto.endDate) {
-        const endDate = new Date(dto.endDate);
-        endDate.setHours(23, 59, 59, 999);
-        filters.bookingDate.$lte = endDate;
+        const [y, m, d] = dto.endDate.split('-').map(Number); // ✅ UTC consistent
+        filters.bookingDate.$lte = new Date(
+          Date.UTC(y, m - 1, d, 23, 59, 59, 999),
+        );
       }
     }
 

@@ -175,7 +175,11 @@ services:
         max-size: '10m'
         max-file: '3'
     healthcheck:
-      test: ['CMD-SHELL', 'node -e "require(\"net\").connect(3000,\"localhost\",()=>process.exit(0)).on(\"error\",()=>process.exit(1))"']
+      test:
+        [
+          'CMD-SHELL',
+          'node -e "require(\"net\").connect(3000,\"localhost\",()=>process.exit(0)).on(\"error\",()=>process.exit(1))"',
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -232,7 +236,10 @@ services:
         max-file: '3'
     healthcheck:
       test:
-        ['CMD-SHELL', 'node -e "require(\"net\").connect(3001,\"localhost\",()=>process.exit(0)).on(\"error\",()=>process.exit(1))"']
+        [
+          'CMD-SHELL',
+          'node -e "require(\"net\").connect(3001,\"localhost\",()=>process.exit(0)).on(\"error\",()=>process.exit(1))"',
+        ]
       interval: 15s
       timeout: 50s
       retries: 5
@@ -289,7 +296,10 @@ services:
         max-file: '3'
     healthcheck:
       test:
-        ['CMD-SHELL', 'node -e "require(\"net\").connect(3001,\"localhost\",()=>process.exit(0)).on(\"error\",()=>process.exit(1))"']
+        [
+          'CMD-SHELL',
+          'node -e "require(\"net\").connect(3001,\"localhost\",()=>process.exit(0)).on(\"error\",()=>process.exit(1))"',
+        ]
       interval: 15s
       timeout: 50s
       retries: 5
@@ -348,7 +358,10 @@ services:
         max-file: '3'
     healthcheck:
       test:
-        ['CMD-SHELL', 'node -e "require(\"net\").connect(3002,\"localhost\",()=>process.exit(0)).on(\"error\",()=>process.exit(1))"']
+        [
+          'CMD-SHELL',
+          'node -e "require(\"net\").connect(3002,\"localhost\",()=>process.exit(0)).on(\"error\",()=>process.exit(1))"',
+        ]
       interval: 15s
       timeout: 50s
       retries: 5
@@ -407,7 +420,10 @@ services:
         max-file: '3'
     healthcheck:
       test:
-        ['CMD-SHELL', 'node -e "require(\"net\").connect(3002,\"localhost\",()=>process.exit(0)).on(\"error\",()=>process.exit(1))"']
+        [
+          'CMD-SHELL',
+          'node -e "require(\"net\").connect(3002,\"localhost\",()=>process.exit(0)).on(\"error\",()=>process.exit(1))"',
+        ]
       interval: 15s
       timeout: 50s
       retries: 5
@@ -702,6 +718,7 @@ services:
       kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic whatsapp.doctor-welcome --partitions 1 --replication-factor 1;
       kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic whatsapp.doctor-approved --partitions 1 --replication-factor 1;
       kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic whatsapp.doctor-rejected --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic whatsapp.doctor-welcome-by-admin --partitions 1 --replication-factor 1;
       echo 'All 35 topics created.';
       exit 0;
       "
