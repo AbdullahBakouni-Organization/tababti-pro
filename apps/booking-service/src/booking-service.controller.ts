@@ -6,6 +6,7 @@ import {
   HttpStatus,
   UseGuards,
   Req,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { BookingService } from './booking-service.service';
@@ -50,9 +51,13 @@ export class BookingController {
     @Body() createBookingDto: CreateBookingDto,
     @Req() req: any,
   ): Promise<BookingResponseDto> {
-    const patientId = new ParseMongoIdPipe().transform(
-      req.user.entity._id.toString(),
-    );
+    const entity = req.user?.entity;
+
+    if (!entity || !entity._id) {
+      throw new UnauthorizedException('User entity not found');
+    }
+
+    const patientId = new ParseMongoIdPipe().transform(entity._id.toString());
     return this.bookingService.createBooking(createBookingDto, patientId);
   }
 }

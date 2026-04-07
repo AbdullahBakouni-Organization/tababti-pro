@@ -298,6 +298,10 @@ export interface WhatsappDoctorWelcomeEvent {
   phone: string;
   doctorName: string;
 }
+export interface WhatsappDoctorWelcomeEventByAdmin {
+  phone: string;
+  doctorName: string;
+}
 
 export interface WhatsappDoctorApprovedEvent {
   phone: string;

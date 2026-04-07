@@ -55,4 +55,5 @@ export const KAFKA_TOPICS = {
   WHATSAPP_DOCTOR_WELCOME: 'whatsapp.doctor-welcome',
   WHATSAPP_DOCTOR_APPROVED: 'whatsapp.doctor-approved',
   WHATSAPP_DOCTOR_REJECTED: 'whatsapp.doctor-rejected',
+  WHATSAPP_DOCTOR_WELCOME_BY_ADMIN: 'whatsapp.doctor-welcome-by-admin',
 };

@@ -209,13 +209,7 @@ export class DashboardService {
   private async _getRecentPatientsCached(
     doctorId: Types.ObjectId,
   ): Promise<RecentPatientsResponseDto> {
-    const key = doctorId.toString();
-    const hit = this._recentPatientsCache.get(key);
-    if (hit) return hit.data;
-
-    this.logger.debug(`[CACHE MISS] recent-patients for doctor ${key}`);
     const data = await this._getRecentPatientsRaw(doctorId);
-    this._recentPatientsCache.set(key, { data, cachedAt: new Date() });
     return data;
   }
 

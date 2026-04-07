@@ -181,17 +181,7 @@ export class NearbyBookingService {
     this.assertObjectId(authAccountId);
     const doctor = await this.repo.findDoctorByAuthAccountId(authAccountId);
     if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
-    const p = safePage(filters.page),
-      l = safeLimit(filters.limit);
-    const doctorId = doctor._id.toString();
-    const key = CK.patients(
-      doctorId,
-      this.serializeFilters({ ...filters, page: p, limit: l }),
-    );
-    const _cached = fromCache(await this.cache.get(key));
-    // if (cached) return cached;
     const data = await this.repo.findDoctorPatients(doctor._id, filters);
-    // await this.cache.set(key, data, TTL.PATIENTS.memory, TTL.PATIENTS.redis);
     return data;
   }
 
@@ -232,19 +222,11 @@ export class NearbyBookingService {
     if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
     const p = safePage(filters.page),
       l = safeLimit(filters.limit);
-    const doctorId = doctor._id.toString();
-    const key = CK.searchPatients(
-      doctorId,
-      this.serializeFilters({ ...filters, page: p, limit: l }),
-    );
-    const cached = fromCache(await this.cache.get(key));
-    if (cached) return cached;
     const data = await this.repo.searchDoctorPatientsV2(doctor._id, {
       ...filters,
       page: p,
       limit: l,
     });
-    await this.cache.set(key, data, TTL.PATIENTS.memory, TTL.PATIENTS.redis);
     return data;
   }
 

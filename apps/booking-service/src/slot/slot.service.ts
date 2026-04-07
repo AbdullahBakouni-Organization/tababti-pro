@@ -50,8 +50,7 @@ export class SlotGenerationService {
       throw new BadRequestException('Invalid doctor ID');
     }
 
-    // Cache key based only on doctorId + date range (no location)
-    const cacheKey = `slots:available:${query.doctorId}:${query.startDate || 'default'}:${query.endDate || 'default'}`;
+    const cacheKey = `slots:available:${query.doctorId}:${query.date || ''}:${query.startDate || 'default'}:${query.endDate || 'default'}`;
     const cached =
       await this.cacheManager.get<GroupedAvailableSlotsDto>(cacheKey);
     if (cached) {
@@ -59,7 +58,6 @@ export class SlotGenerationService {
       return cached;
     }
 
-    // Build query — NO location filter anymore
     const filter: any = {
       doctorId: new Types.ObjectId(query.doctorId),
       status: SlotStatus.AVAILABLE,
@@ -70,25 +68,62 @@ export class SlotGenerationService {
     let startDate: Date;
     let endDate: Date;
 
-    // ✅ NEW: specific date override
+    // Helper: تحويل تاريخ سوري YYYY-MM-DD إلى UTC range مع مراعاة offset +3
+    // Syria midnight (00:00 UTC+3) = previous day 21:00 UTC
+    // Syria end of day (23:59:59 UTC+3) = same day 20:59:59 UTC
+    const toSyriaUTCRange = (year: number, month: number, day: number) => ({
+      start: new Date(Date.UTC(year, month - 1, day - 1, 21, 0, 0, 0)),
+      end: new Date(Date.UTC(year, month - 1, day, 20, 59, 59, 999)),
+    });
+
     if (query.date) {
-      const requestedDate = new Date(query.date);
+      const [year, month, day] = query.date.split('-').map(Number);
+      const { start, end } = toSyriaUTCRange(year, month, day);
 
-      // Normalize both to start of day (important)
-      requestedDate.setHours(0, 0, 0, 0);
-      today.setHours(0, 0, 0, 0);
+      // مقارنة مع اليوم الحالي بتوقيت سوريا
+      const todayStart = new Date(
+        Date.UTC(
+          today.getFullYear(),
+          today.getMonth(),
+          today.getDate() - 1,
+          21,
+          0,
+          0,
+          0,
+        ),
+      );
 
-      if (requestedDate.getTime() < today.getTime()) {
+      if (start.getTime() < todayStart.getTime()) {
         throw new BadRequestException('Date must be today or greater');
       }
 
-      startDate = requestedDate;
-      endDate = requestedDate;
+      startDate = start;
+      endDate = end;
     } else {
-      startDate = query.startDate ? new Date(query.startDate) : today;
-      endDate = query.endDate
-        ? new Date(query.endDate)
-        : new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
+      if (query.startDate) {
+        const [y, m, d] = query.startDate.split('-').map(Number);
+        startDate = toSyriaUTCRange(y, m, d).start;
+      } else {
+        // اليوم كـ Syria UTC range
+        startDate = new Date(
+          Date.UTC(
+            today.getFullYear(),
+            today.getMonth(),
+            today.getDate() - 1,
+            21,
+            0,
+            0,
+            0,
+          ),
+        );
+      }
+
+      if (query.endDate) {
+        const [y, m, d] = query.endDate.split('-').map(Number);
+        endDate = toSyriaUTCRange(y, m, d).end;
+      } else {
+        endDate = new Date(startDate.getTime() + 30 * 24 * 60 * 60 * 1000);
+      }
 
       if (startDate.getTime() > endDate.getTime()) {
         throw new BadRequestException(
@@ -97,6 +132,7 @@ export class SlotGenerationService {
       }
     }
 
+    // ✅ تطبيق فلتر التاريخ على الـ query
     filter.date = { $gte: startDate, $lte: endDate };
 
     const doctor = await this.doctorModel.findById(query.doctorId).exec();
@@ -113,8 +149,6 @@ export class SlotGenerationService {
       .lean()
       .exec();
 
-    // Group by location type on the backend
-    // grouped object
     const grouped: GroupedAvailableSlotsDto = {
       clinic: { data: [], total: 0 },
       hospital: { data: [], total: 0 },
@@ -146,6 +180,7 @@ export class SlotGenerationService {
         grouped.center.data.push(mapped);
       }
     }
+
     grouped.clinic.total = grouped.clinic.data.length;
     grouped.hospital.total = grouped.hospital.data.length;
     grouped.center.total = grouped.center.data.length;

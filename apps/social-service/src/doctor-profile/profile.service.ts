@@ -211,7 +211,7 @@ export class DoctorProfileService {
     );
     await invalidateProfileDoctorPostCaches(
       this.cacheService,
-      updatedDoctor._id.toString(),
+      updatedDoctor.authAccountId.toString(),
       this.logger,
     );
     return this.formatPrivateDoctor(updatedDoctor);
