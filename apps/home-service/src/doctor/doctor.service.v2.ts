@@ -1069,7 +1069,10 @@ export class DoctorBookingsQueryService {
       ],
     }));
 
-    const query = { $and: nameConditions };
+    const query = {
+      $and: nameConditions,
+      status: 'approved',
+    };
 
     const [doctors, total] = await Promise.all([
       this.doctorModel
