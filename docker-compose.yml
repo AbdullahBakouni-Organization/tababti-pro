@@ -45,44 +45,6 @@ services:
       retries: 3
 
   # ============================================
-  # NGINX — Internal Load Balancer (Microservices)
-  # ============================================
-  nginx-internal:
-    image: nginx:alpine
-    container_name: tababti-nginx-internal
-    restart: unless-stopped
-    # FIX: expose internal port so api-gateway can reach it
-    expose:
-      - '8080'
-    volumes:
-      - ./nginx/nginx-internal.conf:/etc/nginx/nginx.conf:ro
-    depends_on:
-      home-service-1:
-        condition: service_healthy
-      home-service-2:
-        condition: service_healthy
-      social-service-1:
-        condition: service_healthy
-      social-service-2:
-        condition: service_healthy
-      booking-service:
-        condition: service_healthy
-      notification-service:
-        condition: service_healthy
-    networks:
-      - tababti-network
-    logging:
-      driver: 'json-file'
-      options:
-        max-size: '10m'
-        max-file: '3'
-    healthcheck:
-      test: ['CMD-SHELL', 'curl -sf http://localhost:8080/health || exit 1']
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  # ============================================
   # Redis
   # ============================================
   redis:
@@ -152,11 +114,11 @@ services:
       JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN:-15m}
       JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
 
-      # FIX: point to nginx-internal which routes to microservices
-      HOME_SERVICE_URL: http://nginx-internal:8080/home
-      SOCIAL_SERVICE_URL: http://nginx-internal:8080/social
-      NOTIFICATION_SERVICE_URL: http://nginx-internal:8080/notification
-      BOOKING_SERVICE_URL: http://nginx-internal:8080/booking
+      # Direct routing to services — no intermediate nginx-internal
+      HOME_SERVICE_URL: http://home-service:3001/api/v1
+      SOCIAL_SERVICE_URL: http://social-service:3002/api/v1
+      NOTIFICATION_SERVICE_URL: http://notification-service:3006/api/v1
+      BOOKING_SERVICE_URL: http://booking-service:3003/api/v1
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
     depends_on:
       redis:
@@ -165,7 +127,17 @@ services:
         condition: service_completed_successfully
       minio:
         condition: service_healthy
-      nginx-internal:
+      home-service-1:
+        condition: service_healthy
+      home-service-2:
+        condition: service_healthy
+      social-service-1:
+        condition: service_healthy
+      social-service-2:
+        condition: service_healthy
+      booking-service:
+        condition: service_healthy
+      notification-service:
         condition: service_healthy
     networks:
       - tababti-network
@@ -228,7 +200,9 @@ services:
       kafka-init:
         condition: service_completed_successfully
     networks:
-      - tababti-network
+      tababti-network:
+        aliases:
+          - home-service
     logging:
       driver: 'json-file'
       options:
@@ -288,7 +262,9 @@ services:
       kafka-init:
         condition: service_completed_successfully
     networks:
-      - tababti-network
+      tababti-network:
+        aliases:
+          - home-service
     logging:
       driver: 'json-file'
       options:
@@ -350,7 +326,9 @@ services:
       kafka-init:
         condition: service_completed_successfully
     networks:
-      - tababti-network
+      tababti-network:
+        aliases:
+          - social-service
     logging:
       driver: 'json-file'
       options:
@@ -412,7 +390,9 @@ services:
       kafka-init:
         condition: service_completed_successfully
     networks:
-      - tababti-network
+      tababti-network:
+        aliases:
+          - social-service
     logging:
       driver: 'json-file'
       options:

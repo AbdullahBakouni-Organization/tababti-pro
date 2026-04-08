@@ -45,9 +45,8 @@ export class MedicalEquipmentController {
     @Headers('accept-language') lang: 'en' | 'ar' = 'en',
   ) {
     const request = await this.equipmentService.createRequest(
-      authAccountId,
       requesterType,
-      requesterId,
+      authAccountId,
       dto,
     );
 
