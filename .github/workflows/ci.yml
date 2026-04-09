@@ -364,7 +364,7 @@ jobs:
             "JWT_ACCESS_EXPIRES_IN=15m",
             "JWT_REFRESH_EXPIRES_IN=7d",
             "ALLOWED_ORIGINS=http://localhost:3000",
-            "FLASK_API_URL=http://localhost:5000",
+            "FLASK_API_URL=https://Abood-40-transliteration-api.hf.space",
             "OPENROUTE_API_KEY=ci-dummy-key",
             "MINIO_API_PORT=9000",
             "MINIO_CONSOLE_PORT=9001",
