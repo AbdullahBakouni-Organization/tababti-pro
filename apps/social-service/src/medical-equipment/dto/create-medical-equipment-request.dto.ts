@@ -15,12 +15,18 @@ import {
 // ============================================
 
 export class CreateMedicalEquipmentRequestDto {
+  @IsOptional()
   @IsEnum(Machines, { message: 'Invalid equipment type' })
-  equipmentType: Machines;
+  equipmentType?: Machines;
 
+  @IsOptional()
   @IsNumber({}, { message: 'Quantity must be a number' })
   @IsPositive({ message: 'Quantity must be greater than 0' })
-  quantity: number;
+  quantity?: number;
+
+  @IsOptional()
+  @IsString({ message: 'Note must be a string' })
+  note?: string;
 }
 
 // ============================================
@@ -40,12 +46,24 @@ export class UpdateMedicalEquipmentStatusDto {
 // RESPONSE DTOs
 // ============================================
 
+export class RequesterInfoDto {
+  id: string;
+  image?: string;
+  fullName: string;
+  publicSpecialization?: string;
+  privateSpecialization?: string;
+  gender?: string;
+  phones: object[];
+}
+
 export class MedicalEquipmentRequestResponseDto {
   id: string;
   requesterType: string;
   requesterId: string;
+  requesterInfo?: RequesterInfoDto;
   equipmentType: Machines;
   quantity: number;
+  note?: string;
   status: EntityRequestStatus;
   assignedTo?: string;
   reviewNotes?: string;

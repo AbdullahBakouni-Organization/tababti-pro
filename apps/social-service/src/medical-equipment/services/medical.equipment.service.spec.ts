@@ -59,13 +59,13 @@ describe('MedicalEquipmentService', () => {
 
     it('throws BadRequestException for invalid requesterType', async () => {
       await expect(
-        service.createRequest('auth-1', UserRole.USER, requesterId, dto),
+        service.createRequest(UserRole.USER, requesterId, dto),
       ).rejects.toThrow(BadRequestException);
     });
 
     it('throws BadRequestException for invalid equipment type', async () => {
       await expect(
-        service.createRequest('auth-1', UserRole.DOCTOR, requesterId, {
+        service.createRequest(UserRole.DOCTOR, requesterId, {
           equipmentType: 'INVALID' as any,
           quantity: 1,
         }),
@@ -74,7 +74,7 @@ describe('MedicalEquipmentService', () => {
 
     it('throws BadRequestException for zero quantity', async () => {
       await expect(
-        service.createRequest('auth-1', UserRole.DOCTOR, requesterId, {
+        service.createRequest(UserRole.DOCTOR, requesterId, {
           equipmentType: Machines.MRIMachine,
           quantity: 0,
         }),
@@ -84,7 +84,6 @@ describe('MedicalEquipmentService', () => {
     it('creates request successfully', async () => {
       mockRepo.createRequest.mockResolvedValue(mockRequest);
       const result = await service.createRequest(
-        'auth-1',
         UserRole.DOCTOR,
         requesterId,
         dto,

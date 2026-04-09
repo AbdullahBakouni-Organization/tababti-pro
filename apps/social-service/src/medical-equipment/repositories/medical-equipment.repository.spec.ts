@@ -38,6 +38,19 @@ describe('MedicalEquipmentRepository', () => {
     updateOne: jest.fn(),
   };
 
+  const mockDoctorModel = {
+    findOne: jest.fn(),
+    find: jest.fn(),
+  };
+
+  const mockHospitalModel = {
+    find: jest.fn(),
+  };
+
+  const mockCenterModel = {
+    find: jest.fn(),
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
 
@@ -47,6 +60,18 @@ describe('MedicalEquipmentRepository', () => {
         {
           provide: getModelToken(MedicalEquipmentRequest.name),
           useValue: mockModel,
+        },
+        {
+          provide: getModelToken('Doctor'),
+          useValue: mockDoctorModel,
+        },
+        {
+          provide: getModelToken('Hospital'),
+          useValue: mockHospitalModel,
+        },
+        {
+          provide: getModelToken('Center'),
+          useValue: mockCenterModel,
         },
       ],
     }).compile();
@@ -66,6 +91,8 @@ describe('MedicalEquipmentRepository', () => {
     });
 
     it('creates request with PENDING status', async () => {
+      const mockDoctor = { _id: requesterId };
+      mockDoctorModel.findOne.mockResolvedValue(mockDoctor);
       mockModel.create.mockResolvedValue(mockRequest);
 
       const result = await repo.createRequest(

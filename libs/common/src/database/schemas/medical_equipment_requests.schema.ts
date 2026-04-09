@@ -12,11 +12,14 @@ export class MedicalEquipmentRequest extends Document {
   @Prop({ type: Types.ObjectId, index: true })
   requesterId: Types.ObjectId;
 
-  @Prop({ type: String, enum: Machines, required: true, index: true })
+  @Prop({ type: String, enum: Machines })
   equipmentType: Machines;
 
   @Prop({ type: Number, required: false })
   quantity: number;
+
+  @Prop({ type: String, required: false })
+  note: string;
 
   @Prop({
     type: String,

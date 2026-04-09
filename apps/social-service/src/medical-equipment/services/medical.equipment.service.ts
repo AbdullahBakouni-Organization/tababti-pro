@@ -26,7 +26,6 @@ export class MedicalEquipmentService {
 
   // ======== Create Equipment Request ========
   async createRequest(
-    authAccountId: string,
     requesterType: UserRole,
     requesterId: string,
     dto: CreateMedicalEquipmentRequestDto,
@@ -40,13 +39,16 @@ export class MedicalEquipmentService {
       throw new BadRequestException('request.INVALID_REQUESTER_TYPE');
     }
 
-    // Validate equipment type
-    if (!Object.values(Machines).includes(dto.equipmentType)) {
+    // Validate equipment type when provided
+    if (
+      dto.equipmentType !== undefined &&
+      !Object.values(Machines).includes(dto.equipmentType)
+    ) {
       throw new BadRequestException('request.INVALID_EQUIPMENT_TYPE');
     }
 
-    // Validate quantity
-    if (!dto.quantity || dto.quantity < 1) {
+    // Validate quantity — use explicit undefined check so that 0 is caught
+    if (dto.quantity !== undefined && dto.quantity < 1) {
       throw new BadRequestException('request.INVALID_QUANTITY');
     }
 
@@ -55,6 +57,7 @@ export class MedicalEquipmentService {
       requesterId,
       dto.equipmentType,
       dto.quantity,
+      dto.note,
     );
 
     return this.mapToResponse(request);
@@ -322,12 +325,13 @@ export class MedicalEquipmentService {
       id: request._id.toString(),
       requesterType: request.requesterType,
       requesterId: request.requesterId.toString(),
+      ...(request.requesterInfo && { requesterInfo: request.requesterInfo }),
       equipmentType: request.equipmentType,
       quantity: request.quantity,
+      note: request.note,
       status: request.status,
       assignedTo: request.assignedTo,
       reviewNotes: request.reviewNotes,
-      //  contactNotes: request.contactNotes,
       createdAt: request.createdAt,
       updatedAt: request.updatedAt,
       statusChangedAt: request.statusChangedAt,

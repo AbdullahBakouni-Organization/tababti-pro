@@ -57,9 +57,6 @@ services:
   nginx-primary:
     restart: 'no'
 
-  nginx-internal:
-    restart: 'no'
-
   # ── App services — replica-set URI, disable restarts ────────────────────────
   # directConnection=true is required when talking to a single-node replica set
   # that advertises its own hostname (mongo:27017) as the primary.
