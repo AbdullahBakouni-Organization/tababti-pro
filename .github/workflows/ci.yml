@@ -562,9 +562,9 @@ jobs:
 
   # ──────────────────────────────────────────────────────────────────────────
   # GATE — CI Complete
-  # On PRs: verifies every stage passed (or was skipped).
-  # On merge to main: skips CI stages (already done on the PR), triggers
-  #                   Dokploy to deploy the images that were just pushed.
+  # Single required status check for branch protection.
+  # Passes only when every non-optional stage has succeeded (or was skipped).
+  # On main branch, also triggers Dokploy deployment.
   # ──────────────────────────────────────────────────────────────────────────
   ci-complete:
     name: CI Complete
@@ -598,7 +598,7 @@ jobs:
           "
 
       - name: Trigger Dokploy deployment
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        if: github.ref == 'refs/heads/main'
         run: |
           echo "Triggering Dokploy compose deployment for commit ${{ github.sha }}..."
           response=$(curl -s -o /tmp/dokploy_response.json -w "%{http_code}" \
