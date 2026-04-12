@@ -405,7 +405,7 @@ export class AdminService {
     }
     const doctor = await this.doctorModel
       .findOne({ _id: doctorId })
-      .select('gallery fcmToken firstName lastName') // fetch full gallery, filter in JS
+      .select('gallery fcmToken firstName lastName authAccountId') // fetch full gallery, filter in JS
       .lean();
     if (!doctor) {
       throw new NotFoundException('Doctor not found');
@@ -466,7 +466,7 @@ export class AdminService {
 
     const doctor = await this.doctorModel
       .findOne({ _id: doctorId })
-      .select('gallery fcmToken firstName lastName')
+      .select('gallery fcmToken firstName lastName authAccountId')
       .lean();
 
     if (!doctor) {

@@ -24,56 +24,49 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   }
 
   async validate(payload: JwtPayload) {
-    // 1️⃣ Load account (single source of truth)
-    const account = await this.authValidateService.getAccount(payload.sub);
-    if (!account) {
-      throw new UnauthorizedException('Account not found');
-    }
-
-    // 2️⃣ Check if account is active
-    if (!account.isActive) {
-      throw new UnauthorizedException('Account is deactivated');
-    }
-
-    // 3️⃣ Global revocation check (logout-all, password reset, etc.)
-    if (payload.tv !== account.tokenVersion) {
-      throw new UnauthorizedException(
-        'Token revoked (password changed or global logout)',
-      );
-    }
-    // 4️⃣ Get full user data (Doctor/Admin/User entity)
-    const user = await this.authValidateService.validateUser(payload.sub);
-
-    // 5️⃣ OPTIONAL: Session-based validation (recommended for security)
-    if (payload.sessionId) {
-      const sessions = await this.authValidateService.getActiveSessions(
-        payload.sub,
-        payload.role,
-      );
-
-      const sessionExists = sessions.some(
-        (s) => s.sessionId === payload.sessionId,
-      );
-
-      if (!sessionExists) {
-        throw new UnauthorizedException('Session revoked or expired');
+    try {
+      const account = await this.authValidateService.getAccount(payload.sub);
+      if (!account) throw new UnauthorizedException('Account not found');
+      if (!account.isActive)
+        throw new UnauthorizedException('Account is deactivated');
+      if (payload.tv !== account.tokenVersion) {
+        throw new UnauthorizedException('Token revoked');
       }
 
-      // Update session activity (background task - don't await)
-      this.authValidateService
-        .updateSessionActivity(payload.sub, payload.role, payload.sessionId)
-        .catch(() => {}); // Silent fail
-    }
+      const user = await this.authValidateService.validateUser(payload.sub);
 
-    // 6️⃣ Return user object for request context
-    return {
-      accountId: payload.sub,
-      phone: payload.phone,
-      role: payload.role,
-      sessionId: payload.sessionId,
-      deviceId: payload.deviceId,
-      entity: user.entity, // Full Doctor/Admin/User object
-    };
+      if (payload.sessionId) {
+        const sessions = await this.authValidateService.getActiveSessions(
+          payload.sub,
+          payload.role,
+        );
+        const sessionExists = sessions.some(
+          (s) => s.sessionId === payload.sessionId,
+        );
+        if (!sessionExists)
+          throw new UnauthorizedException('Session revoked or expired');
+
+        this.authValidateService
+          .updateSessionActivity(payload.sub, payload.role, payload.sessionId)
+          .catch(() => {});
+      }
+
+      return {
+        accountId: payload.sub,
+        phone: payload.phone,
+        role: payload.role,
+        sessionId: payload.sessionId,
+        deviceId: payload.deviceId,
+        entity: user.entity,
+      };
+    } catch (error) {
+      // ✅ لو UnauthorizedException، ارميها كما هي
+      if (error instanceof UnauthorizedException) throw error;
+      // ✅ لو string أو أي شي ثاني، لفه
+      throw new UnauthorizedException(
+        typeof error === 'string' ? error : 'Authentication failed',
+      );
+    }
   }
 }
 
@@ -101,27 +94,34 @@ export class JwtRefreshStrategy extends PassportStrategy(
   }
 
   async validate(req: Request, payload: JwtPayload) {
-    const refreshToken = refreshTokenFromCookie(req);
-    if (!refreshToken) {
-      throw new UnauthorizedException('Refresh token not found in cookies');
-    }
-    // 1️⃣ Validate account
-    const account = await this.authValidateService.getAccount(payload.sub);
-    if (!account || !account.isActive) {
-      throw new UnauthorizedException('Account not found or inactive');
-    }
+    try {
+      const refreshToken = refreshTokenFromCookie(req);
+      if (!refreshToken) {
+        throw new UnauthorizedException('Refresh token not found in cookies');
+      }
+      // 1️⃣ Validate account
+      const account = await this.authValidateService.getAccount(payload.sub);
+      if (!account || !account.isActive) {
+        throw new UnauthorizedException('Account not found or inactive');
+      }
 
-    // 2️⃣ Token version check (revocation support)
-    if (payload.tv !== account.tokenVersion) {
-      throw new UnauthorizedException('Refresh token revoked');
-    }
+      // 2️⃣ Token version check (revocation support)
+      if (payload.tv !== account.tokenVersion) {
+        throw new UnauthorizedException('Refresh token revoked');
+      }
 
-    return {
-      accountId: payload.sub,
-      role: payload.role,
-      sessionId: payload.sessionId,
-      refreshToken, // optional but useful
-    };
+      return {
+        accountId: payload.sub,
+        role: payload.role,
+        sessionId: payload.sessionId,
+        refreshToken, // optional but useful
+      };
+    } catch (error) {
+      if (error instanceof UnauthorizedException) throw error;
+      throw new UnauthorizedException(
+        typeof error === 'string' ? error : 'Refresh token validation failed',
+      );
+    }
   }
 }
 
@@ -145,27 +145,34 @@ export class JwtRefreshAdminStrategy extends PassportStrategy(
   }
 
   async validate(req: Request, payload: JwtPayload) {
-    const refreshToken = refreshAdminTokenFromCookie(req);
-    if (!refreshToken) {
-      throw new UnauthorizedException('Refresh token not found in cookies');
-    }
-    // 1️⃣ Validate account
-    const account = await this.authValidateService.getAccount(payload.sub);
-    if (!account || !account.isActive) {
-      throw new UnauthorizedException('Account not found or inactive');
-    }
+    try {
+      const refreshToken = refreshAdminTokenFromCookie(req);
+      if (!refreshToken) {
+        throw new UnauthorizedException('Refresh token not found in cookies');
+      }
+      // 1️⃣ Validate account
+      const account = await this.authValidateService.getAccount(payload.sub);
+      if (!account || !account.isActive) {
+        throw new UnauthorizedException('Account not found or inactive');
+      }
 
-    // 2️⃣ Token version check (revocation support)
-    if (payload.tv !== account.tokenVersion) {
-      throw new UnauthorizedException('Refresh token revoked');
-    }
+      // 2️⃣ Token version check (revocation support)
+      if (payload.tv !== account.tokenVersion) {
+        throw new UnauthorizedException('Refresh token revoked');
+      }
 
-    return {
-      accountId: payload.sub,
-      role: payload.role,
-      sessionId: payload.sessionId,
-      refreshToken, // optional but useful
-    };
+      return {
+        accountId: payload.sub,
+        role: payload.role,
+        sessionId: payload.sessionId,
+        refreshToken, // optional but useful
+      };
+    } catch (error) {
+      if (error instanceof UnauthorizedException) throw error;
+      throw new UnauthorizedException(
+        typeof error === 'string' ? error : 'Refresh token validation failed',
+      );
+    }
   }
 }
 
@@ -184,55 +191,62 @@ export class JwtUserStrategy extends PassportStrategy(Strategy, 'jwt-user') {
 
   async validate(payload: JwtPayload) {
     // 1️⃣ Load account (single source of truth)
-    const account = await this.authValidateService.getAccount(payload.sub);
-    if (!account) {
-      throw new UnauthorizedException('Account not found');
-    }
-
-    // 2️⃣ Check if account is active
-    if (!account.isActive) {
-      throw new UnauthorizedException('Account is deactivated');
-    }
-
-    // 3️⃣ Global revocation check (logout-all, password reset, etc.)
-    if (payload.tv !== account.tokenVersion) {
-      throw new UnauthorizedException(
-        'Token revoked (password changed or global logout)',
-      );
-    }
-    // 4️⃣ Get full user data (Doctor/Admin/User entity)
-    const user = await this.authValidateService.validateUserRole(payload.sub);
-
-    // 5️⃣ OPTIONAL: Session-based validation (recommended for security)
-    if (payload.sessionId) {
-      const sessions = await this.authValidateService.getActiveSessions(
-        payload.sub,
-        payload.role,
-      );
-
-      const sessionExists = sessions.some(
-        (s) => s.sessionId === payload.sessionId,
-      );
-
-      if (!sessionExists) {
-        throw new UnauthorizedException('Session revoked or expired');
+    try {
+      const account = await this.authValidateService.getAccount(payload.sub);
+      if (!account) {
+        throw new UnauthorizedException('Account not found');
       }
 
-      // Update session activity (background task - don't await)
-      this.authValidateService
-        .updateSessionActivity(payload.sub, payload.role, payload.sessionId)
-        .catch(() => {}); // Silent fail
-    }
+      // 2️⃣ Check if account is active
+      if (!account.isActive) {
+        throw new UnauthorizedException('Account is deactivated');
+      }
 
-    // 6️⃣ Return user object for request context
-    return {
-      accountId: payload.sub,
-      phone: payload.phone,
-      role: payload.role,
-      sessionId: payload.sessionId,
-      deviceId: payload.deviceId,
-      entity: user.entity,
-    };
+      // 3️⃣ Global revocation check (logout-all, password reset, etc.)
+      if (payload.tv !== account.tokenVersion) {
+        throw new UnauthorizedException(
+          'Token revoked (password changed or global logout)',
+        );
+      }
+      // 4️⃣ Get full user data (Doctor/Admin/User entity)
+      const user = await this.authValidateService.validateUserRole(payload.sub);
+
+      // 5️⃣ OPTIONAL: Session-based validation (recommended for security)
+      if (payload.sessionId) {
+        const sessions = await this.authValidateService.getActiveSessions(
+          payload.sub,
+          payload.role,
+        );
+
+        const sessionExists = sessions.some(
+          (s) => s.sessionId === payload.sessionId,
+        );
+
+        if (!sessionExists) {
+          throw new UnauthorizedException('Session revoked or expired');
+        }
+
+        // Update session activity (background task - don't await)
+        this.authValidateService
+          .updateSessionActivity(payload.sub, payload.role, payload.sessionId)
+          .catch(() => {}); // Silent fail
+      }
+
+      // 6️⃣ Return user object for request context
+      return {
+        accountId: payload.sub,
+        phone: payload.phone,
+        role: payload.role,
+        sessionId: payload.sessionId,
+        deviceId: payload.deviceId,
+        entity: user.entity,
+      };
+    } catch (error) {
+      if (error instanceof UnauthorizedException) throw error;
+      throw new UnauthorizedException(
+        typeof error === 'string' ? error : 'Authentication failed',
+      );
+    }
   }
 }
 
@@ -256,28 +270,35 @@ export class JwtUserRefreshStrategy extends PassportStrategy(
   }
 
   async validate(req: Request, payload: JwtPayload) {
-    const refreshToken = req.body?.refreshToken;
+    try {
+      const refreshToken = req.body?.refreshToken;
 
-    if (!refreshToken) {
+      if (!refreshToken) {
+        throw new UnauthorizedException(
+          'Refresh token not found in request body',
+        );
+      }
+
+      const account = await this.authValidateService.getAccount(payload.sub);
+      if (!account || !account.isActive) {
+        throw new UnauthorizedException('Account not found or inactive');
+      }
+
+      if (payload.tv !== account.tokenVersion) {
+        throw new UnauthorizedException('Refresh token revoked');
+      }
+
+      return {
+        accountId: payload.sub,
+        role: payload.role,
+        sessionId: payload.sessionId,
+        refreshToken,
+      };
+    } catch (error) {
+      if (error instanceof UnauthorizedException) throw error;
       throw new UnauthorizedException(
-        'Refresh token not found in request body',
+        typeof error === 'string' ? error : 'Refresh token validation failed',
       );
     }
-
-    const account = await this.authValidateService.getAccount(payload.sub);
-    if (!account || !account.isActive) {
-      throw new UnauthorizedException('Account not found or inactive');
-    }
-
-    if (payload.tv !== account.tokenVersion) {
-      throw new UnauthorizedException('Refresh token revoked');
-    }
-
-    return {
-      accountId: payload.sub,
-      role: payload.role,
-      sessionId: payload.sessionId,
-      refreshToken,
-    };
   }
 }

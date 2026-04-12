@@ -1,5 +1,6 @@
 import {
   ExecutionContext,
+  HttpException,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -13,8 +14,10 @@ export class JwtAdminRefreshGuard extends AuthGuard('jwt-refresh-admin') {
 
   handleRequest(err: any, user: any) {
     if (err || !user) {
-      throw (
-        err || new UnauthorizedException('Invalid or expired refresh token')
+      // ✅ لو err مش HttpException، لا تعيد رميه كما هو
+      if (err instanceof HttpException) throw err;
+      throw new UnauthorizedException(
+        typeof err === 'string' ? err : 'Invalid or expired access token',
       );
     }
     return user;

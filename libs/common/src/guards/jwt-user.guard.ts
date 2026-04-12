@@ -2,6 +2,7 @@ import {
   Injectable,
   ExecutionContext,
   UnauthorizedException,
+  HttpException,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 
@@ -17,9 +18,12 @@ export class JwtUserGuard extends AuthGuard('jwt-user') {
   }
 
   handleRequest(err: any, user: any) {
-    // You can throw an exception based on either "info" or "err" arguments
     if (err || !user) {
-      throw err || new UnauthorizedException('Invalid or expired access token');
+      // ✅ لو err مش HttpException، لا تعيد رميه كما هو
+      if (err instanceof HttpException) throw err;
+      throw new UnauthorizedException(
+        typeof err === 'string' ? err : 'Invalid or expired access token',
+      );
     }
     return user;
   }
