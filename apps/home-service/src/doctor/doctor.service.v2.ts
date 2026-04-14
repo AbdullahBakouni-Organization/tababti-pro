@@ -134,10 +134,11 @@ export class DoctorBookingsQueryService {
     const totalPages = Math.ceil(totalItems / limit);
 
     // Fetch bookings with all related data
+    // Include both DB-patient bookings (patientId set) and manual-patient bookings (patientPhone set)
     const bookings = await this.bookingModel
       .find({
         ...filters,
-        patientId: { $ne: null }, // ← skip orphaned
+        $or: [{ patientId: { $ne: null } }, { patientPhone: { $ne: null } }],
         slotId: { $ne: null },
       })
       .populate<{ patientId: User }>('patientId', 'username phone gender')
@@ -244,7 +245,17 @@ export class DoctorBookingsQueryService {
     inspectionDuration: number,
   ): DoctorBookingDetailDto[] {
     return bookings.map((booking) => {
-      const patient = booking.patientId as User;
+      // Resolve patient — may be a DB patient (populated) or a manual patient (patientId: null)
+      const populatedPatient =
+        booking.patientId !== null &&
+        typeof booking.patientId === 'object' &&
+        '_id' in (booking.patientId as object)
+          ? (booking.patientId as unknown as User)
+          : null;
+
+      const isManualPatient =
+        populatedPatient === null && booking.patientPhone != null;
+
       const slot = booking.slotId as AppointmentSlot;
 
       return {
@@ -265,17 +276,24 @@ export class DoctorBookingsQueryService {
               cancelledAt: booking.cancellation.cancelledAt,
             }
           : undefined,
-        patient: patient
+        patient: populatedPatient
           ? {
-              patientId: patient._id.toString(), // ← was 'id', also toString()
-              username: patient.username,
-              phone: patient.phone,
-              gender: patient.gender,
+              patientId: populatedPatient._id.toString(),
+              username: populatedPatient.username,
+              phone: populatedPatient.phone,
+              gender: populatedPatient.gender,
             }
-          : null,
+          : isManualPatient
+            ? {
+                patientId: '',
+                username: booking.patientName ?? 'Manual Patient',
+                phone: booking.patientPhone ?? '',
+                gender: undefined,
+              }
+            : null,
         slot: slot
           ? {
-              slotId: slot._id.toString(), // ← was 'id', also toString()
+              slotId: slot._id.toString(),
               date: slot.date,
               startTime: slot.startTime,
               endTime: slot.endTime,
@@ -427,13 +445,19 @@ export class DoctorBookingsQueryService {
       );
     }
 
-    // ✅ Fetch patient for notification
-    const patient = await this.userModel
-      .findById(booking.patientId)
-      .select('_id username fcmToken')
-      .exec();
+    // ✅ Fetch patient for notification — only when the booking is tied to a
+    // registered user. Manual-patient bookings (doctor-created, patientId
+    // null, patientPhone/patientName set) have no user record to notify.
+    const patient = booking.patientId
+      ? await this.userModel
+          .findById(booking.patientId)
+          .select('_id username fcmToken')
+          .exec()
+      : null;
 
-    if (!patient) throw new NotFoundException('Patient not found');
+    if (booking.patientId && !patient) {
+      throw new NotFoundException('Patient not found');
+    }
 
     // ✅ Fetch doctor name
     const doctor = await this.doctorModel
@@ -473,19 +497,21 @@ export class DoctorBookingsQueryService {
       },
     );
 
-    // ✅ Send Kafka notification to patient
-    this.sendReschueledNotification(
-      doctorId,
-      doctorName,
-      patient,
-      booking,
-      'Doctor Rescheduled your last appointment because you missed the previous appointment',
-      'BOOKING_RESCHEDULED',
-    );
+    // ✅ Send Kafka notification to patient (only for registered patients)
+    if (patient) {
+      this.sendReschueledNotification(
+        doctorId,
+        doctorName,
+        patient,
+        booking,
+        'Doctor Rescheduled your last appointment because you missed the previous appointment',
+        'BOOKING_RESCHEDULED',
+      );
+    }
     await invalidateBookingCaches(
       this.cacheService,
       doctorId,
-      patient._id.toString(),
+      patient ? patient._id.toString() : undefined,
       this.logger,
     );
     this.logger.log(

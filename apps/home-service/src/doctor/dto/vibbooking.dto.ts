@@ -95,7 +95,17 @@ export class VIPBookingConflictResponseDto {
 }
 
 /**
- * DTO for creating VIP booking (confirmed)
+ * DTO for creating VIP booking (confirmed).
+ *
+ * Mutual-exclusivity constraint — exactly ONE of the two groups below must be provided:
+ *   Group A (existing DB patient): vipPatientId
+ *   Group B (manual patient):      patientName + patientAddress + patientPhone
+ *
+ * Rules enforced at the DTO level:
+ *   • If vipPatientId is present, the three manual-patient fields must be absent.
+ *   • If any manual-patient field is present, vipPatientId must be absent and all
+ *     three manual-patient fields must be present.
+ *   • Having neither group is invalid (service-level guard provides the fallback).
  */
 export class CreateVIPBookingDto {
   @ApiProperty({
@@ -106,13 +116,64 @@ export class CreateVIPBookingDto {
   @IsMongoId()
   slotId: string;
 
-  @ApiProperty({
-    description: 'VIP Patient ID',
+  // ── Group A: existing DB patient ────────────────────────────────────────────
+
+  @ApiPropertyOptional({
+    description:
+      'ID of an existing patient in the database. Mutually exclusive with the manual-patient fields.',
     example: '507f1f77bcf86cd799439011',
   })
+  @ValidateIf(
+    (o: CreateVIPBookingDto) =>
+      !o.patientName && !o.patientAddress && !o.patientPhone,
+  )
   @IsNotEmpty()
   @IsMongoId()
-  vipPatientId: string;
+  vipPatientId?: string;
+
+  // ── Group B: manual patient (not in the database) ───────────────────────────
+
+  @ApiPropertyOptional({
+    description:
+      'Full name of the manual patient. Required when the patient is not in the database. Mutually exclusive with vipPatientId.',
+    example: 'Ahmad Al-Khalidi',
+  })
+  @ValidateIf(
+    (o: CreateVIPBookingDto) =>
+      !o.vipPatientId &&
+      (o.patientAddress !== undefined || o.patientPhone !== undefined),
+  )
+  @IsNotEmpty()
+  @IsString()
+  patientName?: string;
+
+  @ApiPropertyOptional({
+    description: 'Address of the manual patient.',
+    example: 'Damascus, Al-Mazzeh district',
+  })
+  @ValidateIf(
+    (o: CreateVIPBookingDto) =>
+      !o.vipPatientId &&
+      (o.patientName !== undefined || o.patientPhone !== undefined),
+  )
+  @IsNotEmpty()
+  @IsString()
+  patientAddress?: string;
+
+  @ApiPropertyOptional({
+    description: 'Phone number of the manual patient.',
+    example: '+963912345678',
+  })
+  @ValidateIf(
+    (o: CreateVIPBookingDto) =>
+      !o.vipPatientId &&
+      (o.patientName !== undefined || o.patientAddress !== undefined),
+  )
+  @IsNotEmpty()
+  @IsString()
+  patientPhone?: string;
+
+  // ── Shared fields ───────────────────────────────────────────────────────────
 
   @ApiProperty({
     description: 'Reason for VIP booking (shown to displaced patient)',
@@ -130,10 +191,9 @@ export class CreateVIPBookingDto {
   @IsBoolean()
   confirmOverride: boolean;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     description: 'Optional note for the booking',
     example: 'VIP patient - handle with care',
-    required: false,
   })
   @IsOptional()
   @IsString()
@@ -238,13 +298,20 @@ export class CreateHolidayDto {
 }
 
 /**
- * Job data for VIP booking Bull job
+ * Job data for VIP booking Bull job.
+ * Exactly one of (vipPatientId) OR (patientName + patientAddress + patientPhone) must
+ * be present — mirroring the mutual-exclusivity on CreateVIPBookingDto.
  */
 export interface VIPBookingJobData {
   doctorId: string;
   doctorName: string;
   slotId: string;
-  vipPatientId: string;
+  /** Present when booking an existing DB patient. */
+  vipPatientId?: string;
+  /** Present when booking a manual patient not in the database. */
+  patientName?: string;
+  patientAddress?: string;
+  patientPhone?: string;
   existingBookingId: string | null;
   reason: string;
   note?: string;

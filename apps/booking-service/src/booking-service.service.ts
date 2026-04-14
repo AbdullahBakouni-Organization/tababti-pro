@@ -29,6 +29,8 @@ import { CreateBookingDto, BookingResponseDto } from './dto/create-booking.dto';
 import { CacheService } from '@app/common/cache/cache.service';
 import { BookingValidationService } from '@app/common/booking-validation';
 import { invalidateBookingCaches } from '@app/common/utils/cache-invalidation.util';
+import { KafkaService } from '@app/common/kafka/kafka.service';
+import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
 
 @Injectable()
 export class BookingService {
@@ -42,6 +44,7 @@ export class BookingService {
     @InjectModel(Doctor.name) private doctorModel: Model<DoctorDocument>,
     private readonly cacheService: CacheService,
     private readonly patientBookingService: BookingValidationService,
+    private readonly kafkaService: KafkaService,
   ) {}
 
   /**
@@ -146,8 +149,8 @@ export class BookingService {
         `Booking created successfully: ${booking[0]._id.toString()}`,
       );
 
-      // Step 6: Publish Kafka event (after commit)
-      // await this.publishBookingCreatedEvent(booking[0], patient, doctor, slot);
+      // Step 6: Notify doctor via WhatsApp (after commit)
+      this.publishBookingCreatedEvent(booking[0], patient, doctor);
 
       // Step 7: Invalidate cache
       await invalidateBookingCaches(
@@ -275,6 +278,49 @@ export class BookingService {
     }
     if (!Types.ObjectId.isValid(dto.slotId)) {
       throw new BadRequestException('Invalid slot ID');
+    }
+  }
+
+  /**
+   * Notify the doctor via WhatsApp when a patient books an appointment.
+   * Uses the first normal phone on the doctor record (same pattern as WHATSAPP_DOCTOR_WELCOME).
+   * Fire-and-forget: errors are logged but never thrown so the booking response is unaffected.
+   */
+  private publishBookingCreatedEvent(
+    booking: BookingDocument,
+    patient: UserDocument,
+    doctor: DoctorDocument,
+  ): void {
+    const doctorPhone = doctor.phones?.[0]?.normal?.[0];
+    if (!doctorPhone) {
+      this.logger.warn(
+        `Doctor ${doctor._id.toString()} has no normal phone. WhatsApp notification skipped.`,
+      );
+      return;
+    }
+
+    const appointmentDate =
+      booking.bookingDate instanceof Date
+        ? booking.bookingDate.toISOString().split('T')[0]
+        : String(booking.bookingDate);
+
+    try {
+      this.kafkaService.emit(KAFKA_TOPICS.WHATSAPP_BOOKING_CREATED_DOCTOR, {
+        phone: doctorPhone,
+        doctorName: `${doctor.firstName} ${doctor.lastName}`,
+        patientName: patient.username,
+        appointmentDate,
+        appointmentTime: booking.bookingTime,
+      });
+      this.logger.log(
+        `📨 WhatsApp booking-created notification emitted for doctor ${doctor._id.toString()}`,
+      );
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `Failed to emit WhatsApp booking-created notification: ${err.message}`,
+        err.stack,
+      );
     }
   }
 }

@@ -149,8 +149,17 @@ export class WhatsappService implements OnModuleInit {
   // ── Private Helpers ───────────────────────────────────────────────────────
 
   private formatPhone(phone: string): string {
-    // Strip all non-digit characters then append WhatsApp suffix
-    return phone.replace(/\D/g, '') + '@c.us';
+    // Strip all non-digit characters
+    let digits = phone.replace(/\D/g, '');
+
+    // Local Syrian format: starts with 0 (e.g. 0968679572) → drop leading 0,
+    // prepend country code 963 → 963968679572
+    if (digits.startsWith('0')) {
+      digits = '963' + digits.slice(1);
+    }
+
+    // WhatsApp requires the number without '+' and with the @c.us suffix
+    return digits + '@c.us';
   }
 
   private async flushPendingMessages(): Promise<void> {
@@ -217,6 +226,28 @@ export class WhatsappService implements OnModuleInit {
 
   نتمنى لك تجربة مميزة معنا، ونحن هنا لدعمك في كل خطوة 💙
   — فريق *طبابتي*`;
+
+    await this.sendMessage(phone, text, 'ar');
+  }
+
+  async sendBookingCreatedToDoctor(
+    phone: string,
+    doctorName: string,
+    patientName: string,
+    appointmentDate: string,
+    appointmentTime: string,
+  ): Promise<void> {
+    const text = `📅 حجز جديد - د. ${doctorName}
+
+تم حجز موعد جديد لديك على منصة *طبابتي* 🩺
+
+👤 *المريض:* ${patientName}
+📅 *التاريخ:* ${appointmentDate}
+⏰ *الوقت:* ${appointmentTime}
+
+يرجى التحضير للموعد في الوقت المحدد.
+
+— فريق *طبابتي*`;
 
     await this.sendMessage(phone, text, 'ar');
   }

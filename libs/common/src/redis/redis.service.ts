@@ -44,6 +44,14 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     this.client.on('error', (err) => {
       this.logger.error('Redis client error', err);
     });
+
+    this.subscriber.on('error', (err) => {
+      this.logger.error('Redis subscriber error', err);
+    });
+
+    this.publisher.on('error', (err) => {
+      this.logger.error('Redis publisher error', err);
+    });
   }
 
   async onModuleDestroy() {

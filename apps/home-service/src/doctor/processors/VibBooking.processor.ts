@@ -51,13 +51,22 @@ export class VIPBookingProcessor {
       doctorName,
       slotId,
       vipPatientId,
+      patientName,
+      patientAddress,
+      patientPhone,
       existingBookingId,
       reason,
       note,
     } = job.data;
 
+    const isManualPatient = !vipPatientId;
+
     this.logger.log(
-      `[VIP Booking Job] Processing for slot ${slotId}, VIP patient ${vipPatientId}`,
+      `[VIP Booking Job] Processing for slot ${slotId}, ${
+        isManualPatient
+          ? `manual patient: ${patientName}`
+          : `VIP patient: ${vipPatientId}`
+      }`,
     );
 
     const session = await this.bookingModel.db.startSession();
@@ -92,28 +101,47 @@ export class VIPBookingProcessor {
         }
       }
 
-      // Step 2: Get slot and VIP patient info
+      // Step 2: Get slot; for DB patients also verify the patient record exists.
       const slot = await this.slotModel
         .findById(slotId)
         .session(session)
         .exec();
-      const vipPatient = await this.userModel
-        .findById(vipPatientId)
-        .session(session)
-        .exec();
 
-      if (!slot || !vipPatient) {
-        throw new Error('Slot or VIP patient not found');
+      if (!slot) {
+        throw new Error(`Slot ${slotId} not found`);
+      }
+
+      let vipPatient: UserDocument | null = null;
+      if (!isManualPatient) {
+        vipPatient = await this.userModel
+          .findById(vipPatientId)
+          .session(session)
+          .exec();
+
+        if (!vipPatient) {
+          throw new Error(`VIP patient ${vipPatientId} not found`);
+        }
       }
 
       // Step 3: Create VIP booking
+      const bookingFields = isManualPatient
+        ? {
+            patientId: null,
+            patientName,
+            patientAddress,
+            patientPhone,
+          }
+        : {
+            patientId: new Types.ObjectId(vipPatientId),
+          };
+
       const vipBooking = await this.bookingModel.create(
         [
           {
-            patientId: new Types.ObjectId(vipPatientId),
+            ...bookingFields,
             doctorId: new Types.ObjectId(doctorId),
             slotId: new Types.ObjectId(slotId),
-            status: BookingStatus.PENDING, // VIP bookings are auto-confirmed
+            status: BookingStatus.PENDING,
             bookingDate: slot.date,
             bookingTime: slot.startTime,
             bookingEndTime: slot.endTime,
@@ -150,9 +178,12 @@ export class VIPBookingProcessor {
 
       // Step 6: Publish Kafka event to refresh slots
       this.publishSlotsRefreshedEvent(doctorId, slotId);
+
+      // Cache invalidation: only invalidate by patientId for real DB patients;
+      // manual patients have no user-level cache.
       const affectedPatientIds = [
         displacedPatient?._id?.toString(),
-        vipPatientId,
+        ...(vipPatientId ? [vipPatientId] : []),
       ].filter(Boolean) as string[];
 
       await invalidateBookingCaches(

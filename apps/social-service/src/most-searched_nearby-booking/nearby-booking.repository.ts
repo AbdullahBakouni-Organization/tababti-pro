@@ -327,7 +327,28 @@ export class NearbyBookingRepository {
           as: 'patient',
         },
       },
-      { $unwind: '$patient' },
+      { $unwind: { path: '$patient', preserveNullAndEmptyArrays: true } },
+      {
+        $addFields: {
+          // Stable group key: DB patient _id, or "name_phone" for manual patients
+          _effectiveId: {
+            $ifNull: [
+              '$patient._id',
+              {
+                $concat: [
+                  { $ifNull: ['$patientName', ''] },
+                  '_',
+                  { $ifNull: ['$patientPhone', ''] },
+                ],
+              },
+            ],
+          },
+          _effectiveName: { $ifNull: ['$patient.username', '$patientName'] },
+          _effectivePhone: { $ifNull: ['$patient.phone', '$patientPhone'] },
+          _effectiveAddress: '$patientAddress',
+          _effectiveImage: '$patient.profileImage',
+        },
+      },
     ];
 
     if (filters.search) {
@@ -335,8 +356,8 @@ export class NearbyBookingRepository {
       pipeline.push({
         $match: {
           $or: [
-            { 'patient.username': { $regex: escaped, $options: 'i' } },
-            { 'patient.phone': { $regex: escaped, $options: 'i' } },
+            { _effectiveName: { $regex: escaped, $options: 'i' } },
+            { _effectivePhone: { $regex: escaped, $options: 'i' } },
           ],
         },
       });
@@ -345,10 +366,11 @@ export class NearbyBookingRepository {
     pipeline.push(
       {
         $group: {
-          _id: '$patient._id',
-          username: { $first: '$patient.username' },
-          phone: { $first: '$patient.phone' },
-          profileImage: { $first: '$patient.profileImage' },
+          _id: '$_effectiveId',
+          username: { $first: '$_effectiveName' },
+          phone: { $first: '$_effectivePhone' },
+          address: { $first: '$_effectiveAddress' },
+          profileImage: { $first: '$_effectiveImage' },
           totalVisits: { $sum: 1 },
           lastVisit: { $max: '$bookingDate' },
           firstVisit: { $min: '$bookingDate' },
@@ -575,7 +597,7 @@ export class NearbyBookingRepository {
           as: 'patient',
         },
       },
-      { $unwind: { path: '$patient', preserveNullAndEmptyArrays: false } },
+      { $unwind: { path: '$patient', preserveNullAndEmptyArrays: true } },
     ];
 
     // patient filters
@@ -589,15 +611,36 @@ export class NearbyBookingRepository {
     }
     if (filters.gender) patientMatch['patient.gender'] = filters.gender;
     if (Object.keys(patientMatch).length > 0) {
-      pipeline.push({ $match: patientMatch });
+      // For null-patient bookings: match patientName/patientPhone when search is
+      // active; pass through unconditionally for other filters (e.g. gender).
+      const nullPatientCondition: Record<string, any> = {
+        patient: { $eq: null },
+      };
+      if (filters.search) {
+        const esc = this.escapeRegex(filters.search);
+        nullPatientCondition.$or = [
+          { patientName: { $regex: esc, $options: 'i' } },
+          { patientPhone: { $regex: esc, $options: 'i' } },
+        ];
+      }
+      pipeline.push({
+        $match: { $or: [nullPatientCondition, patientMatch] },
+      });
     }
 
     pipeline.push(
       {
         $group: {
-          _id: '$patient._id',
-          username: { $first: '$patient.username' },
-          phone: { $first: '$patient.phone' },
+          // bookings with a patient group by patient._id;
+          // bookings without a patient each get their own entry (booking._id)
+          _id: { $ifNull: ['$patient._id', '$_id'] },
+          username: {
+            $first: { $ifNull: ['$patient.username', '$patientName'] },
+          },
+          phone: {
+            $first: { $ifNull: ['$patient.phone', '$patientPhone'] },
+          },
+          address: { $first: '$patientAddress' },
           profileImage: { $first: '$patient.profileImage' },
           gender: { $first: '$patient.gender' },
           dateOfBirth: { $first: '$patient.DataofBirth' },
@@ -646,6 +689,7 @@ export class NearbyBookingRepository {
                 type: { $literal: 'PATIENT' },
                 username: 1,
                 phone: 1,
+                address: 1,
                 image: 1,
                 gender: 1,
                 dateOfBirth: 1,

@@ -20,6 +20,7 @@ import {
   SlotStatus,
 } from '@app/common/database/schemas/common.enums';
 import { invalidateBookingCaches } from '@app/common/utils/cache-invalidation.util';
+import { KafkaService } from '@app/common/kafka/kafka.service';
 
 // Mock the cache-invalidation utility
 jest.mock('@app/common/utils/cache-invalidation.util', () => ({
@@ -34,6 +35,7 @@ describe('BookingService', () => {
   let doctorModel: ReturnType<typeof createMockModel>;
   let cacheService: ReturnType<typeof createMockCacheService>;
   let bookingValidationService: { validateBooking: jest.Mock };
+  let kafkaService: { emit: jest.Mock };
 
   const patientId = new Types.ObjectId().toString();
   const doctorId = new Types.ObjectId().toString();
@@ -80,6 +82,9 @@ describe('BookingService', () => {
     bookingValidationService = {
       validateBooking: jest.fn().mockResolvedValue({ canBook: true }),
     };
+    kafkaService = {
+      emit: jest.fn(),
+    };
 
     mockSession.startTransaction.mockClear();
     mockSession.commitTransaction.mockReset().mockResolvedValue(undefined);
@@ -103,6 +108,7 @@ describe('BookingService', () => {
           provide: BookingValidationService,
           useValue: bookingValidationService,
         },
+        { provide: KafkaService, useValue: kafkaService },
       ],
     }).compile();
 

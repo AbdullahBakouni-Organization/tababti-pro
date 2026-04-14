@@ -7,6 +7,7 @@ import {
   WhatsappSendOtpEvent,
 } from '@app/common/kafka/events/whatsapp.events';
 import {
+  WhatsappBookingCreatedDoctorEvent,
   WhatsappDoctorApprovedEvent,
   WhatsappDoctorRejectedEvent,
   WhatsappDoctorWelcomeEvent,
@@ -130,6 +131,36 @@ export class WhatsappConsumer {
     } catch (err) {
       this.logger.error(
         `❌ Failed to send rejection message to ${phone}: ${err?.message}`,
+        err?.stack,
+      );
+    }
+  }
+
+  @EventPattern(KAFKA_TOPICS.WHATSAPP_BOOKING_CREATED_DOCTOR)
+  async handleBookingCreatedDoctor(@Payload() data: any) {
+    const payload: WhatsappBookingCreatedDoctorEvent = data?.value ?? data;
+    const { phone, doctorName, patientName, appointmentDate, appointmentTime } =
+      payload ?? {};
+    if (!phone || !doctorName || !patientName) {
+      this.logger.error(
+        `❌ Invalid booking-created-doctor payload: ${JSON.stringify(payload)}`,
+      );
+      return;
+    }
+    try {
+      await this.whatsappService.sendBookingCreatedToDoctor(
+        phone,
+        doctorName,
+        patientName,
+        appointmentDate,
+        appointmentTime,
+      );
+      this.logger.log(
+        `✅ Booking-created WhatsApp sent to Dr. ${doctorName} [${phone}]`,
+      );
+    } catch (err) {
+      this.logger.error(
+        `❌ Failed to send booking-created WhatsApp to ${phone}: ${err?.message}`,
         err?.stack,
       );
     }

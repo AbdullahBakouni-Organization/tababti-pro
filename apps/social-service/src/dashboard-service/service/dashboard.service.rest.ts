@@ -504,7 +504,13 @@ export class DashboardService {
                 patientId: { $toString: '$patientId' },
                 bookingId: { $toString: '$_id' },
 
-                Patientname: { $ifNull: ['$patient.username', 'Unknown'] },
+                Patientname: {
+                  $ifNull: [
+                    '$patient.username',
+                    { $ifNull: ['$patientName', 'Unknown'] },
+                  ],
+                },
+                Patientphone: { $ifNull: ['$patientPhone', null] },
                 Patientimage: '$patient.profileImage',
                 Patientgender: '$patient.gender',
 
@@ -677,7 +683,12 @@ export class DashboardService {
             {
               $project: {
                 bookingId: { $toString: '$_id' },
-                patientName: { $ifNull: ['$patient.username', 'Unknown'] },
+                patientName: {
+                  $ifNull: [
+                    '$patient.username',
+                    { $ifNull: ['$patientName', 'Unknown'] },
+                  ],
+                },
                 patientImage: '$patient.profileImage',
                 gender: '$patient.gender',
                 time: '$bookingTime',

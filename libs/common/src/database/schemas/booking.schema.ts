@@ -9,8 +9,24 @@ import { AppointmentSlot } from './slot.schema';
   collection: 'bookings',
 })
 export class Booking {
-  @Prop({ type: Types.ObjectId, required: true, index: true, ref: 'User' })
-  patientId: Types.ObjectId;
+  @Prop({
+    type: Types.ObjectId,
+    required: false,
+    default: null,
+    index: true,
+    ref: 'User',
+  })
+  patientId: Types.ObjectId | null;
+
+  /** Populated when the doctor books a patient who is not in the database */
+  @Prop({ type: String, required: false, default: null })
+  patientName: string | null;
+
+  @Prop({ type: String, required: false, default: null })
+  patientAddress: string | null;
+
+  @Prop({ type: String, required: false, default: null })
+  patientPhone: string | null;
 
   @Prop({ type: Types.ObjectId, required: true, index: true, ref: 'Doctor' })
   doctorId: Types.ObjectId;
@@ -88,6 +104,8 @@ export class Booking {
 
 export const BookingSchema = SchemaFactory.createForClass(Booking);
 
+// Uniqueness applies only to live bookings. Historical cancelled/completed
+// rows must not collide with a new booking transitioning into a terminal state.
 BookingSchema.index(
   {
     doctorId: 1,
@@ -95,10 +113,14 @@ BookingSchema.index(
     bookingDate: 1,
     bookingTime: 1,
     bookingEndTime: 1,
-    status: 1,
     location: 1,
   },
-  { unique: true },
+  {
+    unique: true,
+    partialFilterExpression: {
+      status: { $in: [BookingStatus.PENDING, BookingStatus.CONFIRMED] },
+    },
+  },
 );
 BookingSchema.index({
   doctorId: 1,
@@ -107,7 +129,7 @@ BookingSchema.index({
 });
 export type BookingDocument = Booking &
   Document & {
-    patientId: Types.ObjectId | User;
+    patientId: Types.ObjectId | User | null;
     slotId: Types.ObjectId | AppointmentSlot;
     _id?: Types.ObjectId;
   };

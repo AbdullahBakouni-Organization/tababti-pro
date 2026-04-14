@@ -2,43 +2,64 @@ name: CI
 
 on:
   push:
-    branches: [main, develop, prod-test-pipline, update-cicd, update-structure]
+    branches: [develop, prod-test-pipline, update-cicd, update-structure]
   pull_request:
     branches: [main, develop]
+    types: [opened, synchronize, reopened, closed]
 
-# Cancel any in-progress run on the same ref so stale runs don't occupy runners.
+# Concurrency: include event_name so PR/push runs don't collide or share groups.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: '20'
+  # Pin exact LTS patch for deterministic builds.
+  NODE_VERSION: '20.18.1'
   REGISTRY: docker.io
   IMAGE_PREFIX: ${{ secrets.DOCKER_USERNAME }}/tababti
+  # Shared guard expression — referenced via `needs.gate.outputs.should_run`.
 
 # ── When each stage runs ────────────────────────────────────────────────────────
 #
 #  Event                      │ Full CI  │ Push Images │ Deploy (Dokploy)
 #  ───────────────────────────┼──────────┼─────────────┼─────────────────
-#  PR → main                  │   YES    │     YES     │      NO
-#  Merge to main (push/main)  │   NO     │      NO     │      YES
+#  PR → main (open/update)    │   YES    │     YES     │      NO
+#  PR → main (merged)         │   NO     │      NO     │      YES  ← same run
 #  Push → develop / other     │   YES    │      NO     │      NO
 #
-# The expensive stages (install → docker-compose-test) are gated by:
-#   github.event_name == 'pull_request' || github.ref != 'refs/heads/main'
-#
-# This means merging to main only runs ci-complete (which triggers Dokploy).
-# Images were already pushed by the PR's CI run, so there is no double work.
 # ───────────────────────────────────────────────────────────────────────────────
 
 jobs:
+  # ──────────────────────────────────────────────────────────────────────────
+  # GATE — single place that computes "should CI run?"
+  # Downstream jobs depend on gate.outputs.should_run to remove the
+  # duplicated `if:` expression previously repeated across every job.
+  # ──────────────────────────────────────────────────────────────────────────
+  gate:
+    name: CI Gate
+    runs-on: ubuntu-latest
+    if: always()
+    outputs:
+      should_run: ${{ steps.compute.outputs.should_run }}
+    steps:
+      - id: compute
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ] && [ "${{ github.event.action }}" != "closed" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+          fi
+
   # ──────────────────────────────────────────────────────────────────────────
   # STAGE 1 — Install & Cache
   # ──────────────────────────────────────────────────────────────────────────
   install:
     name: Install Dependencies
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request' || github.ref != 'refs/heads/main'
+    needs: gate
+    if: needs.gate.outputs.should_run == 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -55,7 +76,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: node_modules
-          key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          key: node-modules-${{ runner.os }}-${{ env.NODE_VERSION }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            node-modules-${{ runner.os }}-${{ env.NODE_VERSION }}-
+            node-modules-${{ runner.os }}-
 
   # ──────────────────────────────────────────────────────────────────────────
   # STAGE 2 — Type Check
@@ -63,8 +87,8 @@ jobs:
   typecheck:
     name: Type Check
     runs-on: ubuntu-latest
-    needs: install
-    if: github.event_name == 'pull_request' || github.ref != 'refs/heads/main'
+    needs: [gate, install]
+    if: needs.gate.outputs.should_run == 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -78,7 +102,17 @@ jobs:
         uses: actions/cache@v4
         with:
           path: node_modules
-          key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          key: node-modules-${{ runner.os }}-${{ env.NODE_VERSION }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            node-modules-${{ runner.os }}-${{ env.NODE_VERSION }}-
+            node-modules-${{ runner.os }}-
+
+      - name: Install dependencies (cache miss fallback)
+        run: |
+          if [ ! -d node_modules ]; then
+            echo "Cache miss — running npm ci"
+            npm ci --prefer-offline
+          fi
 
       - name: Run TypeScript type check
         run: npx tsc --noEmit -p tsconfig.json
@@ -89,8 +123,8 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
-    needs: install
-    if: github.event_name == 'pull_request' || github.ref != 'refs/heads/main'
+    needs: [gate, install]
+    if: needs.gate.outputs.should_run == 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -104,19 +138,29 @@ jobs:
         uses: actions/cache@v4
         with:
           path: node_modules
-          key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          key: node-modules-${{ runner.os }}-${{ env.NODE_VERSION }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            node-modules-${{ runner.os }}-${{ env.NODE_VERSION }}-
+            node-modules-${{ runner.os }}-
+
+      - name: Install dependencies (cache miss fallback)
+        run: |
+          if [ ! -d node_modules ]; then
+            echo "Cache miss — running npm ci"
+            npm ci --prefer-offline
+          fi
 
       - name: Run ESLint
         run: npx eslint "{apps,libs}/**/*.ts" --max-warnings 0
 
   # ──────────────────────────────────────────────────────────────────────────
-  # STAGE 4 — Unit Tests + Coverage
+  # STAGE 4 — Unit Tests + Coverage (thresholds enforced via jest config)
   # ──────────────────────────────────────────────────────────────────────────
   unit-tests:
     name: Unit Tests
     runs-on: ubuntu-latest
-    needs: install
-    if: github.event_name == 'pull_request' || github.ref != 'refs/heads/main'
+    needs: [gate, install]
+    if: needs.gate.outputs.should_run == 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -130,7 +174,17 @@ jobs:
         uses: actions/cache@v4
         with:
           path: node_modules
-          key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          key: node-modules-${{ runner.os }}-${{ env.NODE_VERSION }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            node-modules-${{ runner.os }}-${{ env.NODE_VERSION }}-
+            node-modules-${{ runner.os }}-
+
+      - name: Install dependencies (cache miss fallback)
+        run: |
+          if [ ! -d node_modules ]; then
+            echo "Cache miss — running npm ci"
+            npm ci --prefer-offline
+          fi
 
       - name: Run unit tests with coverage
         run: npm run test:cov -- --ci --forceExit --passWithNoTests
@@ -149,46 +203,21 @@ jobs:
           retention-days: 7
 
       - name: Coverage summary comment (PRs only)
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && github.event.action != 'closed'
         uses: davelosert/vitest-coverage-report-action@v2
         continue-on-error: true
         with:
           json-summary-path: coverage/coverage-summary.json
 
   # ──────────────────────────────────────────────────────────────────────────
-  # STAGE 4b — Check whether integration tests exist
-  # ──────────────────────────────────────────────────────────────────────────
-  check-integration:
-    name: Check Integration Tests Exist
-    runs-on: ubuntu-latest
-    needs: unit-tests
-    if: github.event_name == 'pull_request' || github.ref != 'refs/heads/main'
-    outputs:
-      has_tests: ${{ steps.check.outputs.has_tests }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Check for integration test files
-        id: check
-        run: |
-          if find tests/integration -name "*.spec.ts" -type f 2>/dev/null | grep -q .; then
-            echo "has_tests=true" >> "$GITHUB_OUTPUT"
-            echo "Integration test files found."
-          else
-            echo "has_tests=false" >> "$GITHUB_OUTPUT"
-            echo "No integration test files found — stage 5 will be skipped."
-          fi
-
-  # ──────────────────────────────────────────────────────────────────────────
   # STAGE 5 — Integration Tests
+  # (previous `check-integration` probe job removed — test files always exist.)
   # ──────────────────────────────────────────────────────────────────────────
   integration-tests:
     name: Integration Tests
     runs-on: ubuntu-latest
-    needs: check-integration
-    if: |
-      (github.event_name == 'pull_request' || github.ref != 'refs/heads/main') &&
-      needs.check-integration.outputs.has_tests == 'true'
+    needs: [gate, unit-tests]
+    if: needs.gate.outputs.should_run == 'true'
     services:
       redis:
         image: redis:7-alpine
@@ -212,7 +241,17 @@ jobs:
         uses: actions/cache@v4
         with:
           path: node_modules
-          key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          key: node-modules-${{ runner.os }}-${{ env.NODE_VERSION }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            node-modules-${{ runner.os }}-${{ env.NODE_VERSION }}-
+            node-modules-${{ runner.os }}-
+
+      - name: Install dependencies (cache miss fallback)
+        run: |
+          if [ ! -d node_modules ]; then
+            echo "Cache miss — running npm ci"
+            npm ci --prefer-offline
+          fi
 
       - name: Start MongoDB replica set
         run: |
@@ -247,8 +286,8 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
-    needs: [typecheck, lint, unit-tests]
-    if: github.event_name == 'pull_request' || github.ref != 'refs/heads/main'
+    needs: [gate, typecheck, lint, unit-tests]
+    if: needs.gate.outputs.should_run == 'true'
     strategy:
       matrix:
         service:
@@ -270,7 +309,17 @@ jobs:
         uses: actions/cache@v4
         with:
           path: node_modules
-          key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          key: node-modules-${{ runner.os }}-${{ env.NODE_VERSION }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            node-modules-${{ runner.os }}-${{ env.NODE_VERSION }}-
+            node-modules-${{ runner.os }}-
+
+      - name: Install dependencies (cache miss fallback)
+        run: |
+          if [ ! -d node_modules ]; then
+            echo "Cache miss — running npm ci"
+            npm ci --prefer-offline
+          fi
 
       - name: Build ${{ matrix.service }}
         run: npm run build:${{ matrix.service }}
@@ -284,13 +333,12 @@ jobs:
 
   # ──────────────────────────────────────────────────────────────────────────
   # STAGE 7 — Docker Build (build only — no push)
-  # Images are cached in GHA layer cache and reused by push-image.
   # ──────────────────────────────────────────────────────────────────────────
   docker-build:
     name: Docker Build (${{ matrix.service }})
     runs-on: ubuntu-latest
-    needs: build
-    if: github.event_name == 'pull_request' || github.ref != 'refs/heads/main'
+    needs: [gate, build]
+    if: needs.gate.outputs.should_run == 'true'
     strategy:
       matrix:
         service:
@@ -325,12 +373,13 @@ jobs:
 
   # ──────────────────────────────────────────────────────────────────────────
   # STAGE 7b — Docker Compose Test
+  # CI-only secrets sourced from repo vars/secrets with safe fallbacks.
   # ──────────────────────────────────────────────────────────────────────────
   docker-compose-test:
     name: Docker Compose Test
     runs-on: ubuntu-latest
-    needs: docker-build
-    if: github.event_name == 'pull_request' || github.ref != 'refs/heads/main'
+    needs: [gate, docker-build]
+    if: needs.gate.outputs.should_run == 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -341,26 +390,36 @@ jobs:
           FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
           FIREBASE_CLIENT_EMAIL: ${{ secrets.FIREBASE_CLIENT_EMAIL }}
           FIREBASE_PRIVATE_KEY: ${{ secrets.FIREBASE_PRIVATE_KEY }}
+          # CI-only test credentials — sourced from repo vars (falls back to
+          # non-production defaults so CI still runs if vars are unset).
+          CI_REDIS_PASSWORD: ${{ vars.CI_REDIS_PASSWORD || 'ci-test-password' }}
+          CI_MINIO_ROOT_USER: ${{ vars.CI_MINIO_ROOT_USER || 'minioadmin' }}
+          CI_MINIO_ROOT_PASSWORD: ${{ vars.CI_MINIO_ROOT_PASSWORD || 'minioadmin123' }}
+          CI_MINIO_ACCESS_KEY: ${{ vars.CI_MINIO_ACCESS_KEY || 'minioadmin' }}
+          CI_MINIO_SECRET_KEY: ${{ vars.CI_MINIO_SECRET_KEY || 'minioadmin123' }}
+          CI_KAFKA_UI_USER: ${{ vars.CI_KAFKA_UI_USER || 'admin' }}
+          CI_KAFKA_UI_PASSWORD: ${{ vars.CI_KAFKA_UI_PASSWORD || 'admin123' }}
         run: |
           python3 - <<'PY'
           import os
+          env = os.environ
           lines = [
             "DOCKER_USERNAME=abdullahbakouni",
             "IMAGE_TAG=ci-test",
-            "REDIS_PASSWORD=ci-test-password",
+            f"REDIS_PASSWORD={env['CI_REDIS_PASSWORD']}",
             "MONGO_URI=mongodb://mongo:27017/?replicaSet=rs0&directConnection=true",
             "MONGO_DB=tababti_ci",
             "KAFKA_CLUSTER_ID=wdLj9KW2eJASNKvN71Z4kA",
-            "MINIO_ROOT_USER=minioadmin",
-            "MINIO_ROOT_PASSWORD=minioadmin123",
-            "MINIO_ACCESS_KEY=minioadmin",
-            "MINIO_SECRET_KEY=minioadmin123",
+            f"MINIO_ROOT_USER={env['CI_MINIO_ROOT_USER']}",
+            f"MINIO_ROOT_PASSWORD={env['CI_MINIO_ROOT_PASSWORD']}",
+            f"MINIO_ACCESS_KEY={env['CI_MINIO_ACCESS_KEY']}",
+            f"MINIO_SECRET_KEY={env['CI_MINIO_SECRET_KEY']}",
             "MINIO_BUCKET_DOCTORS=tababti-doctors",
             "MINIO_BUCKET_PATIENTS=tababti-patients",
             "MINIO_BUCKET_GENERAL=tababti-general",
             "MINIO_PUBLIC_URL_DEV=http://minio:9000",
-            "KAFKA_UI_USER=admin",
-            "KAFKA_UI_PASSWORD=admin123",
+            f"KAFKA_UI_USER={env['CI_KAFKA_UI_USER']}",
+            f"KAFKA_UI_PASSWORD={env['CI_KAFKA_UI_PASSWORD']}",
             "JWT_ACCESS_EXPIRES_IN=15m",
             "JWT_REFRESH_EXPIRES_IN=7d",
             "ALLOWED_ORIGINS=http://localhost:3000",
@@ -373,7 +432,7 @@ jobs:
           for key in ("JWT_ACCESS_SECRET", "JWT_REFRESH_SECRET",
                       "FIREBASE_PROJECT_ID", "FIREBASE_CLIENT_EMAIL",
                       "FIREBASE_PRIVATE_KEY"):
-            val = os.environ.get(key, "")
+            val = env.get(key, "")
             lines.append(f"{key}={val}")
           with open(".env", "w") as f:
             f.write("\n".join(lines) + "\n")
@@ -453,10 +512,12 @@ jobs:
   security-scan:
     name: Security Scan
     runs-on: ubuntu-latest
-    needs: install
-    if: github.event_name == 'pull_request' || github.ref != 'refs/heads/main'
+    needs: [gate, install]
+    if: needs.gate.outputs.should_run == 'true'
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -468,23 +529,35 @@ jobs:
         uses: actions/cache@v4
         with:
           path: node_modules
-          key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          key: node-modules-${{ runner.os }}-${{ env.NODE_VERSION }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            node-modules-${{ runner.os }}-${{ env.NODE_VERSION }}-
+            node-modules-${{ runner.os }}-
+
+      - name: Install dependencies (cache miss fallback)
+        run: |
+          if [ ! -d node_modules ]; then
+            echo "Cache miss — running npm ci"
+            npm ci --prefer-offline
+          fi
 
       - name: Dependency vulnerability audit
         run: npm audit --audit-level=high
+        # Kept non-blocking for now: existing prod deps may have HIGH advisories
+        # that block all CI if enforced strictly. Remove once triaged.
         continue-on-error: true
 
-      - name: Secret detection
+      - name: Secret detection (verified secrets block the build)
+        if: github.event_name == 'pull_request'
         uses: trufflesecurity/trufflehog@main
         with:
           path: ./
-          base: ${{ github.event.repository.default_branch }}
-          head: HEAD
+          base: ${{ github.event.pull_request.base.sha }}
+          head: ${{ github.event.pull_request.head.sha }}
           extra_args: --only-verified
-        continue-on-error: true
 
       - name: Container image scan (Trivy)
-        if: github.event_name == 'pull_request' && github.base_ref == 'main'
+        if: github.event_name == 'pull_request' && github.base_ref == 'main' && github.event.action != 'closed'
         uses: aquasecurity/trivy-action@master
         with:
           scan-type: fs
@@ -495,23 +568,46 @@ jobs:
         continue-on-error: true
 
       - name: Upload Trivy scan results
-        if: github.event_name == 'pull_request' && github.base_ref == 'main'
+        if: github.event_name == 'pull_request' && github.base_ref == 'main' && github.event.action != 'closed'
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-results.sarif
         continue-on-error: true
 
   # ──────────────────────────────────────────────────────────────────────────
+  # STAGE 8b — CodeQL Static Analysis (JavaScript/TypeScript)
+  # ──────────────────────────────────────────────────────────────────────────
+  codeql:
+    name: CodeQL
+    runs-on: ubuntu-latest
+    needs: gate
+    if: needs.gate.outputs.should_run == 'true'
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: '/language:javascript-typescript'
+        continue-on-error: true
+
+  # ──────────────────────────────────────────────────────────────────────────
   # STAGE 9 — Push Images
-  # Runs ONLY on PRs targeting main, AFTER docker-compose-test passes.
-  # Rebuilds each image from the GHA layer cache (near-instant) and pushes
-  # to Docker Hub with latest + sha tags so Dokploy can deploy them.
   # ──────────────────────────────────────────────────────────────────────────
   push-image:
     name: Push Image (${{ matrix.service }})
     runs-on: ubuntu-latest
     needs: [docker-compose-test, security-scan]
-    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+    if: github.event_name == 'pull_request' && github.base_ref == 'main' && github.event.action != 'closed'
     strategy:
       matrix:
         service:
@@ -562,54 +658,58 @@ jobs:
 
   # ──────────────────────────────────────────────────────────────────────────
   # GATE — CI Complete
-  # Single required status check for branch protection.
-  # Passes only when every non-optional stage has succeeded (or was skipped).
-  # On main branch, also triggers Dokploy deployment.
   # ──────────────────────────────────────────────────────────────────────────
   ci-complete:
     name: CI Complete
     runs-on: ubuntu-latest
     if: always()
     needs:
+      - gate
       - install
       - typecheck
       - lint
       - unit-tests
-      - check-integration
       - integration-tests
       - build
       - docker-build
       - docker-compose-test
       - security-scan
+      - codeql
       - push-image
     steps:
       - name: Check all required jobs passed
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
         run: |
-          echo "$NEEDS_JSON" | python3 -c "
-          import sys, json
-          data = json.load(sys.stdin)
-          failed = [n for n, v in data.items() if v['result'] not in ('success', 'skipped')]
-          if failed:
-              print('FAILED jobs:', failed)
-              sys.exit(1)
-          print('All required jobs passed or were skipped.')
-          "
+          set -euo pipefail
+          failed=$(echo "$NEEDS_JSON" | jq -r 'to_entries | map(select(.value.result != "success" and .value.result != "skipped") | .key) | .[]')
+          if [ -n "$failed" ]; then
+            echo "FAILED jobs:"
+            echo "$failed"
+            exit 1
+          fi
+          echo "All required jobs passed or were skipped."
 
       - name: Trigger Dokploy deployment
-        if: github.ref == 'refs/heads/main'
+        if: github.event.pull_request.merged == true && github.base_ref == 'main'
         run: |
+          set -euo pipefail
           echo "Triggering Dokploy compose deployment for commit ${{ github.sha }}..."
-          response=$(curl -s -o /tmp/dokploy_response.json -w "%{http_code}" \
+          http=$(curl -s -o /tmp/dokploy_response.json -w "%{http_code}" \
             -X POST "${{ secrets.DOKPLOY_URL }}/api/compose.deploy" \
             -H "Content-Type: application/json" \
             -H "x-api-key: ${{ secrets.DOKPLOY_TOKEN }}" \
             -d "{\"composeId\": \"${{ secrets.DOKPLOY_COMPOSE_ID }}\"}")
-          echo "HTTP status: $response"
-          cat /tmp/dokploy_response.json
-          if [ "$response" != "200" ]; then
-            echo "Dokploy deploy failed with status $response"
+          echo "HTTP status: $http"
+          body=$(cat /tmp/dokploy_response.json || echo '')
+          echo "Response body: $body"
+          if [ "$http" != "200" ]; then
+            echo "Dokploy deploy failed with HTTP status $http"
+            exit 1
+          fi
+          # Best-effort body inspection: if JSON and has `success:false` or `error`, fail.
+          if echo "$body" | jq -e 'type == "object" and ((.success == false) or (.error != null))' >/dev/null 2>&1; then
+            echo "Dokploy returned HTTP 200 but response body indicates failure."
             exit 1
           fi
           echo "Deployment triggered successfully."

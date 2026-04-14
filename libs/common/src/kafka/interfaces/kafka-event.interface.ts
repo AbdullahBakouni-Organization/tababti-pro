@@ -313,3 +313,11 @@ export interface WhatsappDoctorRejectedEvent {
   doctorName: string;
   reason?: string; // اختياري
 }
+
+export interface WhatsappBookingCreatedDoctorEvent {
+  phone: string;
+  doctorName: string;
+  patientName: string;
+  appointmentDate: string;
+  appointmentTime: string;
+}

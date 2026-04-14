@@ -44,6 +44,9 @@ export class ConflictDetectionService {
         doctorId: new Types.ObjectId(doctorId),
         status: { $in: [BookingStatus.PENDING] },
         bookingDate: { $gte: today, $lte: endDate },
+        // Include both regular patient bookings (patientId set) and manual-patient
+        // bookings created by the doctor (patientId null but patientPhone present).
+        $or: [{ patientId: { $ne: null } }, { patientPhone: { $ne: null } }],
       })
       .populate('patientId', 'username phone')
       .populate('slotId')
@@ -67,20 +70,46 @@ export class ConflictDetectionService {
       const conflict = this.checkBookingConflict(booking, newWorkingHours);
       if (!conflict) continue;
 
-      const patient =
-        typeof booking.patientId === 'object' && 'username' in booking.patientId
-          ? booking.patientId
+      // Resolve patient details — supports both regular DB patients and manual patients.
+      const populatedPatient =
+        booking.patientId !== null &&
+        typeof booking.patientId === 'object' &&
+        'username' in booking.patientId
+          ? (booking.patientId as unknown as {
+              _id: Types.ObjectId;
+              username: string;
+              phone: string;
+            })
           : null;
 
-      if (!patient) continue;
+      const isManualPatient =
+        populatedPatient === null && booking.patientPhone != null;
+
+      // Skip only if neither a real patient nor a manual patient can be resolved.
+      if (!populatedPatient && !isManualPatient) continue;
+
+      // Use the phone as a surrogate identifier for manual patients so that
+      // getUniquePatientCount() counts distinct phones rather than collapsing all
+      // manual patients into the same empty-string bucket.
+      const resolvedPatientId = populatedPatient
+        ? populatedPatient._id.toString()
+        : (booking.patientPhone as string);
+
+      const resolvedPatientName = populatedPatient
+        ? populatedPatient.username
+        : (booking.patientName ?? 'Manual Patient');
+
+      const resolvedPatientContact = populatedPatient
+        ? populatedPatient.phone
+        : (booking.patientPhone as string);
 
       const isToday = this.isSameDay(booking.bookingDate, today);
 
       const conflictedBooking: ConflictedBooking = {
         bookingId: booking._id.toString(),
-        patientId: booking.patientId._id.toString(),
-        patientName: patient.username,
-        patientContact: patient.phone,
+        patientId: resolvedPatientId,
+        patientName: resolvedPatientName,
+        patientContact: resolvedPatientContact,
         appointmentDate: booking.bookingDate,
         appointmentTime: slot.startTime,
         location: slot.location,

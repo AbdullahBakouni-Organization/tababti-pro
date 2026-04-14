@@ -699,7 +699,8 @@ services:
       kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic whatsapp.doctor-approved --partitions 1 --replication-factor 1;
       kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic whatsapp.doctor-rejected --partitions 1 --replication-factor 1;
       kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic whatsapp.doctor-welcome-by-admin --partitions 1 --replication-factor 1;
-      echo 'All 35 topics created.';
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic whatsapp.booking-created-doctor --partitions 1 --replication-factor 1;
+      echo 'All 36 topics created.';
       exit 0;
       "
     networks:

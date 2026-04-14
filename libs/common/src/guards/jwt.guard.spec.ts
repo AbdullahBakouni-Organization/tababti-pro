@@ -73,10 +73,13 @@ describe('JwtAuthGuard', () => {
       );
     });
 
-    it('should throw the original error when err is provided', () => {
+    it('should throw UnauthorizedException for non-HttpException errors', () => {
       const customError = new Error('Custom auth error');
       expect(() => guard.handleRequest(customError, { id: '1' })).toThrow(
-        customError,
+        UnauthorizedException,
+      );
+      expect(() => guard.handleRequest(customError, { id: '1' })).toThrow(
+        'Invalid or expired access token',
       );
     });
 
@@ -87,9 +90,14 @@ describe('JwtAuthGuard', () => {
       ).toThrow('Token revoked');
     });
 
-    it('should prefer throwing err over UnauthorizedException when both err and no user', () => {
+    it('should throw UnauthorizedException when non-HttpException error and no user', () => {
       const customError = new Error('Strategy error');
-      expect(() => guard.handleRequest(customError, null)).toThrow(customError);
+      expect(() => guard.handleRequest(customError, null)).toThrow(
+        UnauthorizedException,
+      );
+      expect(() => guard.handleRequest(customError, null)).toThrow(
+        'Invalid or expired access token',
+      );
     });
 
     it('should throw UnauthorizedException with default message when user is false', () => {

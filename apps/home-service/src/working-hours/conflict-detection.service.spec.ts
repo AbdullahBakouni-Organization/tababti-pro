@@ -43,8 +43,20 @@ describe('ConflictDetectionService', () => {
     slotId: makeSlot(),
     bookingDate: new Date('2026-04-06T00:00:00.000Z'), // future monday
     status: 'pending',
+    patientName: null,
+    patientAddress: null,
+    patientPhone: null,
     ...overrides,
   });
+
+  const makeManualPatientBooking = (overrides: Record<string, unknown> = {}) =>
+    makeBooking({
+      patientId: null,
+      patientName: 'Ahmad Al-Khalidi',
+      patientAddress: 'Damascus, Al-Mazzeh',
+      patientPhone: '+963912345678',
+      ...overrides,
+    });
 
   const makeWorkingHours = (overrides: Record<string, unknown> = {}) => ({
     day: 'monday',
@@ -170,10 +182,14 @@ describe('ConflictDetectionService', () => {
       expect(result.futureConflicts).toHaveLength(0);
     });
 
-    it('should skip bookings whose patientId is not a populated object', async () => {
+    it('should skip bookings whose patientId is an unpopulated ObjectId and no patientPhone is set', async () => {
+      // Simulates a real patient whose populate() call returned no data
+      // (e.g. the user record was deleted).  patientPhone is also absent,
+      // so the booking cannot be attributed to anyone and must be skipped.
       const booking = makeBooking({
-        patientId: new Types.ObjectId(), // not populated
+        patientId: new Types.ObjectId(), // unpopulated ObjectId, not null
         slotId: makeSlot({ startTime: '18:00', endTime: '18:30' }),
+        patientPhone: null,
       });
       bookingModel._mockQuery.exec.mockResolvedValue([booking]);
 
@@ -332,6 +348,115 @@ describe('ConflictDetectionService', () => {
       expect(bookingModel._mockQuery.populate).toHaveBeenCalledWith('slotId');
     });
 
+    it('should include the $or filter for patientId and patientPhone in the query', async () => {
+      bookingModel._mockQuery.exec.mockResolvedValue([]);
+
+      await service.detectConflicts(doctorId, [makeWorkingHours()]);
+
+      const findCall = bookingModel.find.mock.calls[0][0];
+      expect(findCall.$or).toEqual([
+        { patientId: { $ne: null } },
+        { patientPhone: { $ne: null } },
+      ]);
+    });
+
+    // ── Manual-patient booking tests ──────────────────────────────────────────
+
+    it('should detect a future conflict for a manual-patient booking', async () => {
+      const booking = makeManualPatientBooking({
+        slotId: makeSlot({ startTime: '18:00', endTime: '18:30' }),
+      });
+      bookingModel._mockQuery.exec.mockResolvedValue([booking]);
+
+      const result = await service.detectConflicts(doctorId, [
+        makeWorkingHours({ startTime: '09:00', endTime: '17:00' }),
+      ]);
+
+      expect(result.futureConflicts).toHaveLength(1);
+      expect(result.futureConflicts[0].patientName).toBe('Ahmad Al-Khalidi');
+      expect(result.futureConflicts[0].patientContact).toBe('+963912345678');
+      // patientId is the phone used as surrogate identifier
+      expect(result.futureConflicts[0].patientId).toBe('+963912345678');
+      expect(result.futureConflicts[0].isToday).toBe(false);
+    });
+
+    it('should classify a manual-patient booking as todayConflict when date is today', async () => {
+      const booking = makeManualPatientBooking({
+        bookingDate: new Date(mockToday.getTime()),
+        slotId: makeSlot({ startTime: '18:00', endTime: '18:30' }),
+      });
+      bookingModel._mockQuery.exec.mockResolvedValue([booking]);
+
+      const result = await service.detectConflicts(doctorId, [
+        makeWorkingHours({ startTime: '09:00', endTime: '17:00' }),
+      ]);
+
+      expect(result.todayConflicts).toHaveLength(1);
+      expect(result.todayConflicts[0].isToday).toBe(true);
+      expect(result.futureConflicts).toHaveLength(0);
+    });
+
+    it('should not include a manual-patient booking that fits within new working hours', async () => {
+      const booking = makeManualPatientBooking({
+        slotId: makeSlot({ startTime: '10:00', endTime: '10:30' }),
+      });
+      bookingModel._mockQuery.exec.mockResolvedValue([booking]);
+
+      const result = await service.detectConflicts(doctorId, [
+        makeWorkingHours({ startTime: '09:00', endTime: '17:00' }),
+      ]);
+
+      expect(result.todayConflicts).toHaveLength(0);
+      expect(result.futureConflicts).toHaveLength(0);
+    });
+
+    it('should skip a booking with null patientId and null patientPhone', async () => {
+      // Booking that has neither a real patient nor manual-patient fields — invalid state.
+      const booking = makeBooking({
+        patientId: null,
+        patientPhone: null,
+        slotId: makeSlot({ startTime: '18:00', endTime: '18:30' }),
+      });
+      bookingModel._mockQuery.exec.mockResolvedValue([booking]);
+
+      const result = await service.detectConflicts(doctorId, [
+        makeWorkingHours({ startTime: '09:00', endTime: '17:00' }),
+      ]);
+
+      expect(result.todayConflicts).toHaveLength(0);
+      expect(result.futureConflicts).toHaveLength(0);
+    });
+
+    it('should handle a mix of regular and manual-patient bookings', async () => {
+      const regularConflict = makeBooking({
+        _id: new Types.ObjectId(),
+        slotId: makeSlot({ startTime: '18:00', endTime: '18:30' }),
+      });
+      const manualConflict = makeManualPatientBooking({
+        _id: new Types.ObjectId(),
+        slotId: makeSlot({ startTime: '19:00', endTime: '19:30' }),
+      });
+      const noConflict = makeBooking({
+        _id: new Types.ObjectId(),
+        slotId: makeSlot({ startTime: '10:00', endTime: '10:30' }),
+      });
+
+      bookingModel._mockQuery.exec.mockResolvedValue([
+        regularConflict,
+        manualConflict,
+        noConflict,
+      ]);
+
+      const result = await service.detectConflicts(doctorId, [
+        makeWorkingHours({ startTime: '09:00', endTime: '17:00' }),
+      ]);
+
+      expect(result.futureConflicts).toHaveLength(2);
+      const names = result.futureConflicts.map((c) => c.patientName);
+      expect(names).toContain('John Doe');
+      expect(names).toContain('Ahmad Al-Khalidi');
+    });
+
     it('should check bookings within 365 days from today', async () => {
       bookingModel._mockQuery.exec.mockResolvedValue([]);
 
@@ -411,6 +536,31 @@ describe('ConflictDetectionService', () => {
 
       const count = service.getUniquePatientCount(conflicts);
       expect(count).toBe(5);
+    });
+
+    it('should count distinct manual patients by phone (used as surrogate patientId)', () => {
+      // Two manual patients with different phones → count = 2
+      const conflicts = [
+        { patientId: '+963912345678' } as any,
+        { patientId: '+963912345679' } as any,
+        { patientId: '+963912345678' } as any, // same phone, duplicate
+      ];
+
+      const count = service.getUniquePatientCount(conflicts);
+      expect(count).toBe(2);
+    });
+
+    it('should count regular and manual patients together without collision', () => {
+      const dbPatientId = new Types.ObjectId().toString();
+      const conflicts = [
+        { patientId: dbPatientId } as any, // real patient
+        { patientId: '+963912345678' } as any, // manual patient A
+        { patientId: '+963912345679' } as any, // manual patient B
+        { patientId: dbPatientId } as any, // duplicate real patient
+      ];
+
+      const count = service.getUniquePatientCount(conflicts);
+      expect(count).toBe(3);
     });
   });
 });

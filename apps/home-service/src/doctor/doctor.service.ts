@@ -1049,9 +1049,26 @@ export class DoctorService {
       // Step 4: Publish Kafka event to refresh available slots
       this.publishSlotsRefreshedEvent(doctorId, slot);
 
-      // Step 5: Send FCM notification to patient
-
       const doctorName = doctor.firstName + ' ' + doctor.lastName;
+
+      // Step 5a: Manual patient (no DB account) → WhatsApp notification
+      if (!booking.patientId && booking.patientPhone) {
+        this.sendManualPatientCancellationWhatsApp(
+          booking.patientPhone,
+          booking.patientName ?? 'عزيزي المريض',
+          doctorName,
+          booking.bookingDate,
+          booking.bookingTime,
+          dto.reason,
+        );
+        return {
+          message: 'Booking cancelled successfully',
+          bookingId: booking._id.toString(),
+          slotId: slot._id.toString(),
+        };
+      }
+
+      // Step 5b: DB patient → FCM notification
       const patient = await this.userModel.findById(booking.patientId).exec();
 
       if (!patient) {
@@ -1092,7 +1109,6 @@ export class DoctorService {
         message: 'Booking cancelled successfully',
         bookingId: booking._id.toString(),
         slotId: slot._id.toString(),
-        // patientNotified,
       };
     } catch (error) {
       const err = error as Error;
@@ -1185,23 +1201,37 @@ export class DoctorService {
       );
     }
 
-    // Find bookings for these slots
+    // Find bookings for these slots.
+    // Include both regular patient bookings (patientId set) and manual-patient
+    // bookings created by the doctor (patientId null but patientPhone present).
     const bookings = await this.bookingModel
       .find({
         slotId: { $in: dto.slotIds.map((id) => new Types.ObjectId(id)) },
         status: BookingStatus.PENDING,
+        $or: [{ patientId: { $ne: null } }, { patientPhone: { $ne: null } }],
       })
       .populate<{ patientId: User }>('patientId', 'username phone')
       .lean()
       .exec();
 
-    const affectedBookings = bookings.map((booking) => ({
-      bookingId: booking._id.toString(),
-      patientId: booking.patientId._id.toString(),
-      patientName: `${booking.patientId.username}`,
-      patientPhone: booking.patientId.phone,
-      slotTime: `${booking.bookingTime} - ${booking.bookingEndTime}`,
-    }));
+    const affectedBookings = bookings.map((booking) => {
+      const patient =
+        booking.patientId !== null &&
+        typeof booking.patientId === 'object' &&
+        '_id' in (booking.patientId as object)
+          ? (booking.patientId as unknown as User)
+          : null;
+
+      return {
+        bookingId: booking._id.toString(),
+        patientId: patient?._id.toString() ?? '',
+        patientName: patient
+          ? `${patient.username}`
+          : (booking.patientName ?? 'Manual Patient'),
+        patientPhone: patient?.phone ?? booking.patientPhone ?? '',
+        slotTime: `${booking.bookingTime} - ${booking.bookingEndTime}`,
+      };
+    });
 
     const hasConflicts = affectedBookings.length > 0;
 
@@ -1435,13 +1465,22 @@ export class DoctorService {
           .lean()
           .exec();
 
-        if (booking && typeof booking.patientId !== 'string') {
-          const patient = booking.patientId as unknown as User;
+        if (booking) {
+          // Resolve patient — may be a DB patient (populated) or a manual
+          // booking where patientId is null (patientName/patientPhone on booking)
+          const populatedPatient =
+            booking.patientId !== null &&
+            typeof booking.patientId === 'object' &&
+            '_id' in (booking.patientId as object)
+              ? (booking.patientId as unknown as User)
+              : null;
+
           slotData.existingBooking = {
             bookingId: booking._id.toString(),
-            patientId: patient._id.toString(),
-            patientName: patient.username,
-            patientPhone: patient.phone,
+            patientId: populatedPatient?._id?.toString() ?? '',
+            patientName:
+              populatedPatient?.username ?? booking.patientName ?? '',
+            patientPhone: populatedPatient?.phone ?? booking.patientPhone ?? '',
             bookingStatus: booking.status,
           };
         }
@@ -1523,18 +1562,32 @@ export class DoctorService {
         }>('patientId', 'username phone')
         .exec();
 
-      if (existingBooking && typeof existingBooking.patientId !== 'string') {
-        const patient = existingBooking.patientId as unknown as User;
+      if (existingBooking) {
+        // Resolve patient — may be a DB patient (populated) or a manual patient (patientId: null)
+        const populatedPatient =
+          existingBooking.patientId !== null &&
+          typeof existingBooking.patientId === 'object' &&
+          '_id' in (existingBooking.patientId as object)
+            ? (existingBooking.patientId as unknown as User)
+            : null;
+
+        const resolvedPatientId = populatedPatient?._id?.toString() ?? '';
+        const resolvedPatientName =
+          populatedPatient?.username ??
+          existingBooking.patientName ??
+          'Manual Patient';
+        const resolvedPatientPhone =
+          populatedPatient?.phone ?? existingBooking.patientPhone ?? '';
 
         response.hasConflict = true;
         response.conflictDetails = {
           existingBookingId: existingBooking._id.toString(),
-          patientId: patient._id.toString(),
-          patientName: patient.username,
-          patientPhone: patient.phone,
+          patientId: resolvedPatientId,
+          patientName: resolvedPatientName,
+          patientPhone: resolvedPatientPhone,
           appointmentTime: `${existingBooking.bookingTime} - ${existingBooking.bookingEndTime}`,
         };
-        response.warningMessage = `Slot is already booked by ${response.conflictDetails.patientName}. Creating VIP booking will CANCEL their appointment and notify them.`;
+        response.warningMessage = `Slot is already booked by ${resolvedPatientName}. Creating VIP booking will CANCEL their appointment and notify them.`;
         response.canProceed = true; // Can proceed with override
       }
     }
@@ -1556,6 +1609,32 @@ export class DoctorService {
     willDisplaceBooking: boolean;
   }> {
     this.logger.log(`Creating VIP booking for slot ${dto.slotId}`);
+
+    // ── Service-level mutual-exclusivity guard ────────────────────────────────
+    const hasDbPatient = Boolean(dto.vipPatientId);
+    const hasManualPatient = Boolean(
+      dto.patientName || dto.patientAddress || dto.patientPhone,
+    );
+    const hasAllManualFields = Boolean(
+      dto.patientName && dto.patientAddress && dto.patientPhone,
+    );
+
+    if (!hasDbPatient && !hasManualPatient) {
+      throw new BadRequestException(
+        'Either vipPatientId or all three manual-patient fields (patientName, patientAddress, patientPhone) must be provided.',
+      );
+    }
+    if (hasDbPatient && hasManualPatient) {
+      throw new BadRequestException(
+        'vipPatientId and manual-patient fields (patientName, patientAddress, patientPhone) are mutually exclusive.',
+      );
+    }
+    if (hasManualPatient && !hasAllManualFields) {
+      throw new BadRequestException(
+        'All three manual-patient fields (patientName, patientAddress, patientPhone) must be provided together.',
+      );
+    }
+    // ─────────────────────────────────────────────────────────────────────────
 
     // Check conflict first
     const conflict = await this.checkVIPBookingConflict(
@@ -1591,6 +1670,9 @@ export class DoctorService {
       doctorName,
       slotId: dto.slotId,
       vipPatientId: dto.vipPatientId,
+      patientName: dto.patientName,
+      patientAddress: dto.patientAddress,
+      patientPhone: dto.patientPhone,
       existingBookingId: conflict.conflictDetails?.existingBookingId || null,
       reason: dto.reason,
       note: dto.note,
@@ -1648,29 +1730,34 @@ export class DoctorService {
       .lean()
       .exec();
 
-    // Get all bookings in date range (PENDING status only)
+    // Get all bookings in date range (PENDING status only).
+    // Include both regular patient bookings (patientId set) and manual-patient
+    // bookings created by the doctor (patientId null but patientPhone present).
     const bookings = await this.bookingModel
       .find({
         doctorId: new Types.ObjectId(doctorId),
         bookingDate: { $gte: startDate, $lte: endDate },
-        status: BookingStatus.PENDING, // Only PENDING bookings
+        status: BookingStatus.PENDING,
+        $or: [{ patientId: { $ne: null } }, { patientPhone: { $ne: null } }],
       })
       .populate<{ patientId: User }>('patientId', 'username phone')
       .lean()
       .exec();
 
-    // Build affected bookings list
+    // Build affected bookings list — handles both real and manual patients.
     const affectedBookings = bookings.map((booking) => {
       const patient =
-        typeof booking.patientId !== 'string'
+        booking.patientId !== null && typeof booking.patientId !== 'string'
           ? (booking.patientId as unknown as User)
           : null;
 
       return {
         bookingId: booking._id.toString(),
         patientId: patient?._id.toString() || '',
-        patientName: patient ? `${patient.username}` : 'Unknown',
-        patientPhone: patient?.phone || '',
+        patientName: patient
+          ? `${patient.username}`
+          : (booking.patientName ?? 'Unknown'),
+        patientPhone: patient?.phone || booking.patientPhone || '',
         appointmentDate: booking.bookingDate,
         appointmentTime: booking.bookingTime,
         location: booking.location,
@@ -1886,6 +1973,7 @@ export class DoctorService {
     // Send Kafka event to notification service
     let patientNotified = false;
     if (patient && doctor) {
+      // DB patient → FCM push notification (existing flow, unchanged)
       patientNotified = this.sendPatientNotificationViaKafka(
         booking,
         patient,
@@ -1898,6 +1986,17 @@ export class DoctorService {
         patient._id.toString(),
         this.logger,
       );
+    } else if (!booking.patientId && booking.patientPhone && doctor) {
+      // Manual patient (no DB account) → WhatsApp notification
+      this.sendManualPatientCompletionWhatsApp(
+        booking.patientPhone,
+        booking.patientName ?? 'عزيزي المريض',
+        `${doctor.firstName} ${doctor.lastName}`,
+        booking.bookingDate,
+        booking.bookingTime,
+        dto.notes,
+      );
+      patientNotified = true;
     }
     return {
       message: 'تم إنجاز الحجز بنجاح',
@@ -2090,5 +2189,102 @@ export class DoctorService {
       lastUpdated: now,
       nextUpdateAt: nextUpdate,
     };
+  }
+
+  /**
+   * Send WhatsApp cancellation notice to a manual patient (no DB account).
+   * Emits to the generic WHATSAPP_SEND_MESSAGE topic — fire-and-forget.
+   */
+  private normalizePhoneE164(raw: string): string {
+    let phone = raw.replace(/[\s-]/g, '');
+    if (phone.startsWith('0')) {
+      phone = '+963' + phone.substring(1);
+    } else if (phone.startsWith('963')) {
+      phone = '+' + phone;
+    } else if (!phone.startsWith('+')) {
+      phone = '+963' + phone;
+    }
+    return phone;
+  }
+
+  private sendManualPatientCancellationWhatsApp(
+    phone: string,
+    patientName: string,
+    doctorName: string,
+    appointmentDate: Date,
+    appointmentTime: string,
+    reason: string,
+  ): void {
+    phone = this.normalizePhoneE164(phone);
+    const formattedDate = formatDate(appointmentDate);
+    const text = `❌ إلغاء الحجز - ${patientName}
+
+نأسف لإبلاغك بأن الدكتور *${doctorName}* قد أجرى تعديلاً على جدوله.
+
+📅 *تاريخ الموعد الملغى:* ${formattedDate}
+⏰ *وقت الموعد:* ${appointmentTime}
+📋 *السبب:* ${reason}
+
+يمكنك التواصل معنا لإعادة الجدولة.
+
+— فريق *طبابتي*`;
+
+    try {
+      this.kafkaProducer.emit(KAFKA_TOPICS.WHATSAPP_SEND_MESSAGE, {
+        phone,
+        text,
+        lang: 'ar',
+      });
+      this.logger.log(
+        `📱 WhatsApp cancellation notice sent to manual patient [${phone}]`,
+      );
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `Failed to send WhatsApp cancellation to manual patient: ${err.message}`,
+      );
+    }
+  }
+
+  /**
+   * Send WhatsApp completion notice to a manual patient (no DB account).
+   * Emits to the generic WHATSAPP_SEND_MESSAGE topic — fire-and-forget.
+   */
+  private sendManualPatientCompletionWhatsApp(
+    phone: string,
+    patientName: string,
+    doctorName: string,
+    appointmentDate: Date,
+    appointmentTime: string,
+    notes?: string,
+  ): void {
+    phone = this.normalizePhoneE164(phone);
+    const formattedDate = formatDate(appointmentDate);
+    const notesLine = notes ? `\n📝 *ملاحظات الطبيب:* ${notes}\n` : '';
+    const text = `✅ تم إنجاز الحجز - ${patientName}
+
+نود إبلاغك بأن موعدك مع الدكتور *${doctorName}* قد اكتمل بنجاح.
+
+📅 *التاريخ:* ${formattedDate}
+⏰ *الوقت:* ${appointmentTime}${notesLine}
+
+شكراً لثقتك بمنصة *طبابتي* 💙
+— فريق *طبابتي*`;
+
+    try {
+      this.kafkaProducer.emit(KAFKA_TOPICS.WHATSAPP_SEND_MESSAGE, {
+        phone,
+        text,
+        lang: 'ar',
+      });
+      this.logger.log(
+        `📱 WhatsApp completion notice sent to manual patient [${phone}]`,
+      );
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `Failed to send WhatsApp completion to manual patient: ${err.message}`,
+      );
+    }
   }
 }
