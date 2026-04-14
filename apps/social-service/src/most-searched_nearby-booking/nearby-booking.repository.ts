@@ -99,6 +99,9 @@ export class NearbyBookingRepository {
             searchCount: 1,
             latitude: 1,
             longitude: 1,
+            yearsOfExperience: { $ifNull: ['$yearsOfExperience', 0] },
+            inspectionPrice: { $ifNull: ['$inspectionPrice', 0] },
+            privateSpecialization: 1,
             specialization: {
               $cond: {
                 if: { $ifNull: ['$specialization._id', false] },
@@ -149,12 +152,19 @@ export class NearbyBookingRepository {
     limit: number,
   ) {
     const skip = (page - 1) * limit;
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const nowHHMM = new Date().toTimeString().slice(0, 5);
+
     const result = await this.bookingModel.aggregate([
       {
         $match: {
           doctorId,
           status: { $in: [BookingStatus.PENDING, BookingStatus.CONFIRMED] },
-          bookingDate: { $gte: new Date() },
+          $or: [
+            { bookingDate: { $gt: startOfToday } },
+            { bookingDate: startOfToday, bookingTime: { $gte: nowHHMM } },
+          ],
         },
       },
       { $sort: { bookingDate: 1, bookingTime: 1 } },
@@ -210,10 +220,20 @@ export class NearbyBookingRepository {
   // ── Next Bookings For User ────────────────────────────────────────────────
 
   async findNextBookingsForUser(patientId: Types.ObjectId, doctorId?: string) {
+    // bookingDate is stored at midnight (YYYY-MM-DD). Compare against
+    // start-of-today so bookings scheduled later today are included.
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const nowHHMM = new Date().toTimeString().slice(0, 5);
+
     const match: Record<string, any> = {
       patientId,
       status: { $in: [BookingStatus.PENDING, BookingStatus.CONFIRMED] },
-      bookingDate: { $gte: new Date() },
+      $or: [
+        { bookingDate: { $gt: startOfToday } },
+        { bookingDate: startOfToday, bookingTime: { $gte: nowHHMM } },
+      ],
     };
 
     if (doctorId) match.doctorId = new Types.ObjectId(doctorId);
@@ -259,6 +279,14 @@ export class NearbyBookingRepository {
             lastName: '$doctorData.lastName',
             middleName: '$doctorData.middleName',
             image: '$doctorData.image',
+            phone: {
+              $arrayElemAt: [
+                {
+                  $arrayElemAt: ['$doctorData.phones.normal', 0],
+                },
+                0,
+              ],
+            },
           },
         },
       },
