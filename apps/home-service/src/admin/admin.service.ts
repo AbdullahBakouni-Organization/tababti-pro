@@ -25,6 +25,7 @@ import {
   ApprovalStatus,
   GalleryImageStatus,
   PostStatus,
+  QuestionStatus,
 } from '@app/common/database/schemas/common.enums';
 import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
 import { KafkaService } from '@app/common/kafka/kafka.service';
@@ -1210,12 +1211,14 @@ export class AdminService {
       {
         _id: { $in: objectIds },
         approvalStatus: { $ne: ApprovalStatus.APPROVED },
+        status: { $ne: QuestionStatus.APPROVED },
       },
       {
         $set: {
           approvalStatus: ApprovalStatus.APPROVED,
+          status: QuestionStatus.APPROVED,
           approvedAt: new Date(),
-          approvedBy: adminId,
+          approvedBy: new Types.ObjectId(adminId),
         },
       },
     );
@@ -1283,13 +1286,15 @@ export class AdminService {
       {
         _id: { $in: objectIds },
         approvalStatus: { $ne: ApprovalStatus.REJECTED },
+        status: { $ne: QuestionStatus.REJECTED },
       },
       {
         $set: {
           approvalStatus: ApprovalStatus.REJECTED,
+          status: QuestionStatus.REJECTED,
           rejectionReason: reason,
           rejectedAt: new Date(),
-          rejectedBy: adminId,
+          rejectedBy: new Types.ObjectId(adminId),
         },
       },
     );
