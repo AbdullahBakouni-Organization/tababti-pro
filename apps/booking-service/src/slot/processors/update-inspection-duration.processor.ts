@@ -386,6 +386,7 @@ export class InspectionDurationUpdateProcessor {
     ][utcDay];
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   private async sendCancellationNotifications(
     affected: Array<{
       bookingId: string;

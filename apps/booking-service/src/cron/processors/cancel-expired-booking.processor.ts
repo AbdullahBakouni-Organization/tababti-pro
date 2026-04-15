@@ -11,10 +11,7 @@ import {
   AppointmentSlot,
   AppointmentSlotDocument,
 } from '@app/common/database/schemas/slot.schema';
-import {
-  BookingStatus,
-  SlotStatus,
-} from '@app/common/database/schemas/common.enums';
+import { SlotStatus } from '@app/common/database/schemas/common.enums';
 import { CacheService } from '@app/common/cache/cache.service';
 import { invalidateBookingCaches } from '@app/common/utils/cache-invalidation.util';
 
