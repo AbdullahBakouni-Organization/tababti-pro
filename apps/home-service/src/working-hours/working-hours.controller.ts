@@ -18,6 +18,16 @@ import {
   ConflictCheckResponseDto,
   UpdateWorkingHoursDto,
 } from './dto/update-working-hours.dto';
+import {
+  CheckDeleteConflictDto,
+  CheckDeleteConflictResponseDto,
+  DeleteWorkingHoursDto,
+} from './dto/delete-working-hours.dto';
+import {
+  CheckInspectionDurationConflictDto,
+  CheckInspectionDurationConflictResponseDto,
+  UpdateInspectionDurationDto,
+} from './dto/update-inspection-duration.dto';
 import { JwtAuthGuard } from '@app/common/guards/jwt.guard';
 import { RolesGuard } from '@app/common/guards/role.guard';
 import { UserRole } from '@app/common/database/schemas/common.enums';
@@ -274,5 +284,117 @@ export class WorkingHoursController {
       req.user.entity._id.toString(),
     );
     return this.workingHoursService.updateWorkingHours(doctorId, updateDto);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
+  @Post('check-delete-conflict')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Check bookings that will be cancelled if a working-hours entry is deleted (Dry Run)',
+    description:
+      'Read-only check. The body must exactly match one entry of the doctor workingHours array.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Conflict check completed',
+    type: CheckDeleteConflictResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
+    description: 'No matching working-hours entry found',
+  })
+  async checkDeleteConflict(
+    @Body() dto: CheckDeleteConflictDto,
+    @Req() req: any,
+  ): Promise<CheckDeleteConflictResponseDto> {
+    const doctorId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
+    return this.workingHoursService.checkDeleteConflict(doctorId, dto);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
+  @Post('delete')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Delete a working-hours entry (Confirmed)',
+    description:
+      'Removes the entry from the doctor schema and queues async cleanup of related slots, bookings and patient notifications. Requires confirm: true.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Deletion accepted and cleanup queued',
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'confirm flag missing or not true',
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
+    description: 'No matching working-hours entry found',
+  })
+  async deleteWorkingHours(
+    @Body() dto: DeleteWorkingHoursDto,
+    @Req() req: any,
+  ) {
+    const doctorId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
+    return this.workingHoursService.deleteWorkingHours(doctorId, dto);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
+  @Post('check-inspection-duration-conflict')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Check bookings that will be cancelled if inspection duration changes (Dry Run)',
+    description:
+      'Read-only. If the duration equals the current one, no conflicts are returned — price-only updates are non-destructive.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Conflict check completed',
+    type: CheckInspectionDurationConflictResponseDto,
+  })
+  async checkInspectionDurationConflict(
+    @Body() dto: CheckInspectionDurationConflictDto,
+    @Req() req: any,
+  ): Promise<CheckInspectionDurationConflictResponseDto> {
+    const doctorId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
+    return this.workingHoursService.checkInspectionDurationConflict(
+      doctorId,
+      dto,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
+  @Post('update-inspection-duration')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Update inspection duration and/or price (Confirmed)',
+    description:
+      'Updates doctor.inspectionDuration and/or doctor.inspectionPrice. If duration changes, all future slots are invalidated, active bookings are cancelled, patients are notified (FCM for app users, WhatsApp for manual patients), and the slot grid is regenerated. Price-only updates skip regeneration. Requires confirm: true.',
+  })
+  @ApiResponse({ status: HttpStatus.OK, description: 'Update accepted' })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'confirm flag missing or doctor has no working hours',
+  })
+  async updateInspectionDuration(
+    @Body() dto: UpdateInspectionDurationDto,
+    @Req() req: any,
+  ) {
+    const doctorId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
+    return this.workingHoursService.updateInspectionDuration(doctorId, dto);
   }
 }

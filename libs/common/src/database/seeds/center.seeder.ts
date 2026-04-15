@@ -753,7 +753,7 @@ async function seed(): Promise<void> {
 
     // ── Pre-load PrivateSpecialization IDs for doctor references ─────────────
     const specs = await specializationModel.find().select('_id').lean();
-    const specIds: Types.ObjectId[] = specs.map((s) => s._id as Types.ObjectId);
+    const specIds: Types.ObjectId[] = specs.map((s) => s._id);
 
     if (specIds.length === 0) {
       console.warn(
@@ -791,7 +791,7 @@ async function seed(): Promise<void> {
         console.log(
           `⏭️  [CenterSeeder] Already exists: "${blueprint.name}" — skipping insert.`,
         );
-        centerId = existing._id as Types.ObjectId;
+        centerId = existing._id;
         skippedCenters++;
       } else {
         const inserted = await centerModel.create({
@@ -812,7 +812,7 @@ async function seed(): Promise<void> {
           isSubscribed: false,
         });
 
-        centerId = inserted._id as Types.ObjectId;
+        centerId = inserted._id;
         console.log(
           `✅ [CenterSeeder] Inserted: "${blueprint.name}" (${centerId})`,
         );

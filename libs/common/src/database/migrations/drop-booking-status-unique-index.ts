@@ -25,11 +25,10 @@ async function run(): Promise<void> {
   const exists = indexes.some((i) => i.name === LEGACY_INDEX_NAME);
 
   if (!exists) {
-    // eslint-disable-next-line no-console
     console.log(`Index ${LEGACY_INDEX_NAME} not present — nothing to drop.`);
   } else {
     await bookings.dropIndex(LEGACY_INDEX_NAME);
-    // eslint-disable-next-line no-console
+
     console.log(`Dropped ${LEGACY_INDEX_NAME}.`);
   }
 
@@ -37,7 +36,6 @@ async function run(): Promise<void> {
 }
 
 run().catch((err) => {
-  // eslint-disable-next-line no-console
   console.error(err);
   process.exit(1);
 });

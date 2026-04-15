@@ -38,6 +38,8 @@ export const KAFKA_TOPICS = {
   SLOTS_REFRESHED: 'slots.refreshed',
   WORKING_HOURS_ADDED: 'working.hours.added',
   WORKING_HOURS_UPDATED: 'working.hours.updated',
+  WORKING_HOURS_DELETED: 'working.hours.deleted',
+  INSPECTION_DURATION_CHANGED: 'inspection.duration.changed',
   // WhatsApp
   WHATSAPP_SEND_MESSAGE: 'whatsapp.send.message',
   WHATSAPP_SEND_OTP: 'whatsapp.send.otp',

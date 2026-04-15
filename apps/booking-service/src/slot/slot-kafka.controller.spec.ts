@@ -18,6 +18,14 @@ describe('SlotKafkaController', () => {
     add: jest.fn().mockResolvedValue({ id: 'job-2' }),
   };
 
+  const mockWorkingHoursDeleteQueue = {
+    add: jest.fn().mockResolvedValue({ id: 'job-3' }),
+  };
+
+  const mockInspectionDurationQueue = {
+    add: jest.fn().mockResolvedValue({ id: 'job-4' }),
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
     const module: TestingModule = await Test.createTestingModule({
@@ -31,6 +39,14 @@ describe('SlotKafkaController', () => {
         {
           provide: getQueueToken('WORKING_HOURS_GENERATE'),
           useValue: mockWorkingHoursQueueV1,
+        },
+        {
+          provide: getQueueToken('WORKING_HOURS_DELETE'),
+          useValue: mockWorkingHoursDeleteQueue,
+        },
+        {
+          provide: getQueueToken('INSPECTION_DURATION_UPDATE'),
+          useValue: mockInspectionDurationQueue,
         },
       ],
     }).compile();

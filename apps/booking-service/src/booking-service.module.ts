@@ -11,6 +11,9 @@ import { BullModule } from '@nestjs/bull';
 import { MinioModule } from '@app/common/file-storage';
 import { AuthValidateModule } from '@app/common/auth-validate';
 import { BookingValidationModule } from '@app/common/booking-validation';
+import { ScheduleModule } from '@nestjs/schedule';
+import { ExpiredPendingBookingsCron } from './cron/expired-pending-bookings.cron';
+import { CancelExpiredBookingProcessor } from './cron/processors/cancel-expired-booking.processor';
 
 @Module({
   imports: [
@@ -35,6 +38,16 @@ import { BookingValidationModule } from '@app/common/booking-validation';
       }),
       inject: [ConfigService],
     }),
+    ScheduleModule.forRoot(),
+    BullModule.registerQueue({
+      name: 'CANCEL_EXPIRED_BOOKING',
+      defaultJobOptions: {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 2000 },
+        removeOnComplete: 100,
+        removeOnFail: 500,
+      },
+    }),
     KafkaModule.forProducer({
       clientId: 'booking-service-producer',
       brokers: [process.env.KAFKA_BROKER!],
@@ -58,6 +71,10 @@ import { BookingValidationModule } from '@app/common/booking-validation';
     BookingValidationModule,
   ],
   controllers: [BookingController],
-  providers: [BookingService],
+  providers: [
+    BookingService,
+    ExpiredPendingBookingsCron,
+    CancelExpiredBookingProcessor,
+  ],
 })
 export class BookingServiceModule {}

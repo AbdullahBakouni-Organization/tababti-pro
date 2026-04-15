@@ -687,6 +687,8 @@ services:
       kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic slots.refreshed --partitions 1 --replication-factor 1;
       kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic working.hours.added --partitions 1 --replication-factor 1;
       kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic working.hours.updated --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic working.hours.deleted --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic inspection.duration.changed --partitions 1 --replication-factor 1;
       kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic whatsapp.send.message --partitions 1 --replication-factor 1;
       kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic whatsapp.send.otp --partitions 1 --replication-factor 1;
       kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic admin.approved.post --partitions 1 --replication-factor 1;
@@ -700,7 +702,7 @@ services:
       kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic whatsapp.doctor-rejected --partitions 1 --replication-factor 1;
       kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic whatsapp.doctor-welcome-by-admin --partitions 1 --replication-factor 1;
       kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic whatsapp.booking-created-doctor --partitions 1 --replication-factor 1;
-      echo 'All 36 topics created.';
+      echo 'All 38 topics created.';
       exit 0;
       "
     networks:

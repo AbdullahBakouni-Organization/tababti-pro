@@ -61,7 +61,11 @@ import {
 import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
 import { User, UserDocument } from '@app/common/database/schemas/user.schema';
-import { formatDate, getSyriaDate } from '@app/common/utils/get-syria-date';
+import {
+  formatArabicDate,
+  formatDate,
+  getSyriaDate,
+} from '@app/common/utils/get-syria-date';
 import {
   AllSlotsResponseDto,
   CheckHolidayConflictDto,
@@ -2216,7 +2220,7 @@ export class DoctorService {
     reason: string,
   ): void {
     phone = this.normalizePhoneE164(phone);
-    const formattedDate = formatDate(appointmentDate);
+    const formattedDate = formatArabicDate(appointmentDate);
     const text = `❌ إلغاء الحجز - ${patientName}
 
 نأسف لإبلاغك بأن الدكتور *${doctorName}* قد أجرى تعديلاً على جدوله.
@@ -2259,7 +2263,7 @@ export class DoctorService {
     notes?: string,
   ): void {
     phone = this.normalizePhoneE164(phone);
-    const formattedDate = formatDate(appointmentDate);
+    const formattedDate = formatArabicDate(appointmentDate);
     const notesLine = notes ? `\n📝 *ملاحظات الطبيب:* ${notes}\n` : '';
     const text = `✅ تم إنجاز الحجز - ${patientName}
 

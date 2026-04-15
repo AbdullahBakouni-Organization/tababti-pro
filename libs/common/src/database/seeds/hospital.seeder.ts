@@ -745,7 +745,7 @@ async function seed(): Promise<void> {
 
     // ── Pre-load PrivateSpecialization IDs for doctor references ─────────────
     const specs = await specializationModel.find().select('_id').lean();
-    const specIds: Types.ObjectId[] = specs.map((s) => s._id as Types.ObjectId);
+    const specIds: Types.ObjectId[] = specs.map((s) => s._id);
 
     if (specIds.length === 0) {
       console.warn(
@@ -783,7 +783,7 @@ async function seed(): Promise<void> {
         console.log(
           `⏭️  [HospitalSeeder] Already exists: "${blueprint.name}" — skipping insert.`,
         );
-        hospitalId = existing._id as Types.ObjectId;
+        hospitalId = existing._id;
         skippedHospitals++;
       } else {
         const inserted = await hospitalModel.create({
@@ -806,7 +806,7 @@ async function seed(): Promise<void> {
           isSubscribed: false,
         });
 
-        hospitalId = inserted._id as Types.ObjectId;
+        hospitalId = inserted._id;
         console.log(
           `✅ [HospitalSeeder] Inserted: "${blueprint.name}" (${hospitalId})`,
         );
