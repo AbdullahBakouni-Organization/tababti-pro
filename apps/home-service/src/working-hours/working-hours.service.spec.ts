@@ -4,6 +4,7 @@ import { getModelToken } from '@nestjs/mongoose';
 import { Types } from 'mongoose';
 import { WorkingHoursService } from './working-hours.service';
 import { Doctor } from '@app/common/database/schemas/doctor.schema';
+import { Booking } from '@app/common/database/schemas/booking.schema';
 import { KafkaService } from '@app/common/kafka/kafka.service';
 import { CacheService } from '@app/common/cache/cache.service';
 import { ConflictDetectionService } from './conflict-detection.service';
@@ -79,6 +80,7 @@ describe('WorkingHoursService', () => {
       providers: [
         WorkingHoursService,
         { provide: getModelToken(Doctor.name), useValue: doctorModel },
+        { provide: getModelToken(Booking.name), useValue: createMockModel() },
         { provide: KafkaService, useValue: kafkaService },
         { provide: CacheService, useValue: cacheManager },
         {

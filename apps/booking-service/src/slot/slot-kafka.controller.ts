@@ -3,8 +3,10 @@ import { EventPattern, Payload } from '@nestjs/microservices';
 import { SlotGenerationService } from './slot.service';
 import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
 import type {
+  InspectionDurationChangedEvent,
   SlotGenerationEvent,
   SlotRefreshedEvent,
+  WorkingHoursDeletedEvent,
   WorkingHoursUpdatedEvent,
 } from '@app/common/kafka/interfaces/kafka-event.interface';
 import { GetAvailableSlotsDto } from './dto/get-avalible-slot.dto';
@@ -22,7 +24,62 @@ export class SlotKafkaController {
 
     @InjectQueue('WORKING_HOURS_GENERATE')
     private workingHoursQueue_V1: Queue,
+
+    @InjectQueue('WORKING_HOURS_DELETE')
+    private workingHoursDeleteQueue: Queue,
+
+    @InjectQueue('INSPECTION_DURATION_UPDATE')
+    private inspectionDurationQueue: Queue,
   ) {}
+
+  @EventPattern(KAFKA_TOPICS.INSPECTION_DURATION_CHANGED)
+  async handleInspectionDurationChanged(
+    @Payload() event: InspectionDurationChangedEvent,
+  ) {
+    this.logger.log(
+      `🎯 Received INSPECTION_DURATION_CHANGED for doctor ${event.doctorId} (${event.oldInspectionDuration} → ${event.newInspectionDuration})`,
+    );
+    try {
+      await this.inspectionDurationQueue.add(
+        'PROCESS_INSPECTION_DURATION_UPDATE',
+        {
+          doctorId: event.doctorId,
+          oldInspectionDuration: event.oldInspectionDuration,
+          newInspectionDuration: event.newInspectionDuration,
+          inspectionPrice: event.inspectionPrice,
+          workingHours: event.workingHours,
+          doctorInfo: event.doctorInfo,
+          version: event.version,
+        },
+      );
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `❌ Failed to enqueue inspection duration update: ${err.message}`,
+        err.stack,
+      );
+    }
+  }
+
+  @EventPattern(KAFKA_TOPICS.WORKING_HOURS_DELETED)
+  async handleWorkingHoursDeleted(@Payload() event: WorkingHoursDeletedEvent) {
+    this.logger.log(
+      `🎯 Received WORKING_HOURS_DELETED for doctor ${event.doctorId}`,
+    );
+    try {
+      await this.workingHoursDeleteQueue.add('PROCESS_WORKING_HOURS_DELETE', {
+        doctorId: event.doctorId,
+        deletedWorkingHour: event.deletedWorkingHour,
+        version: event.version,
+      });
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `❌ Failed to enqueue working hours delete: ${err.message}`,
+        err.stack,
+      );
+    }
+  }
 
   @EventPattern(KAFKA_TOPICS.SLOTS_REFRESHED)
   async handleSlotsRefreshed(@Payload() event: SlotRefreshedEvent) {

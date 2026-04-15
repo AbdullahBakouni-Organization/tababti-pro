@@ -123,6 +123,52 @@ export interface WorkingHoursUpdatedEvent {
   updatedDays: Array<Days>;
 }
 
+export interface WorkingHoursDeletedEvent {
+  eventType: 'WORKING_HOURS_DELETED';
+  timestamp: Date;
+  doctorId: string;
+  deletedWorkingHour: {
+    day: Days;
+    location: {
+      type: WorkigEntity;
+      entity_name: string;
+      address: string;
+    };
+    startTime: string;
+    endTime: string;
+  };
+  version: number;
+  metadata: {
+    source: 'doctor-service';
+    version: '1.0';
+  };
+}
+
+export interface InspectionDurationChangedEvent {
+  eventType: 'INSPECTION_DURATION_CHANGED';
+  timestamp: Date;
+  doctorId: string;
+  oldInspectionDuration: number;
+  newInspectionDuration: number;
+  inspectionPrice?: number;
+  workingHours: Array<{
+    day: Days;
+    location: {
+      type: WorkigEntity;
+      entity_name: string;
+      address: string;
+    };
+    startTime: string;
+    endTime: string;
+  }>;
+  doctorInfo: { fullName: string };
+  version: number;
+  metadata: {
+    source: 'doctor-service';
+    version: '1.0';
+  };
+}
+
 export interface BookingCancelledNotificationEvent {
   eventType: 'BOOKING_CANCELLED_NOTIFICATION';
   timestamp: Date;

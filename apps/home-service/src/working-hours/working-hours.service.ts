@@ -12,6 +12,27 @@ import {
   ConflictCheckResponseDto,
 } from './dto/update-working-hours.dto';
 import {
+  AffectedBookingDto,
+  CheckDeleteConflictDto,
+  CheckDeleteConflictResponseDto,
+  DeleteWorkingHoursDto,
+} from './dto/delete-working-hours.dto';
+import {
+  AffectedInspectionBookingDto,
+  CheckInspectionDurationConflictDto,
+  CheckInspectionDurationConflictResponseDto,
+  UpdateInspectionDurationDto,
+} from './dto/update-inspection-duration.dto';
+import { InspectionDurationChangedEvent } from '@app/common/kafka/interfaces/kafka-event.interface';
+import {
+  Booking,
+  BookingDocument,
+} from '@app/common/database/schemas/booking.schema';
+import { BookingStatus } from '@app/common/database/schemas/common.enums';
+import { WorkingHoursDeletedEvent } from '@app/common/kafka/interfaces/kafka-event.interface';
+import { timeToMinutes } from '@app/common/utils/time-ago.util';
+import { getSyriaDate } from '@app/common/utils/get-syria-date';
+import {
   Doctor,
   DoctorDocument,
 } from '@app/common/database/schemas/doctor.schema';
@@ -43,10 +64,502 @@ export class WorkingHoursService {
 
   constructor(
     @InjectModel(Doctor.name) private doctorModel: Model<DoctorDocument>,
+    @InjectModel(Booking.name) private bookingModel: Model<BookingDocument>,
     private kafkaProducer: KafkaService,
     private readonly cacheManager: CacheService,
     private readonly conflictDetectionService: ConflictDetectionService,
   ) {}
+
+  /* -------------------------------------------------------------------------- */
+  /*                   DELETE WORKING HOURS (CHECK + COMMIT)                    */
+  /* -------------------------------------------------------------------------- */
+
+  /**
+   * Dry-run: report the bookings that would be cancelled if the given
+   * working-hours entry is deleted. Does not mutate anything.
+   */
+  async checkDeleteConflict(
+    doctorId: string,
+    dto: CheckDeleteConflictDto,
+  ): Promise<CheckDeleteConflictResponseDto> {
+    const doctor = await this.loadDoctor(doctorId);
+    this.findExistingEntryOrThrow(doctor, dto);
+
+    const affectedBookings = await this.findBookingsWithinEntry(doctorId, dto);
+
+    const hasConflicts = affectedBookings.length > 0;
+
+    return {
+      hasConflicts,
+      affectedBookingsCount: affectedBookings.length,
+      affectedBookings,
+      warningMessage: hasConflicts
+        ? `Deleting this working-hours entry will cancel ${affectedBookings.length} booking(s). Patients will be notified.`
+        : undefined,
+    };
+  }
+
+  /**
+   * Commit: remove the matching working-hours entry, bump version, emit
+   * WORKING_HOURS_DELETED for the booking-service to handle cleanup.
+   */
+  async deleteWorkingHours(
+    doctorId: string,
+    dto: DeleteWorkingHoursDto,
+  ): Promise<{
+    message: string;
+    doctorId: string;
+    workingHoursVersion: number;
+  }> {
+    if (dto.confirm !== true) {
+      throw new BadRequestException(
+        'confirm must be true to proceed with deletion',
+      );
+    }
+
+    const doctor = await this.loadDoctor(doctorId);
+    const matchIndex = this.findExistingEntryOrThrow(doctor, dto);
+
+    const deletedEntry = doctor.workingHours[matchIndex];
+
+    doctor.workingHours = doctor.workingHours.filter(
+      (_, i) => i !== matchIndex,
+    );
+    doctor.workingHoursVersion += 1;
+    await doctor.save();
+
+    await invalidateBookingCaches(this.cacheManager, doctorId.toString());
+
+    const event: WorkingHoursDeletedEvent = {
+      eventType: 'WORKING_HOURS_DELETED',
+      timestamp: new Date(),
+      doctorId,
+      deletedWorkingHour: {
+        day: deletedEntry.day,
+        location: {
+          type: deletedEntry.location.type,
+          entity_name: deletedEntry.location.entity_name,
+          address: deletedEntry.location.address,
+        },
+        startTime: deletedEntry.startTime,
+        endTime: deletedEntry.endTime,
+      },
+      version: doctor.workingHoursVersion,
+      metadata: { source: 'doctor-service', version: '1.0' },
+    };
+
+    try {
+      this.kafkaProducer.emit(KAFKA_TOPICS.WORKING_HOURS_DELETED, event);
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `Failed to publish WORKING_HOURS_DELETED: ${err.message}`,
+        err.stack,
+      );
+    }
+
+    this.logger.log(
+      `Working hours entry deleted for doctor ${doctorId} on ${deletedEntry.day} @ ${deletedEntry.location.entity_name}`,
+    );
+
+    return {
+      message: 'Working hours entry deletion queued successfully',
+      doctorId,
+      workingHoursVersion: doctor.workingHoursVersion,
+    };
+  }
+
+  private async loadDoctor(doctorId: string): Promise<DoctorDocument> {
+    if (!Types.ObjectId.isValid(doctorId)) {
+      throw new BadRequestException('Invalid doctor ID');
+    }
+    const doctor = await this.doctorModel.findById(doctorId).exec();
+    if (!doctor) {
+      throw new NotFoundException(`Doctor with ID ${doctorId} not found`);
+    }
+    return doctor;
+  }
+
+  private findExistingEntryOrThrow(
+    doctor: DoctorDocument,
+    entry: CheckDeleteConflictDto | DeleteWorkingHoursDto,
+  ): number {
+    const index = (doctor.workingHours || []).findIndex(
+      (wh) =>
+        wh.day === entry.day &&
+        wh.startTime === entry.startTime &&
+        wh.endTime === entry.endTime &&
+        wh.location.type === entry.location.type &&
+        wh.location.entity_name === entry.location.entity_name &&
+        wh.location.address === entry.location.address,
+    );
+
+    if (index === -1) {
+      throw new NotFoundException(
+        `No matching working-hours entry found for ${entry.day} @ ${entry.location.entity_name} (${entry.startTime}-${entry.endTime}).`,
+      );
+    }
+
+    return index;
+  }
+
+  /**
+   * Find bookings falling inside the working-hours entry the doctor wants to
+   * delete. Mirrors the filter used by ConflictDetectionService.
+   */
+  private async findBookingsWithinEntry(
+    doctorId: string,
+    entry: CheckDeleteConflictDto,
+  ): Promise<AffectedBookingDto[]> {
+    const today = getSyriaDate();
+    const endDate = new Date(today);
+    endDate.setDate(today.getDate() + 365);
+
+    const bookings = await this.bookingModel
+      .find({
+        doctorId: new Types.ObjectId(doctorId),
+        status: { $in: [BookingStatus.PENDING, BookingStatus.CONFIRMED] },
+        bookingDate: { $gte: today, $lte: endDate },
+        $or: [{ patientId: { $ne: null } }, { patientPhone: { $ne: null } }],
+      })
+      .populate('patientId', 'username phone')
+      .populate('slotId')
+      .lean()
+      .exec();
+
+    const entryStart = timeToMinutes(entry.startTime);
+    const entryEnd = timeToMinutes(entry.endTime);
+
+    const result: AffectedBookingDto[] = [];
+
+    for (const booking of bookings) {
+      const slot =
+        booking.slotId &&
+        typeof booking.slotId === 'object' &&
+        'startTime' in booking.slotId
+          ? (booking.slotId as any)
+          : null;
+      if (!slot) continue;
+
+      if (slot.dayOfWeek?.toLowerCase() !== entry.day.toLowerCase()) continue;
+      if (
+        slot.location?.type !== entry.location.type ||
+        slot.location?.entity_name !== entry.location.entity_name ||
+        slot.location?.address !== entry.location.address
+      ) {
+        continue;
+      }
+
+      const slotStart = timeToMinutes(slot.startTime);
+      const slotEnd = timeToMinutes(slot.endTime);
+      if (slotStart < entryStart || slotEnd > entryEnd) continue;
+
+      const populated =
+        booking.patientId !== null &&
+        typeof booking.patientId === 'object' &&
+        'username' in booking.patientId
+          ? (booking.patientId as unknown as {
+              _id: Types.ObjectId;
+              username: string;
+              phone: string;
+            })
+          : null;
+
+      const patientId = populated
+        ? populated._id.toString()
+        : (booking.patientPhone ?? '');
+      const patientName = populated
+        ? populated.username
+        : (booking.patientName ?? 'Manual Patient');
+      const patientContact = populated
+        ? populated.phone
+        : (booking.patientPhone ?? '');
+
+      result.push({
+        bookingId: booking._id.toString(),
+        patientId,
+        patientName,
+        patientContact,
+        appointmentDate: booking.bookingDate,
+        appointmentTime: slot.startTime,
+        status: booking.status,
+      });
+    }
+
+    return result;
+  }
+
+  /* -------------------------------------------------------------------------- */
+  /*              UPDATE INSPECTION DURATION (CHECK + COMMIT)                   */
+  /* -------------------------------------------------------------------------- */
+
+  async checkInspectionDurationConflict(
+    doctorId: string,
+    dto: CheckInspectionDurationConflictDto,
+  ): Promise<CheckInspectionDurationConflictResponseDto> {
+    const doctor = await this.loadDoctor(doctorId);
+
+    const currentDuration: number | null =
+      typeof doctor.inspectionDuration === 'number' &&
+      doctor.inspectionDuration > 0
+        ? doctor.inspectionDuration
+        : null;
+
+    // First-time setup: no duration configured yet → nothing to conflict with.
+    if (currentDuration === null) {
+      return {
+        hasConflicts: false,
+        durationChanged: true,
+        currentInspectionDuration: null,
+        newInspectionDuration: dto.inspectionDuration,
+        affectedBookingsCount: 0,
+        affectedBookings: [],
+        warningMessage:
+          'No inspection duration is configured yet. Submitting will set it for the first time.',
+      };
+    }
+
+    const durationChanged = currentDuration !== dto.inspectionDuration;
+
+    if (!durationChanged) {
+      return {
+        hasConflicts: false,
+        durationChanged: false,
+        currentInspectionDuration: currentDuration,
+        newInspectionDuration: dto.inspectionDuration,
+        affectedBookingsCount: 0,
+        affectedBookings: [],
+        warningMessage:
+          'Inspection duration is unchanged. Price-only updates will not affect existing slots or bookings.',
+      };
+    }
+
+    const affectedBookings = await this.findAllFutureActiveBookings(doctorId);
+    const hasConflicts = affectedBookings.length > 0;
+
+    return {
+      hasConflicts,
+      durationChanged: true,
+      currentInspectionDuration: currentDuration,
+      newInspectionDuration: dto.inspectionDuration,
+      affectedBookingsCount: affectedBookings.length,
+      affectedBookings,
+      warningMessage: hasConflicts
+        ? `Changing inspection duration will invalidate every future slot and cancel ${affectedBookings.length} active booking(s). Patients will be notified (app push or WhatsApp).`
+        : 'No active bookings exist — the slot grid will be regenerated with no patient impact.',
+    };
+  }
+
+  async updateInspectionDuration(
+    doctorId: string,
+    dto: UpdateInspectionDurationDto,
+  ): Promise<{
+    message: string;
+    doctorId: string;
+    inspectionDuration: number;
+    inspectionPrice?: number;
+    workingHoursVersion: number;
+    regenerationTriggered: boolean;
+  }> {
+    if (dto.confirm !== true) {
+      throw new BadRequestException(
+        'confirm must be true to proceed with update',
+      );
+    }
+
+    const doctor = await this.loadDoctor(doctorId);
+
+    const hasWorkingHours =
+      Array.isArray(doctor.workingHours) && doctor.workingHours.length > 0;
+    const hasExistingDuration =
+      typeof doctor.inspectionDuration === 'number' &&
+      doctor.inspectionDuration > 0;
+
+    // First-time setup: no duration yet → just persist it. No slot regeneration
+    // is possible because there are no working hours yet; the doctor will add
+    // them via the add-working-hours flow which generates slots from scratch.
+    if (!hasExistingDuration) {
+      doctor.inspectionDuration = dto.inspectionDuration;
+      if (dto.inspectionPrice !== undefined) {
+        doctor.inspectionPrice = dto.inspectionPrice;
+      }
+      await doctor.save();
+      await invalidateBookingCaches(this.cacheManager, doctorId.toString());
+
+      this.logger.log(
+        `Inspection duration set for the first time for doctor ${doctorId}: ${dto.inspectionDuration}min`,
+      );
+
+      return {
+        message: hasWorkingHours
+          ? 'Inspection duration set.'
+          : 'Inspection duration saved. Add working hours to generate appointment slots.',
+        doctorId,
+        inspectionDuration: doctor.inspectionDuration,
+        inspectionPrice: doctor.inspectionPrice,
+        workingHoursVersion: doctor.workingHoursVersion,
+        regenerationTriggered: false,
+      };
+    }
+
+    if (!hasWorkingHours) {
+      throw new BadRequestException(
+        'Doctor has no working hours configured. Add working hours first.',
+      );
+    }
+
+    const oldInspectionDuration = doctor.inspectionDuration;
+    const durationChanged = oldInspectionDuration !== dto.inspectionDuration;
+    const priceChanged =
+      dto.inspectionPrice !== undefined &&
+      doctor.inspectionPrice !== dto.inspectionPrice;
+
+    if (!durationChanged && !priceChanged) {
+      this.logger.log(
+        `No-op inspection update for doctor ${doctorId} (duration & price unchanged). Skipping save and slot invalidation.`,
+      );
+      return {
+        message:
+          'No changes detected. Inspection duration and price are unchanged.',
+        doctorId,
+        inspectionDuration: doctor.inspectionDuration,
+        inspectionPrice: doctor.inspectionPrice,
+        workingHoursVersion: doctor.workingHoursVersion,
+        regenerationTriggered: false,
+      };
+    }
+
+    if (priceChanged && dto.inspectionPrice !== undefined) {
+      doctor.inspectionPrice = dto.inspectionPrice;
+    }
+    if (durationChanged) {
+      doctor.inspectionDuration = dto.inspectionDuration;
+      doctor.workingHoursVersion += 1;
+    }
+    await doctor.save();
+
+    await invalidateBookingCaches(this.cacheManager, doctorId.toString());
+
+    if (!durationChanged) {
+      this.logger.log(
+        `Inspection price updated for doctor ${doctorId} (duration unchanged — no slot regeneration).`,
+      );
+      return {
+        message:
+          'Inspection price updated. Slots were not regenerated because duration is unchanged.',
+        doctorId,
+        inspectionDuration: doctor.inspectionDuration,
+        inspectionPrice: doctor.inspectionPrice,
+        workingHoursVersion: doctor.workingHoursVersion,
+        regenerationTriggered: false,
+      };
+    }
+
+    const event: InspectionDurationChangedEvent = {
+      eventType: 'INSPECTION_DURATION_CHANGED',
+      timestamp: new Date(),
+      doctorId,
+      oldInspectionDuration,
+      newInspectionDuration: dto.inspectionDuration,
+      inspectionPrice: doctor.inspectionPrice,
+      workingHours: doctor.workingHours.map((wh) => ({
+        day: wh.day,
+        location: {
+          type: wh.location.type,
+          entity_name: wh.location.entity_name,
+          address: wh.location.address,
+        },
+        startTime: wh.startTime,
+        endTime: wh.endTime,
+      })),
+      doctorInfo: {
+        fullName:
+          `${doctor.firstName} ${doctor.middleName ?? ''} ${doctor.lastName}`.trim(),
+      },
+      version: doctor.workingHoursVersion,
+      metadata: { source: 'doctor-service', version: '1.0' },
+    };
+
+    try {
+      this.kafkaProducer.emit(KAFKA_TOPICS.INSPECTION_DURATION_CHANGED, event);
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `Failed to publish INSPECTION_DURATION_CHANGED: ${err.message}`,
+        err.stack,
+      );
+    }
+
+    this.logger.log(
+      `Inspection duration changed for doctor ${doctorId}: ${oldInspectionDuration} → ${dto.inspectionDuration}`,
+    );
+
+    return {
+      message:
+        'Inspection duration update queued. All future slots will be regenerated and affected patients will be notified.',
+      doctorId,
+      inspectionDuration: doctor.inspectionDuration,
+      inspectionPrice: doctor.inspectionPrice,
+      workingHoursVersion: doctor.workingHoursVersion,
+      regenerationTriggered: true,
+    };
+  }
+
+  private async findAllFutureActiveBookings(
+    doctorId: string,
+  ): Promise<AffectedInspectionBookingDto[]> {
+    const today = getSyriaDate();
+    const endDate = new Date(today);
+    endDate.setDate(today.getDate() + 365);
+
+    const bookings = await this.bookingModel
+      .find({
+        doctorId: new Types.ObjectId(doctorId),
+        status: { $in: [BookingStatus.PENDING, BookingStatus.CONFIRMED] },
+        bookingDate: { $gte: today, $lte: endDate },
+        $or: [{ patientId: { $ne: null } }, { patientPhone: { $ne: null } }],
+      })
+      .populate('patientId', 'username phone')
+      .lean()
+      .exec();
+
+    const result: AffectedInspectionBookingDto[] = [];
+    for (const booking of bookings) {
+      const populated =
+        booking.patientId !== null &&
+        typeof booking.patientId === 'object' &&
+        'username' in booking.patientId
+          ? (booking.patientId as unknown as {
+              _id: Types.ObjectId;
+              username: string;
+              phone: string;
+            })
+          : null;
+
+      const isAppPatient = !!populated;
+      const patientId = populated
+        ? populated._id.toString()
+        : (booking.patientPhone ?? '');
+      const patientName = populated
+        ? populated.username
+        : (booking.patientName ?? 'Manual Patient');
+      const patientContact = populated
+        ? populated.phone
+        : (booking.patientPhone ?? '');
+
+      result.push({
+        bookingId: booking._id.toString(),
+        patientId,
+        patientName,
+        patientContact,
+        appointmentDate: booking.bookingDate,
+        appointmentTime: booking.bookingTime,
+        status: booking.status,
+        isAppPatient,
+      });
+    }
+    return result;
+  }
 
   /* -------------------------------------------------------------------------- */
   /*                    INITIAL SETUP: ADD WORKING HOURS                        */

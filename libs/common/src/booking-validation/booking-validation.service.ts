@@ -12,6 +12,7 @@ import {
   AppointmentSlotDocument,
 } from '../database/schemas/slot.schema';
 import { BookingStatus, SlotStatus } from '../database/schemas/common.enums';
+import { getSyriaDate } from '../utils/get-syria-date';
 
 /**
  * Booking validation response
@@ -107,11 +108,15 @@ export class BookingValidationService {
       };
     }
 
-    // Rule 1: Check if patient already has an active booking with this doctor
+    // Rule 1: Check if patient already has an active booking with this doctor.
+    // Expired-pending bookings (PENDING with bookingDate strictly before today
+    // in Syria timezone) do NOT count — a separate cron will sweep them.
+    const todaySyria = getSyriaDate();
     const existingBookingWithDoctor = await this.bookingModel.countDocuments({
       patientId: new Types.ObjectId(patientId),
       doctorId: new Types.ObjectId(doctorId),
-      status: { $in: [BookingStatus.PENDING] },
+      status: BookingStatus.PENDING,
+      bookingDate: { $gte: todaySyria },
     });
 
     if (existingBookingWithDoctor >= this.MAX_BOOKINGS_PER_DOCTOR) {

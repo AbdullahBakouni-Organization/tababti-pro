@@ -31,6 +31,7 @@ import { BookingValidationService } from '@app/common/booking-validation';
 import { invalidateBookingCaches } from '@app/common/utils/cache-invalidation.util';
 import { KafkaService } from '@app/common/kafka/kafka.service';
 import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
+import { formatArabicDate } from '@app/common/utils/get-syria-date';
 
 @Injectable()
 export class BookingService {
@@ -299,10 +300,7 @@ export class BookingService {
       return;
     }
 
-    const appointmentDate =
-      booking.bookingDate instanceof Date
-        ? booking.bookingDate.toISOString().split('T')[0]
-        : String(booking.bookingDate);
+    const appointmentDate = formatArabicDate(booking.bookingDate);
 
     try {
       this.kafkaService.emit(KAFKA_TOPICS.WHATSAPP_BOOKING_CREATED_DOCTOR, {

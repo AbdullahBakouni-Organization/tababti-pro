@@ -31,3 +31,21 @@ export function formatDate(date: Date): string {
     day: 'numeric',
   }).format(new Date(date));
 }
+
+/**
+ * Format a date in Arabic long form for WhatsApp messages, e.g.:
+ * "الأربعاء 15 نيسان 2026".
+ * Uses Gregorian calendar with Arabic month names (ar-SY locale).
+ * Accepts Date, ISO string, or any value the Date constructor understands.
+ */
+export function formatArabicDate(date: Date | string | number): string {
+  return new Intl.DateTimeFormat('ar-SY', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    calendar: 'gregory',
+    numberingSystem: 'latn',
+    timeZone: 'Asia/Damascus',
+  }).format(new Date(date));
+}

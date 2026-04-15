@@ -8,6 +8,8 @@ import { BullModule } from '@nestjs/bull';
 import { WorkingHoursUpdateProcessorV2 } from './processors/update-working-hours.processor';
 import { FcmModule } from '@app/common/fcm';
 import { SlotGenerationProcessor } from './processors/generate-working-hours.processor';
+import { WorkingHoursDeleteProcessor } from './processors/delete-working-hours.processor';
+import { InspectionDurationUpdateProcessor } from './processors/update-inspection-duration.processor';
 
 @Module({
   imports: [
@@ -35,6 +37,24 @@ import { SlotGenerationProcessor } from './processors/generate-working-hours.pro
         removeOnFail: 500, // Keep last 500 failed jobs for debugging
       },
     }),
+    BullModule.registerQueue({
+      name: 'WORKING_HOURS_DELETE',
+      defaultJobOptions: {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 2000 },
+        removeOnComplete: 100,
+        removeOnFail: 500,
+      },
+    }),
+    BullModule.registerQueue({
+      name: 'INSPECTION_DURATION_UPDATE',
+      defaultJobOptions: {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 2000 },
+        removeOnComplete: 100,
+        removeOnFail: 500,
+      },
+    }),
     DatabaseModule,
     CacheModule,
     FcmModule,
@@ -43,6 +63,8 @@ import { SlotGenerationProcessor } from './processors/generate-working-hours.pro
     SlotGenerationService,
     WorkingHoursUpdateProcessorV2,
     SlotGenerationProcessor,
+    WorkingHoursDeleteProcessor,
+    InspectionDurationUpdateProcessor,
   ],
   controllers: [SlotController, SlotKafkaController],
   exports: [SlotGenerationService],
