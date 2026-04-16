@@ -55,6 +55,11 @@ import {
   PauseSlotsJobData,
 } from './dto/slot-management.dto';
 import {
+  ReclassifiableCancellationStatus,
+  ReclassifyCancellationDto,
+  ReclassifyCancellationResponseDto,
+} from './dto/reclassify-cancellation.dto';
+import {
   AppointmentSlot,
   AppointmentSlotDocument,
 } from '@app/common/database/schemas/slot.schema';
@@ -1029,10 +1034,15 @@ export class DoctorService {
       await booking.save({ session });
 
       // Step 2: Free up the slot
+      // Guarded: only release slots currently in BOOKED/ON_HOLD. Avoids
+      // resurrecting a slot that another flow already BLOCKED or EXPIRED.
       const slot = await this.slotModel
-        .findByIdAndUpdate(
-          booking.slotId,
-          { $set: { status: SlotStatus.AVAILABLE } },
+        .findOneAndUpdate(
+          {
+            _id: booking.slotId,
+            status: { $in: [SlotStatus.BOOKED, SlotStatus.ON_HOLD] },
+          },
+          { $set: { status: SlotStatus.AVAILABLE }, $inc: { version: 1 } },
           { new: true, session },
         )
         .exec();
@@ -1122,6 +1132,86 @@ export class DoctorService {
     } finally {
       await session.endSession();
     }
+  }
+
+  /**
+   * Reclassify a system-cancelled booking into a doctor/patient/system attribution.
+   *
+   * Only bookings currently in CANCELLED_BY_SYSTEM are reclassifiable — other
+   * terminal states already carry an authoritative attribution and must not be
+   * silently overwritten. This is a metadata-only change: the slot lifecycle is
+   * not touched and no notification is emitted, since the patient has already
+   * been informed of the original cancellation.
+   */
+  async reclassifySystemCancellation(
+    dto: ReclassifyCancellationDto,
+    doctorId: string,
+  ): Promise<ReclassifyCancellationResponseDto> {
+    if (!Types.ObjectId.isValid(dto.bookingId)) {
+      throw new BadRequestException('Invalid booking ID');
+    }
+    if (!Types.ObjectId.isValid(doctorId)) {
+      throw new BadRequestException('Invalid doctor ID');
+    }
+
+    const cancelledByMap: Record<
+      ReclassifiableCancellationStatus,
+      UserRole.DOCTOR | UserRole.USER | UserRole.SYSTEM
+    > = {
+      [BookingStatus.CANCELLED_BY_DOCTOR]: UserRole.DOCTOR,
+      [BookingStatus.CANCELLED_BY_PATIENT]: UserRole.USER,
+      [BookingStatus.CANCELLED_BY_SYSTEM]: UserRole.SYSTEM,
+    };
+
+    const booking = await this.bookingModel
+      .findOne({
+        _id: new Types.ObjectId(dto.bookingId),
+        doctorId: new Types.ObjectId(doctorId),
+      })
+      .exec();
+
+    if (!booking) {
+      throw new NotFoundException('Booking not found');
+    }
+
+    if (booking.status !== BookingStatus.CANCELLED_BY_SYSTEM) {
+      throw new BadRequestException(
+        `Only system-cancelled bookings can be reclassified. Current status: ${booking.status}`,
+      );
+    }
+
+    const previousStatus = booking.status;
+    const previousReason = booking.cancellation?.reason;
+    const previousCancelledAt =
+      booking.cancellation?.cancelledAt ?? booking.updatedAt ?? new Date();
+
+    booking.status = dto.targetStatus;
+    booking.cancellation = {
+      cancelledBy: cancelledByMap[dto.targetStatus],
+      reason: dto.reason ?? previousReason ?? '',
+      cancelledAt: previousCancelledAt,
+    };
+
+    await booking.save();
+
+    await invalidateBookingCaches(
+      this.cacheManager,
+      doctorId,
+      booking.patientId ? booking.patientId.toString() : undefined,
+      this.logger,
+    );
+
+    this.logger.log(
+      `Doctor ${doctorId} reclassified booking ${dto.bookingId}: ${previousStatus} → ${dto.targetStatus}`,
+    );
+
+    return {
+      success: true,
+      bookingId: booking._id.toString(),
+      previousStatus,
+      newStatus: dto.targetStatus,
+      message: 'Booking cancellation successfully reclassified',
+    };
   }
 
   /**
@@ -1937,28 +2027,49 @@ export class DoctorService {
       throw new BadRequestException('Invalid doctor ID');
     }
 
-    // Find booking with patient and doctor info
-    const booking = await this.bookingModel
-      .findOne({
-        _id: new Types.ObjectId(dto.bookingId),
-        doctorId: new Types.ObjectId(doctorId),
-        status: { $in: [BookingStatus.PENDING] },
-      })
-      .populate<{ patientId: User }>('patientId', 'username phone fcmToken')
-      .populate<{ doctorId: Doctor }>('doctorId', 'firstName lastName')
-      .exec();
+    const session = await this.connection.startSession();
+    let booking;
+    try {
+      booking = await session.withTransaction(async () => {
+        const completedAt = new Date();
+        const set: Record<string, unknown> = {
+          status: BookingStatus.COMPLETED,
+          completedAt,
+        };
+        if (dto.notes) {
+          set.note = dto.notes;
+        }
+
+        // Atomic guarded transition: only flip PENDING → COMPLETED.
+        // Concurrent cancellations will have already moved status away from
+        // PENDING, so this update returns null and we abort the transaction.
+        const updated = await this.bookingModel
+          .findOneAndUpdate(
+            {
+              _id: new Types.ObjectId(dto.bookingId),
+              doctorId: new Types.ObjectId(doctorId),
+              status: BookingStatus.PENDING,
+            },
+            { $set: set, $inc: { version: 1 } },
+            { session, new: true },
+          )
+          .populate<{ patientId: User }>('patientId', 'username phone fcmToken')
+          .populate<{ doctorId: Doctor }>('doctorId', 'firstName lastName')
+          .exec();
+
+        if (!updated) {
+          throw new NotFoundException('الحجز غير موجود أو تم إنجازه مسبقاً');
+        }
+        return updated;
+      });
+    } finally {
+      await session.endSession();
+    }
 
     if (!booking) {
+      // Defensive: withTransaction should have thrown above if the update missed.
       throw new NotFoundException('الحجز غير موجود أو تم إنجازه مسبقاً');
     }
-
-    // Update booking status
-    booking.status = BookingStatus.COMPLETED;
-    booking.completedAt = new Date();
-    if (dto.notes) {
-      booking.note = dto.notes;
-    }
-    await booking.save();
 
     this.logger.log(
       `✅ Booking ${dto.bookingId} completed by doctor ${doctorId}`,
@@ -1984,12 +2095,6 @@ export class DoctorService {
         doctor,
         dto.notes,
       );
-      await invalidateBookingCaches(
-        this.cacheManager,
-        doctorId,
-        patient._id.toString(),
-        this.logger,
-      );
     } else if (!booking.patientId && booking.patientPhone && doctor) {
       // Manual patient (no DB account) → WhatsApp notification
       this.sendManualPatientCompletionWhatsApp(
@@ -2002,6 +2107,14 @@ export class DoctorService {
       );
       patientNotified = true;
     }
+
+    await invalidateBookingCaches(
+      this.cacheManager,
+      doctorId,
+      patient?._id?.toString(),
+      this.logger,
+    );
+
     return {
       message: 'تم إنجاز الحجز بنجاح',
       bookingId: booking._id.toString(),

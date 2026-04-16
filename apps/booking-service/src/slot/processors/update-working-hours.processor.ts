@@ -332,8 +332,14 @@ export class WorkingHoursUpdateProcessorV2 {
 
           if (invalidatedExists) {
             // ✅ أعد تفعيله بدل ما تولّد جديد
+            // Guarded: only reactivate if the slot is still INVALIDATED
+            // when the update executes. Prevents clobbering a slot that
+            // another writer already repurposed in the same window.
             await this.slotModel.updateOne(
-              { _id: invalidatedExists._id },
+              {
+                _id: invalidatedExists._id,
+                status: SlotStatus.INVALIDATED,
+              },
               {
                 $set: {
                   status: SlotStatus.AVAILABLE,
@@ -346,6 +352,7 @@ export class WorkingHoursUpdateProcessorV2 {
                   dayOfWeek: range.day,
                   date: new Date(date),
                 },
+                $inc: { version: 1 },
               },
               { session },
             );

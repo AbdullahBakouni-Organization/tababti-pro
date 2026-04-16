@@ -120,15 +120,21 @@ export class PauseSlotsProcessor {
     bookingIds: string[],
     reason: string,
   ): Promise<any[]> {
+    const liveStatuses = [BookingStatus.PENDING, BookingStatus.CONFIRMED];
+
+    // Read-before-write is scoped to bookings still in a live state so we
+    // don't re-notify patients whose bookings were already cancelled
+    // elsewhere (patient cancel, admin cancel, expired cron).
     const bookings = await this.bookingModel
-      .find({ _id: { $in: bookingIds } })
+      .find({ _id: { $in: bookingIds }, status: { $in: liveStatuses } })
       .populate('patientId', 'username phone fcmToken')
       .populate('slotId')
       .exec();
 
-    // Update all to cancelled
+    // Guarded transition: only flip live bookings. Concurrent cancellations
+    // that already moved status into a terminal state are skipped.
     await this.bookingModel.updateMany(
-      { _id: { $in: bookingIds } },
+      { _id: { $in: bookingIds }, status: { $in: liveStatuses } },
       {
         $set: {
           status: BookingStatus.CANCELLED_BY_DOCTOR,
@@ -138,6 +144,7 @@ export class PauseSlotsProcessor {
             cancelledAt: new Date(),
           },
         },
+        $inc: { version: 1 },
       },
     );
 
@@ -151,16 +158,22 @@ export class PauseSlotsProcessor {
    */
   private async pauseSlots(slotIds: string[]): Promise<void> {
     // Update slots to PAUSED status
+    // Guarded: only transition slots that are in a state where pausing is
+    // meaningful. Skipping BLOCKED/EXPIRED/COMPLETED avoids clobbering slots
+    // that were already finalized by another flow.
     const result = await this.slotModel.updateMany(
       {
         _id: { $in: slotIds.map((id) => new Types.ObjectId(id)) },
-        // Only pause for the specific date
+        status: {
+          $in: [SlotStatus.AVAILABLE, SlotStatus.BOOKED, SlotStatus.ON_HOLD],
+        },
       },
       {
         $set: {
           status: SlotStatus.BLOCKED,
           pausedAt: new Date(),
         },
+        $inc: { version: 1 },
       },
     );
 

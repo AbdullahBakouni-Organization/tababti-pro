@@ -70,9 +70,13 @@ export class HolidayBlockProcessor {
         .session(session)
         .exec()) as PopulatedBookingDocument[];
 
-      // Step 2: Cancel all pending bookings
+      // Step 2: Cancel only bookings still in a live state. Terminal-status
+      // bookings (already cancelled/completed) must not be overwritten.
       await this.bookingModel.updateMany(
-        { _id: { $in: affectedBookingIds } },
+        {
+          _id: { $in: affectedBookingIds },
+          status: { $in: [BookingStatus.PENDING, BookingStatus.CONFIRMED] },
+        },
         {
           $set: {
             status: BookingStatus.CANCELLED_BY_DOCTOR,
@@ -82,6 +86,7 @@ export class HolidayBlockProcessor {
               cancelledAt: new Date(),
             },
           },
+          $inc: { version: 1 },
         },
         { session },
       );
@@ -90,15 +95,22 @@ export class HolidayBlockProcessor {
         `[Holiday Block Job] Cancelled ${bookings.length} bookings`,
       );
 
-      // Step 3: Block all slots in the date range
+      // Step 3: Block slots that are still in a transitionable state. Skip
+      // slots already finalized (BLOCKED/EXPIRED/COMPLETED/INVALIDATED).
       await this.slotModel.updateMany(
-        { _id: { $in: affectedSlotIds } },
+        {
+          _id: { $in: affectedSlotIds },
+          status: {
+            $in: [SlotStatus.AVAILABLE, SlotStatus.BOOKED, SlotStatus.ON_HOLD],
+          },
+        },
         {
           $set: {
             status: SlotStatus.BLOCKED,
             blockReason: reason,
             blockedAt: new Date(),
           },
+          $inc: { version: 1 },
         },
         { session },
       );

@@ -469,9 +469,13 @@ export class DoctorBookingsQueryService {
 
     const doctorName = `${doctor.firstName} ${doctor.lastName}`;
 
-    // ✅ Free the slot
+    // ✅ Free the slot — guarded so we only release BOOKED/ON_HOLD slots and
+    // never overwrite a slot already BLOCKED, EXPIRED, or INVALIDATED.
     await this.slotModel.updateOne(
-      { _id: booking.slotId },
+      {
+        _id: booking.slotId,
+        status: { $in: [SlotStatus.BOOKED, SlotStatus.ON_HOLD] },
+      },
       {
         $set: {
           status: SlotStatus.AVAILABLE,
@@ -479,6 +483,7 @@ export class DoctorBookingsQueryService {
           bookingId: null,
           bookedAt: null,
         },
+        $inc: { version: 1 },
       },
     );
 

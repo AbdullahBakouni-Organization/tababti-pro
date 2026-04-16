@@ -100,6 +100,9 @@ export class Booking {
 
   @Prop({ type: Date })
   completedAt?: Date;
+
+  @Prop({ type: Number, required: true, default: 1 })
+  version: number;
 }
 
 export const BookingSchema = SchemaFactory.createForClass(Booking);

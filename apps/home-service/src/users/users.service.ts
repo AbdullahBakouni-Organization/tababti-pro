@@ -25,12 +25,13 @@ import {
 } from '@app/common/database/schemas/common.enums';
 import { KafkaService } from '@app/common/kafka/kafka.service';
 import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
+import type { BookingCancelledNotificationEventByUser } from '@app/common/kafka/interfaces/kafka-event.interface';
 import {
   PatientCancelBookingDto,
   CancellationResponseDto,
   BookingValidationResponseDto,
 } from './dto/patient-booking.dto';
-import { formatDate } from '@app/common/utils/get-syria-date';
+import { formatArabicDate, formatDate } from '@app/common/utils/get-syria-date';
 import { GetUserBookingsDto } from './dto/get-user-bookings.dto';
 import {
   BookingResponseItem,
@@ -245,10 +246,15 @@ export class UsersService {
       };
       await booking.save({ session });
 
-      // Free up the slot
-      await this.slotModel.findByIdAndUpdate(
-        booking.slotId,
-        { $set: { status: SlotStatus.AVAILABLE } },
+      // Free up the slot. Guarded so we only transition from BOOKED/ON_HOLD —
+      // never clobber a slot that another flow has already BLOCKED, EXPIRED,
+      // COMPLETED, or moved to AVAILABLE.
+      await this.slotModel.findOneAndUpdate(
+        {
+          _id: booking.slotId,
+          status: { $in: [SlotStatus.BOOKED, SlotStatus.ON_HOLD] },
+        },
+        { $set: { status: SlotStatus.AVAILABLE }, $inc: { version: 1 } },
         { session },
       );
 
@@ -307,37 +313,41 @@ export class UsersService {
   /**
    * Send notification to doctor when patient cancels
    */
+  /**
+   * Emit a Kafka event so the notification-service delivers an FCM push +
+   * persists an in-app notification record for the doctor.
+   *
+   * The event is emitted even when the doctor has no FCM token — the
+   * notification-service will skip the push but still save the in-app record
+   * so the doctor sees the cancellation in their notifications feed.
+   */
   private sendDoctorNotification(
-    booking: any,
+    booking: Pick<Booking, 'bookingTime' | 'bookingDate'> & {
+      _id: Types.ObjectId;
+    },
     patient: User,
     doctor: Doctor,
   ): void {
-    if (!doctor.fcmToken) {
-      this.logger.warn(
-        `Doctor ${doctor._id.toString()} has no FCM token. Notification not sent.`,
-      );
-      return;
-    }
-
+    const doctorId = doctor._id.toString();
+    const bookingId = booking._id.toString();
     const doctorName = `${doctor.firstName} ${doctor.lastName}`;
+    const patientName = patient.username ?? '';
+    const appointmentDate = formatArabicDate(booking.bookingDate);
 
-    const event = {
+    const event: BookingCancelledNotificationEventByUser = {
       eventType: 'BOOKING_CANCELLED_BY_USER',
       timestamp: new Date(),
       data: {
         patientId: patient._id.toString(),
-        patientName: patient.username ?? '', // Ensure patient.username is always a string
-        doctorId: doctor._id.toString(),
+        patientName,
+        doctorId,
         doctorName,
-        fcmToken: doctor.fcmToken,
-        bookingId: booking._id?.toString(),
-        appointmentDate: formatDate(booking.bookingDate),
+        fcmToken: doctor.fcmToken ?? '',
+        bookingId,
+        appointmentDate,
         appointmentTime: booking.bookingTime,
-        reason: `المريض ألغى الحجز`,
-        type: 'USER_CANCELLED' as const,
-        // Additional info for doctor
-        patientPhone: patient.phone,
-        location: booking.location,
+        reason: 'المريض ألغى الحجز',
+        type: 'USER_CANCELLED',
       },
       metadata: {
         source: 'user-service',
@@ -348,11 +358,14 @@ export class UsersService {
     try {
       this.kafkaService.emit(KAFKA_TOPICS.BOOKING_CANCELLED_BY_USER, event);
       this.logger.log(
-        `📱 Notification sent to doctor ${doctor._id.toString()} about patient cancellation`,
+        `📱 Doctor-cancellation event emitted for doctor ${doctorId} (booking ${bookingId})`,
       );
     } catch (error) {
       const err = error as Error;
-      this.logger.error(`Failed to send doctor notification: ${err.message}`);
+      this.logger.error(
+        `Failed to emit doctor-cancellation event: ${err.message}`,
+        err.stack,
+      );
     }
   }
 

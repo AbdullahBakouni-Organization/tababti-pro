@@ -38,13 +38,16 @@ export class CancelExpiredBookingProcessor {
     const { bookingId, doctorId, patientId, slotId } = job.data;
 
     try {
-      const slot = await this.slotModel.findById(slotId).exec();
-      if (slot && slot.status === SlotStatus.BOOKED) {
-        await this.slotModel.updateOne(
-          { _id: new Types.ObjectId(slotId) },
-          { $set: { status: SlotStatus.INVALIDATED } },
-        );
-      }
+      // Guarded atomic transition: avoids the read-then-write race where a
+      // concurrent cancellation flipped BOOKED → AVAILABLE between the read
+      // and the update.
+      await this.slotModel.updateOne(
+        { _id: new Types.ObjectId(slotId), status: SlotStatus.BOOKED },
+        {
+          $set: { status: SlotStatus.INVALIDATED },
+          $inc: { version: 1 },
+        },
+      );
 
       await invalidateBookingCaches(
         this.cacheService,

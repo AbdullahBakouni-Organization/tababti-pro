@@ -121,11 +121,14 @@ export class FcmService {
     },
   ): Promise<boolean> {
     try {
+      const title = '❌ تم إلغاء موعد';
+      const body = `قام المريض ${data.patientName} بإلغاء موعده بتاريخ ${data.appointmentDate} الساعة ${data.appointmentTime}.`;
+
       const message: admin.messaging.Message = {
         token: fcmToken,
         notification: {
-          title: '❌ Appointment Cancelled',
-          body: `Your appointment with  ${data.patientName} on ${data.appointmentDate} at ${data.appointmentTime} has been cancelled because of ${data.reason}.`,
+          title,
+          body,
         },
         data: {
           type: data.type,
@@ -156,8 +159,8 @@ export class FcmService {
           payload: {
             aps: {
               alert: {
-                title: '❌ Appointment Cancelled',
-                body: `Your appointment with ${data.patientName} on ${data.appointmentDate} at ${data.appointmentTime} has been cancelled.`,
+                title,
+                body,
               },
               sound: 'default',
               badge: 1,

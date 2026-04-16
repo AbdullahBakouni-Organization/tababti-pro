@@ -70,6 +70,10 @@ import {
   PauseSlotsDto,
 } from './dto/slot-management.dto';
 import {
+  ReclassifyCancellationDto,
+  ReclassifyCancellationResponseDto,
+} from './dto/reclassify-cancellation.dto';
+import {
   AllSlotsResponseDto,
   CheckHolidayConflictDto,
   CheckVIPBookingConflictDto,
@@ -638,6 +642,40 @@ export class DoctorController {
       req.user.entity._id.toString(),
     );
     return this.DoctorService.doctorCancelBooking(dto, doctorId);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
+  @Patch('bookings/cancellation/reclassify')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Reclassify a system-cancelled booking',
+    description:
+      'Lets the doctor re-attribute a booking that was auto-cancelled by the system (CANCELLED_BY_SYSTEM) to one of: CANCELLED_BY_DOCTOR, CANCELLED_BY_PATIENT, or CANCELLED_BY_SYSTEM. Metadata-only change: slot lifecycle is untouched and no patient notification is emitted.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Booking cancellation attribution updated',
+    type: ReclassifyCancellationResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description:
+      'Invalid IDs or booking is not in CANCELLED_BY_SYSTEM and cannot be reclassified',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Booking not found or does not belong to this doctor',
+  })
+  async reclassifyBookingCancellation(
+    @Body() dto: ReclassifyCancellationDto,
+    @Req() req: any,
+  ): Promise<ReclassifyCancellationResponseDto> {
+    const doctorId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
+    return this.DoctorService.reclassifySystemCancellation(dto, doctorId);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)

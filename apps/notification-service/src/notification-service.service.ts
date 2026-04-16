@@ -94,34 +94,55 @@ export class NotificationService {
   async sendCancelledNotificationToDoctor(
     event: BookingCancelledNotificationEventByUser,
   ): Promise<void> {
+    const { data } = event;
+    const title = '🔔 المريض ألغى الحجز';
+    const message = `المريض ${data.patientName} ألغى حجز موعد يوم ${data.appointmentDate} الساعة ${data.appointmentTime}. السبب: ${data.reason}`;
+
+    // Skip FCM entirely when the doctor has no token, but always persist the
+    // in-app record so the cancellation is visible in the doctor's feed.
+    if (!data.fcmToken) {
+      this.logger.warn(
+        `Doctor ${data.doctorId} has no FCM token. In-app record only for booking ${data.bookingId}.`,
+      );
+      await this.createNotificationRecord({
+        recipientType: UserRole.DOCTOR,
+        recipientId: new Types.ObjectId(data.doctorId),
+        notificationType: this.mapTypeToEnum(data.type),
+        title,
+        message,
+        status: NotificationStatus.FAILED,
+        bookingId: data.bookingId,
+        patientId: data.patientId,
+      });
+      return;
+    }
+
     try {
       const sent =
         await this.fcmService.sendBookingCancellationNotificationToDoctor(
-          event.data.fcmToken,
-          event.data,
+          data.fcmToken,
+          data,
         );
       const notificationStatus = sent
         ? NotificationStatus.SENT
         : NotificationStatus.FAILED;
 
-      // Create notification in database
       await this.createNotificationRecord({
-        recipientType: UserRole.DOCTOR, // Recipient is DOCTOR
-        recipientId: new Types.ObjectId(event.data.doctorId),
-        notificationType: this.mapTypeToEnum(event.data.type),
-        title: '🔔 المريض ألغى الحجز',
-        message: `المريض ${event.data.patientName} ألغى حجز موعد يوم ${this.formatDate(event.data.appointmentDate)} الساعة ${event.data.appointmentTime}. السبب: ${event.data.reason}`,
+        recipientType: UserRole.DOCTOR,
+        recipientId: new Types.ObjectId(data.doctorId),
+        notificationType: this.mapTypeToEnum(data.type),
+        title,
+        message,
         status: notificationStatus,
-        bookingId: event.data.bookingId,
-        patientId: event.data.patientId,
+        bookingId: data.bookingId,
+        patientId: data.patientId,
       });
+
       if (sent) {
-        this.logger.log(
-          `FCM notification sent for booking ${event.data.bookingId}`,
-        );
+        this.logger.log(`FCM notification sent for booking ${data.bookingId}`);
       } else {
         this.logger.warn(
-          `Failed to send FCM notification for booking ${event.data.bookingId}`,
+          `Failed to send FCM notification for booking ${data.bookingId}`,
         );
       }
     } catch (error) {
@@ -133,13 +154,13 @@ export class NotificationService {
       try {
         await this.createNotificationRecord({
           recipientType: UserRole.DOCTOR,
-          recipientId: new Types.ObjectId(event.data.doctorId),
-          notificationType: this.mapTypeToEnum(event.data.type),
-          title: '🔔 المريض ألغى الحجز',
-          message: `المريض ${event.data.patientName} ألغى حجزاً. السبب: ${event.data.reason}`,
+          recipientId: new Types.ObjectId(data.doctorId),
+          notificationType: this.mapTypeToEnum(data.type),
+          title,
+          message,
           status: NotificationStatus.FAILED,
-          bookingId: event.data.bookingId,
-          patientId: event.data.patientId,
+          bookingId: data.bookingId,
+          patientId: data.patientId,
         });
       } catch (dbError) {
         const err = dbError as Error;
