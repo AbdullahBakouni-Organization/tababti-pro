@@ -63,6 +63,24 @@ export class DoctorProfileService {
     return result;
   }
 
+  // ── GET main profile (compact) ─────────────────────────────────────────
+  async getMainProfile(
+    authAccountId: string,
+  ): Promise<{ image: string | null; gender: Doctor['gender']; username: string }> {
+    const doctor = await this.doctorRepo.findByAuthAccountId(authAccountId);
+    if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
+
+    const username = [doctor.firstName, doctor.middleName, doctor.lastName]
+      .filter(Boolean)
+      .join(' ');
+
+    return {
+      image: doctor.image ?? null,
+      gender: doctor.gender,
+      username,
+    };
+  }
+
   // ── UPDATE profile ─────────────────────────────────────────────────────
   async updateProfile(
     authAccountId: string,

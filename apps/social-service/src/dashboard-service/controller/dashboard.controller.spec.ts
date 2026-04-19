@@ -19,6 +19,7 @@ describe('DashboardController', () => {
     cronRefreshRecentPatients: jest.fn(),
     cronRefreshLocationChart: jest.fn(),
     getDoctorStats: jest.fn(),
+    getMonthlyIncome: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -103,6 +104,29 @@ describe('DashboardController', () => {
       mockDashboardService.getGenderStats.mockResolvedValue({ male: 5 });
       const result = await controller.getGenderStats('auth-1', {} as any, 'en');
       expect(result).toHaveProperty('data');
+    });
+  });
+
+  describe('getMonthlyIncome()', () => {
+    it('delegates to service.getMonthlyIncome and wraps in ApiResponse', async () => {
+      const payload = {
+        currency: 'USD',
+        months: [],
+        peak: { key: 'Jan', value: 0 },
+      };
+      mockDashboardService.getMonthlyIncome.mockResolvedValue(payload);
+
+      const result = await controller.getMonthlyIncome(
+        'auth-1',
+        { months: 3 } as any,
+        'en',
+      );
+
+      expect(mockDashboardService.getMonthlyIncome).toHaveBeenCalledWith(
+        'auth-1',
+        { months: 3 },
+      );
+      expect(result).toMatchObject({ success: true, data: payload });
     });
   });
 

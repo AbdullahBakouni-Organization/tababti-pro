@@ -194,14 +194,30 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   // Pattern matching
+  //
+  // NOTE: `KEYS` is O(N) and blocks the Redis event loop — unsafe in production
+  // once the keyspace grows. `scanKeys` / `deletePattern` stream the result via
+  // SCAN + UNLINK instead, keeping latency predictable even under load.
   async keys(pattern: string): Promise<string[]> {
-    return await this.client.keys(pattern);
+    return await this.scanKeys(pattern);
   }
 
-  async deletePattern(pattern: string): Promise<void> {
-    const keys = await this.keys(pattern);
-    if (keys.length > 0) {
-      await this.client.del(...keys);
+  async scanKeys(pattern: string, count: number = 500): Promise<string[]> {
+    const stream = this.client.scanStream({ match: pattern, count });
+    const result: string[] = [];
+    for await (const batch of stream as AsyncIterable<string[]>) {
+      if (batch.length) result.push(...batch);
+    }
+    return result;
+  }
+
+  async deletePattern(pattern: string, count: number = 500): Promise<void> {
+    const stream = this.client.scanStream({ match: pattern, count });
+    for await (const batch of stream as AsyncIterable<string[]>) {
+      if (batch.length) {
+        // UNLINK frees memory in a background thread; safer than DEL for bulk deletes.
+        await this.client.unlink(...batch);
+      }
     }
   }
 

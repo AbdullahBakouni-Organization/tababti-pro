@@ -252,15 +252,18 @@ export class AuthValidateService {
       throw new UnauthorizedException('Account not found');
     }
 
-    // 2. Get entity (Doctor/Admin/User)
+    // 2. Get entity (Doctor/Admin/User) — opt in to the session-related
+    // fields that are otherwise hidden by `select: false` on the schema.
     const entityModel = this.getEntityModel(role);
-    const entity = await entityModel.findOne({
-      authAccountId: new Types.ObjectId(accountId.toString()),
-    });
-    const entityId = entity._id.toString() as string;
+    const entity = await entityModel
+      .findOne({
+        authAccountId: new Types.ObjectId(accountId.toString()),
+      })
+      .select('+sessions +maxSessions');
     if (!entity) {
       throw new UnauthorizedException(`${role} entity not found`);
     }
+    const entityId = entity._id.toString() as string;
 
     const sessionId = randomUUID();
 
@@ -343,15 +346,17 @@ export class AuthValidateService {
       );
     }
 
-    // 4. Get entity based on role
+    // 4. Get entity based on role — opt in to session fields.
     const entityModel = this.getEntityModel(payload.role);
-    const entity = await entityModel.findOne({
-      authAccountId: new Types.ObjectId(account._id.toString()),
-    });
-    const entityId = entity._id.toString() as string;
+    const entity = await entityModel
+      .findOne({
+        authAccountId: new Types.ObjectId(account._id.toString()),
+      })
+      .select('+sessions +maxSessions');
     if (!entity) {
       throw new UnauthorizedException(`${payload.role} entity not found`);
     }
+    const entityId = entity._id.toString() as string;
 
     // 5. Find and validate session
     const session = entity.sessions?.find(
@@ -445,16 +450,13 @@ export class AuthValidateService {
     sessionId: string,
   ): Promise<void> {
     const entityModel = this.getEntityModel(role);
-    const entity = await entityModel.findOne({
-      authAccountId: new Types.ObjectId(accountId.toString()),
-    });
-
-    if (!entity) {
+    const result = await entityModel.updateOne(
+      { authAccountId: new Types.ObjectId(accountId.toString()) },
+      { $pull: { sessions: { sessionId } } },
+    );
+    if (result.matchedCount === 0) {
       throw new UnauthorizedException('Entity not found');
     }
-
-    entity.sessions = entity.sessions.filter((s) => s.sessionId !== sessionId);
-    await entity.save();
   }
 
   /**
@@ -466,16 +468,13 @@ export class AuthValidateService {
     deviceId: string,
   ): Promise<void> {
     const entityModel = this.getEntityModel(role);
-    const entity = await entityModel.findOne({
-      authAccountId: new Types.ObjectId(accountId.toString()),
-    });
-
-    if (!entity) {
+    const result = await entityModel.updateOne(
+      { authAccountId: new Types.ObjectId(accountId.toString()) },
+      { $pull: { sessions: { deviceId } } },
+    );
+    if (result.matchedCount === 0) {
       throw new UnauthorizedException('Entity not found');
     }
-
-    entity.sessions = entity.sessions.filter((s) => s.deviceId !== deviceId);
-    await entity.save();
   }
 
   /**
@@ -483,16 +482,13 @@ export class AuthValidateService {
    */
   async logoutAllSessions(accountId: string, role: UserRole): Promise<void> {
     const entityModel = this.getEntityModel(role);
-    const entity = await entityModel.findOne({
-      authAccountId: new Types.ObjectId(accountId.toString()),
-    });
-
-    if (!entity) {
+    const result = await entityModel.updateOne(
+      { authAccountId: new Types.ObjectId(accountId.toString()) },
+      { $set: { sessions: [] } },
+    );
+    if (result.matchedCount === 0) {
       throw new UnauthorizedException('Entity not found');
     }
-
-    entity.sessions = [];
-    await entity.save();
   }
 
   /**
@@ -526,6 +522,7 @@ export class AuthValidateService {
       .findOne({
         authAccountId: new Types.ObjectId(accountId.toString()),
       })
+      .select('+sessions')
       .lean();
 
     if (!entity) {
@@ -554,18 +551,19 @@ export class AuthValidateService {
     role: UserRole,
     sessionId: string,
   ): Promise<void> {
+    // Called on every authenticated request. Using find + save here meant
+    // every request loaded the full entity document (including the whole
+    // `sessions` array with refresh-token hashes) and wrote it back.
+    // A positional `$set` on the matching array element updates exactly
+    // the one subdocument field on the server with no app-side round trip.
     const entityModel = this.getEntityModel(role);
-    const entity = await entityModel.findOne({
-      authAccountId: new Types.ObjectId(accountId.toString()),
-    });
-
-    if (entity) {
-      const session = entity.sessions?.find((s) => s.sessionId === sessionId);
-      if (session) {
-        session.lastActivityAt = new Date();
-        await entity.save();
-      }
-    }
+    await entityModel.updateOne(
+      {
+        authAccountId: new Types.ObjectId(accountId.toString()),
+        'sessions.sessionId': sessionId,
+      },
+      { $set: { 'sessions.$.lastActivityAt': new Date() } },
+    );
   }
 
   // ============================================

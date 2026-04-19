@@ -3,6 +3,13 @@ import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import { BookingServiceModule } from './booking-service.module';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import {
+  validateEnv,
+  JWT_RULES,
+  INFRA_RULES,
+} from '@app/common/config/env.validation';
+
+validateEnv([...JWT_RULES, ...INFRA_RULES]);
 
 async function bootstrap() {
   const logger = new Logger('BookingServiceBootstrap');

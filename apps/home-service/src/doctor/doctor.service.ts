@@ -92,6 +92,10 @@ import {
   DoctorPatientStatsDto,
   GenderBreakdownDto,
 } from './dto/doctor-patient-stats.dto';
+import {
+  WeeklyGenderDayDto,
+  WeeklyGenderStatsDataDto,
+} from './dto/weekly-gender-stats.dto';
 import type { UploadResult } from '@app/common/file-storage';
 import { invalidateBookingCaches } from '@app/common/utils/cache-invalidation.util';
 
@@ -477,7 +481,7 @@ export class DoctorService {
             },
           },
         })
-        .select('+password')
+        .select('+password +sessions +maxSessions')
         .session(session)
         .exec();
 
@@ -2306,6 +2310,139 @@ export class DoctorService {
       lastUpdated: now,
       nextUpdateAt: nextUpdate,
     };
+  }
+
+  // ============================================
+  // Weekly patient-gender breakdown
+  // 6-day window ending on endDate (inclusive).
+  // Counts DISTINCT patients of the doctor per day, grouped by gender.
+  // ============================================
+  async getDoctorPatientGenderWeekly(
+    doctorId: string,
+    endDateStr?: string,
+  ): Promise<WeeklyGenderStatsDataDto> {
+    if (!Types.ObjectId.isValid(doctorId)) {
+      throw new BadRequestException('Invalid doctor ID');
+    }
+
+    const endDate = this.parseLocalDateOnly(endDateStr);
+    const startDate = new Date(endDate);
+    startDate.setDate(endDate.getDate() - 5);
+    startDate.setHours(0, 0, 0, 0);
+
+    const windowEnd = new Date(endDate);
+    windowEnd.setHours(23, 59, 59, 999);
+
+    const rows = await this.bookingModel.aggregate([
+      {
+        $match: {
+          doctorId: new Types.ObjectId(doctorId),
+          bookingDate: { $gte: startDate, $lte: windowEnd },
+          patientId: { $ne: null },
+          status: {
+            $nin: [
+              BookingStatus.CANCELLED_BY_PATIENT,
+              BookingStatus.CANCELLED_BY_DOCTOR,
+            ],
+          },
+        },
+      },
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'patientId',
+          foreignField: '_id',
+          as: 'patient',
+          pipeline: [{ $project: { gender: 1 } }],
+        },
+      },
+      { $unwind: { path: '$patient', preserveNullAndEmptyArrays: false } },
+      // Dedupe patients per (day, gender) — distinct patient count.
+      {
+        $group: {
+          _id: {
+            day: {
+              $dateToString: { format: '%Y-%m-%d', date: '$bookingDate' },
+            },
+            patientId: '$patientId',
+            gender: { $toLower: { $ifNull: ['$patient.gender', ''] } },
+          },
+        },
+      },
+      {
+        $group: {
+          _id: { day: '$_id.day', gender: '$_id.gender' },
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const perDay = new Map<string, { male: number; female: number }>();
+    for (const r of rows) {
+      const day = r._id.day as string;
+      const gender = (r._id.gender as string) ?? '';
+      const bucket = perDay.get(day) ?? { male: 0, female: 0 };
+      if (gender === 'male') bucket.male += r.count;
+      else if (gender === 'female') bucket.female += r.count;
+      perDay.set(day, bucket);
+    }
+
+    const days: WeeklyGenderDayDto[] = [];
+    for (let i = 0; i < 6; i++) {
+      const d = new Date(startDate);
+      d.setDate(startDate.getDate() + i);
+      const dateKey = this.formatLocalYmd(d);
+      const entry = perDay.get(dateKey) ?? { male: 0, female: 0 };
+      days.push({
+        day: this.twoLetterWeekday(d),
+        date: dateKey,
+        male: entry.male,
+        female: entry.female,
+      });
+    }
+
+    return {
+      period: {
+        startDate: this.formatLocalYmd(startDate),
+        endDate: this.formatLocalYmd(endDate),
+      },
+      days,
+    };
+  }
+
+  // Parse a YYYY-MM-DD string as a local calendar date, or return today.
+  private parseLocalDateOnly(input?: string): Date {
+    if (!input) {
+      const now = new Date();
+      now.setHours(0, 0, 0, 0);
+      return now;
+    }
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(input);
+    if (!match) {
+      const parsed = new Date(input);
+      if (isNaN(parsed.getTime())) {
+        throw new BadRequestException(
+          'Invalid endDate — expected YYYY-MM-DD',
+        );
+      }
+      parsed.setHours(0, 0, 0, 0);
+      return parsed;
+    }
+    const [, y, m, d] = match;
+    return new Date(Number(y), Number(m) - 1, Number(d), 0, 0, 0, 0);
+  }
+
+  private formatLocalYmd(d: Date): string {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
+  private twoLetterWeekday(d: Date): string {
+    // 0=Sun, 1=Mon, ..., 6=Sat
+    const codes = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+    return codes[d.getDay()];
   }
 
   /**

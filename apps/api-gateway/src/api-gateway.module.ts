@@ -8,6 +8,9 @@ import { HomeProxyController } from './controllers/home-proxy.controller';
 import { NotificationProxyController } from './controllers/notification-proxy.controller';
 import { BookingProxyController } from './controllers/booking-proxy.controller';
 import { SocialProxyController } from './controllers/social-proxy.controller';
+import { ProxyService } from './services/proxy.service';
+import { RedisThrottlerStorage } from './services/redis-throttler.storage';
+import { ThrottlerStorageModule } from './services/throttler-storage.module';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 
 @Module({
@@ -17,8 +20,9 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
       envFilePath: ['.env'],
     }),
     ThrottlerModule.forRootAsync({
-      inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
+      imports: [ThrottlerStorageModule],
+      inject: [ConfigService, RedisThrottlerStorage],
+      useFactory: (config: ConfigService, storage: RedisThrottlerStorage) => ({
         throttlers: [
           {
             name: 'short',
@@ -27,16 +31,19 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
           },
           {
             name: 'long',
-            ttl: config.get<number>('THROTTLE_LONG_TTL', 60000), // 1 minute
-            limit: config.get<number>('THROTTLE_LONG_LIMIT', 100), // 200 req/min
+            ttl: config.get<number>('THROTTLE_LONG_TTL', 60_000), // 1 minute
+            limit: config.get<number>('THROTTLE_LONG_LIMIT', 100), // 100 req/min
           },
         ],
+        // Shared Redis-backed storage so counters aggregate across replicas.
+        storage,
       }),
     }),
     HttpModule.registerAsync({
-      inject: [ConfigService],
+      // Per-request timeouts and body limits live on the ProxyService; these
+      // are only defaults for any direct HttpService usage.
       useFactory: () => ({
-        timeout: 5000,
+        timeout: 15_000,
         maxRedirects: 5,
       }),
     }),
@@ -50,6 +57,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
   ],
   providers: [
     ApiGatewayService,
+    ProxyService,
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard, // applies globally to all controllers

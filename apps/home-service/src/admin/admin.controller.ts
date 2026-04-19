@@ -13,6 +13,7 @@ import {
   Patch,
   UnauthorizedException,
   Query,
+  Delete,
 } from '@nestjs/common';
 import { AdminService } from './admin.service';
 
@@ -57,6 +58,11 @@ import {
 } from './dto/doctor-response.dto';
 import { GetDoctorsFilterDto } from './dto/get-doctors.filter.dto';
 import { AdminStatsResponseDto } from './dto/home-stats.dto';
+import { DeleteDoctorDto } from './dto/delete-doctor.dto';
+import { RequestAdminUpdateOtpDto } from './dto/request-admin-update-otp.dto';
+import { ConfirmAdminUpdateDto } from './dto/confirm-admin-update.dto';
+import { BulkAdminUpdateOtpDto } from './dto/bulk-admin-update-otp.dto';
+import { ConfirmBulkAdminUpdateDto } from './dto/confirm-bulk-admin-update.dto';
 
 @Controller('admin')
 export class AdminController {
@@ -815,5 +821,164 @@ export class AdminController {
   @ApiOkResponse({ type: AdminStatsResponseDto })
   async getAdminStats(): Promise<AdminStatsResponseDto> {
     return this.adminService.getAdminStats();
+  }
+
+  // ============================================
+  // Delete Doctor
+  // ============================================
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Delete('doctors/:doctorId')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Delete a doctor (Admin)',
+    description: `Permanently deletes the doctor document, its linked AuthAccount,
+and every MinIO object owned by the doctor (profile photo, gallery, certificate/license files).
+Emits a \`doctor.deleted\` Kafka event so downstream services clean up their own data.`,
+  })
+  @ApiParam({ name: 'doctorId', description: 'Doctor MongoDB ObjectId' })
+  @ApiResponse({ status: 200, description: 'Doctor deleted successfully' })
+  @ApiResponse({ status: 400, description: 'Invalid doctor ID' })
+  @ApiResponse({ status: 404, description: 'Doctor not found' })
+  async deleteDoctor(
+    @Param() dto: DeleteDoctorDto,
+    @Req() _req: Request,
+  ): Promise<{ message: string; doctorId: string }> {
+    return this.adminService.deleteDoctor(dto.doctorId);
+  }
+
+  // ============================================
+  // Admin Self-Update with WhatsApp OTP
+  // ============================================
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Post('me/update/request-otp')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Request OTP to change admin username / password / phone',
+    description: `Generates a 6-digit OTP, stores it in Redis for 5 minutes, and emits
+a WhatsApp Kafka event to the admin's registered phone. The new value is kept
+with the OTP so that \`/confirm\` can apply it atomically.`,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'OTP sent to your registered WhatsApp number',
+  })
+  @ApiResponse({ status: 400, description: 'Validation error' })
+  @ApiResponse({ status: 404, description: 'Admin not found' })
+  @ApiResponse({
+    status: 409,
+    description: 'New value conflicts with an existing admin (username/phone)',
+  })
+  async requestAdminUpdateOtp(
+    @Body() dto: RequestAdminUpdateOtpDto,
+    @Req() req: any,
+  ): Promise<{ message: string }> {
+    const adminId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
+    return this.adminService.requestAdminUpdateOtp(adminId, dto);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Post('me/update/confirm')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Confirm OTP and apply the pending admin field update',
+    description: `Verifies the OTP stored in Redis and applies the update:
+- \`password\` → bcrypt-hashed on Admin
+- \`username\` → stored directly on Admin
+- \`phone\` → stored on Admin + synced to the linked AuthAccount.phones
+
+On success the Redis key is burned and an \`admin.profile.updated\` Kafka event is emitted.`,
+  })
+  @ApiResponse({ status: 200, description: 'Field updated successfully' })
+  @ApiResponse({
+    status: 400,
+    description: 'OTP expired / not found / invalid',
+  })
+  @ApiResponse({ status: 404, description: 'Admin not found' })
+  async confirmAdminUpdate(
+    @Body() dto: ConfirmAdminUpdateDto,
+    @Req() req: any,
+  ): Promise<{ message: string }> {
+    const adminId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
+    return this.adminService.confirmAdminUpdate(adminId, dto);
+  }
+
+  // ============================================
+  // Admin Self-Update — BULK (one OTP, multiple fields)
+  // ============================================
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Post('me/update/bulk/request-otp')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary:
+      'Request a single OTP to update any combination of username / password / phone',
+    description: `Accepts 1–3 fields. Generates one 6-digit OTP stored at
+\`admin:update-otp-bulk:{adminId}\` for 5 minutes, keyed per admin (not per field),
+and emits a WhatsApp Kafka event. Uniqueness is pre-checked for username/phone.
+Call \`/bulk/confirm\` with the OTP to apply all pending fields atomically.`,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'OTP sent; returns the list of pending fields',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Validation error or no fields provided',
+  })
+  @ApiResponse({ status: 404, description: 'Admin not found' })
+  @ApiResponse({
+    status: 409,
+    description: 'Username / phone conflicts with an existing admin',
+  })
+  async requestBulkAdminUpdateOtp(
+    @Body() dto: BulkAdminUpdateOtpDto,
+    @Req() req: any,
+  ): Promise<{ message: string; fields: string[] }> {
+    const adminId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
+    return this.adminService.requestBulkAdminUpdateOtp(adminId, dto);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Post('me/update/bulk/confirm')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Confirm the bulk OTP and apply all pending field updates',
+    description: `Verifies the OTP stored at \`admin:update-otp-bulk:{adminId}\` and applies
+every pending field: password → bcrypt, username → direct, phone → direct + syncs
+AuthAccount.phones. On success the Redis key is burned and a single
+\`admin.profile.updated\` Kafka event is emitted listing all updated fields.`,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'All pending fields updated',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'OTP expired / not found / invalid',
+  })
+  @ApiResponse({ status: 404, description: 'Admin not found' })
+  async confirmBulkAdminUpdate(
+    @Body() dto: ConfirmBulkAdminUpdateDto,
+    @Req() req: any,
+  ): Promise<{ message: string; updatedFields: string[] }> {
+    const adminId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
+    return this.adminService.confirmBulkAdminUpdate(adminId, dto);
   }
 }

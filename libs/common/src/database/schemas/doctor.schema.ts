@@ -282,10 +282,13 @@ export class Doctor extends Document {
   @Prop()
   registeredAt?: Date;
 
-  @Prop({ type: [SessionSchema], default: [] })
+  // `select: false` so `findOne()` does not ship the refresh-token hashes,
+  // IPs and user-agents of every live session on every authenticated request.
+  // The auth service explicitly opts in with `.select('+sessions +maxSessions')`.
+  @Prop({ type: [SessionSchema], default: [], select: false })
   sessions: Session[];
 
-  @Prop({ default: 5 }) // Max 5 concurrent sessions
+  @Prop({ default: 5, select: false }) // Max 5 concurrent sessions
   maxSessions: number;
 
   @Prop({ type: Number })
@@ -484,7 +487,10 @@ DoctorSchema.methods.updateSessionActivity = function (
 };
 
 DoctorSchema.methods.getActiveSessionsCount = function (this: Doctor): number {
-  return this.sessions.filter((s) => s.isActive).length;
+  // `sessions` is `select: false` — if the caller didn't opt it back in via
+  // `.select('+sessions')` the field is undefined here. Treat that as "no
+  // known sessions" rather than crashing the request.
+  return (this.sessions ?? []).filter((s) => s.isActive).length;
 };
 
 DoctorSchema.methods.isSessionActive = function (

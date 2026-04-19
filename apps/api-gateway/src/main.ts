@@ -6,6 +6,18 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import { GlobalExceptionFilter } from './filters/http-exception.filter';
+import { validateEnv, JWT_RULES } from '@app/common/config/env.validation';
+
+// Fail fast before Nest boots if required env vars are missing/malformed.
+validateEnv([
+  ...JWT_RULES,
+  { name: 'HOME_SERVICE_URL', minLength: 8 },
+  { name: 'SOCIAL_SERVICE_URL', minLength: 8 },
+  { name: 'BOOKING_SERVICE_URL', minLength: 8 },
+  { name: 'NOTIFICATION_SERVICE_URL', minLength: 8 },
+  { name: 'REDIS_HOST', minLength: 1 },
+  { name: 'REDIS_PORT', pattern: /^\d+$/ },
+]);
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
@@ -50,6 +62,15 @@ async function bootstrap() {
     ? process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim())
     : [];
 
+  // TODO(temp): test client served from localhost:3004 — remove once the
+  // frontend ships with its real origin in ALLOWED_ORIGINS.
+  const TEMP_ALLOWED_ORIGINS = [
+    'http://localhost:3004',
+    'http://localhost:3005',
+    'https://localhost:3004',
+    'https://localhost:3005',
+  ];
+
   if (isProduction && allowedOrigins.length === 0) {
     logger.warn(
       'ALLOWED_ORIGINS is not set in production — all cross-origin requests will be blocked.',
@@ -61,6 +82,9 @@ async function bootstrap() {
       // Allow server-to-server requests (Postman, curl, mobile apps) — no Origin header
       if (!origin) return callback(null, true);
 
+      // Temporary explicit allowlist for the test client.
+      if (TEMP_ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+
       // In development with no origins configured, allow everything
       if (!isProduction && allowedOrigins.length === 0)
         return callback(null, true);
@@ -71,7 +95,15 @@ async function bootstrap() {
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    // `allowedHeaders` intentionally omitted — when undefined, the cors
+    // middleware reflects whatever the browser sent in
+    // `Access-Control-Request-Headers`. The previous strict list
+    // (`Content-Type`, `Authorization`) failed preflight whenever the
+    // client added a custom header (x-device-id, x-request-id, etc.).
+    exposedHeaders: ['x-request-id'],
+    optionsSuccessStatus: 204,
+    preflightContinue: false,
+    maxAge: 86400,
   });
 
   // ================= Global Validation =================

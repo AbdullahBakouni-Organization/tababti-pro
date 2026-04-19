@@ -29,6 +29,7 @@ import {
   AppointmentsQueryDto,
   StatsQueryDto,
   GenderStatsQueryDto,
+  MonthlyIncomeQueryDto,
 } from '../dto/dashboard-query.dto';
 import { DoctorStatsResponseDto } from '../dto/doctor-community-stats.dto';
 
@@ -148,6 +149,30 @@ export class DashboardController {
   ) {
     const data = await this.dashboardService.getGenderStats(accountId, query);
     return ApiResponse.success({ lang, messageKey: 'dashboard.STATS', data });
+  }
+
+  // ── Monthly income ────────────────────────────────────────────────────────
+  @Get('income')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Get monthly doctor income (trailing months)' })
+  @ApiQuery({
+    name: 'months',
+    type: Number,
+    required: false,
+    description:
+      'Trailing months including the current month (default 3, max 24)',
+  })
+  async getMonthlyIncome(
+    @CurrentUser('accountId') accountId: string,
+    @Query() query: MonthlyIncomeQueryDto,
+    @Headers('accept-language') lang: 'en' | 'ar' = 'en',
+  ) {
+    const data = await this.dashboardService.getMonthlyIncome(accountId, query);
+    return ApiResponse.success({
+      lang,
+      messageKey: 'dashboard.REVENUE',
+      data,
+    });
   }
 
   // ── Location chart ────────────────────────────────────────────────────────

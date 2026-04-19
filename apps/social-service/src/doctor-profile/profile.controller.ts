@@ -41,6 +41,16 @@ export class DoctorProfileController {
     return ApiResponse.success({ lang, messageKey: 'doctor.FETCHED', data });
   }
 
+  @Get('main')
+  @Roles(UserRole.DOCTOR)
+  async getMainProfile(
+    @CurrentUser('accountId') authAccountId: string,
+    @Headers('accept-language') lang: 'en' | 'ar' = 'en',
+  ) {
+    const data = await this.doctorService.getMainProfile(authAccountId);
+    return ApiResponse.success({ lang, messageKey: 'doctor.FETCHED', data });
+  }
+
   @Patch('me')
   @Roles(UserRole.DOCTOR)
   @UseInterceptors(FileInterceptor('image', memoryStorageConfig))

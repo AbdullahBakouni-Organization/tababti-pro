@@ -1080,7 +1080,7 @@ export class DoctorBookingsQueryService {
   }
 
   // doctors.service.ts
-  async searchDoctorsByName(dto: SearchDoctorsDto) {
+  async searchDoctorsByName(dto: SearchDoctorsDto, excludeDoctorId: string) {
     const page = parseInt(dto.page ?? '1');
     const limit = parseInt(dto.limit ?? '10');
     const skip = (page - 1) * limit;
@@ -1103,6 +1103,7 @@ export class DoctorBookingsQueryService {
     const query = {
       $and: nameConditions,
       status: 'approved',
+      _id: { $ne: new Types.ObjectId(excludeDoctorId) },
     };
 
     const [doctors, total] = await Promise.all([

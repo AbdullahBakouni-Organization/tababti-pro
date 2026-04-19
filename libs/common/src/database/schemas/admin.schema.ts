@@ -31,10 +31,12 @@ export class Admin extends Document {
   @Prop({ required: true, unique: true })
   phone: string; // Added phone field
 
-  @Prop({ type: [SessionSchema], default: [] })
+  // See doctor.schema.ts — `select: false` keeps refresh-token hashes out of
+  // every `findOne()` that does not explicitly opt in.
+  @Prop({ type: [SessionSchema], default: [], select: false })
   sessions: Session[];
 
-  @Prop({ default: 5 }) // Max 5 concurrent sessions
+  @Prop({ default: 5, select: false }) // Max 5 concurrent sessions
   maxSessions: number;
 
   // ==================== SECURITY ====================
@@ -55,7 +57,9 @@ export class Admin extends Document {
 export const AdminSchema = SchemaFactory.createForClass(Admin);
 
 AdminSchema.methods.getActiveSessionsCount = function (this: Admin): number {
-  return this.sessions.filter((s) => s.isActive).length;
+  // `sessions` is `select: false` — guard so callers that forgot to opt it
+  // back in get 0 instead of a TypeError on undefined.
+  return (this.sessions ?? []).filter((s) => s.isActive).length;
 };
 
 AdminSchema.methods.incrementFailedAttempts = function (this: Admin) {

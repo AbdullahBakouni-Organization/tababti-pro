@@ -176,6 +176,59 @@ export class DashboardStatsDto {
 
   @ApiProperty({ example: 15 })
   revenueChangePercent: number;
+
+  @ApiProperty({
+    example: 7,
+    description: 'Total appointments in the trailing 7 days',
+  })
+  weeklyNewAppointments: number;
+
+  @ApiProperty({
+    example: 12,
+    description:
+      'Percent change of total appointments vs. the previous 7-day window',
+  })
+  totalAppointmentsChange: number;
+
+  @ApiProperty({
+    example: 5,
+    description: 'Completed appointments in the trailing 7 days',
+  })
+  weeklyCompletedAppointments: number;
+
+  @ApiProperty({
+    example: 8,
+    description:
+      'Percent change of completed appointments vs. the previous 7-day window',
+  })
+  completedAppointmentsChange: number;
+
+  @ApiProperty({
+    example: 2,
+    description:
+      'Incomplete (non-completed) appointments in the trailing 7 days',
+  })
+  weeklyIncompleteAppointments: number;
+
+  @ApiProperty({
+    example: -10,
+    description:
+      'Percent change of incomplete appointments vs. the previous 7-day window',
+  })
+  incompleteAppointmentsChange: number;
+
+  @ApiProperty({
+    example: 1500,
+    description: 'Revenue from completed bookings in the trailing 7 days',
+  })
+  weeklyRevenue: number;
+
+  @ApiProperty({
+    example: 20,
+    description:
+      'Percent change of weekly revenue vs. the previous 7-day window',
+  })
+  revenueChange: number;
 }
 
 export class RecentPatientDto {
@@ -339,6 +392,64 @@ export class LocationChartDto {
 
   @ApiProperty({ example: 45 })
   totalAppointments: number;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MONTHLY INCOME
+// ═══════════════════════════════════════════════════════════════
+
+export class MonthlyIncomeQueryDto {
+  @ApiProperty({
+    example: 3,
+    required: false,
+    description:
+      'Trailing months to return (including the current month). Defaults to 3.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(24)
+  months?: number;
+}
+
+export class MonthlyIncomeBucketDto {
+  @ApiProperty({ example: 'May', description: '3-letter English month key' })
+  key: string;
+
+  @ApiProperty({
+    example: 'أيار',
+    description: 'Arabic long month label',
+  })
+  label: string;
+
+  @ApiProperty({ example: 4, description: '0-based JS month index' })
+  monthIndex: number;
+
+  @ApiProperty({ example: 2026 })
+  year: number;
+
+  @ApiProperty({ example: 2800.0, description: 'Sum of completed fees' })
+  value: number;
+}
+
+export class MonthlyIncomePeakDto {
+  @ApiProperty({ example: 'Jun' })
+  key: string;
+
+  @ApiProperty({ example: 4653.22 })
+  value: number;
+}
+
+export class MonthlyIncomeDto {
+  @ApiProperty({ example: 'USD' })
+  currency: string;
+
+  @ApiProperty({ type: [MonthlyIncomeBucketDto] })
+  months: MonthlyIncomeBucketDto[];
+
+  @ApiProperty({ type: MonthlyIncomePeakDto })
+  peak: MonthlyIncomePeakDto;
 }
 
 export class DoctorDashboardDto {

@@ -245,7 +245,9 @@ describe('AuthValidateService', () => {
 
     beforeEach(() => {
       authAccountModel.findById.mockResolvedValue(mockAccount);
-      userModel.findOne.mockResolvedValue({ ...mockEntity });
+      userModel.findOne.mockReturnValue({
+        select: jest.fn().mockResolvedValue({ ...mockEntity }),
+      });
       jwtService.signAsync
         .mockResolvedValueOnce('access-tok')
         .mockResolvedValueOnce('refresh-tok');
@@ -291,7 +293,9 @@ describe('AuthValidateService', () => {
         sessions: [...fullSessions],
         save: jest.fn().mockResolvedValue(undefined),
       };
-      userModel.findOne.mockResolvedValue(entityWithFullSessions);
+      userModel.findOne.mockReturnValue({
+        select: jest.fn().mockResolvedValue(entityWithFullSessions),
+      });
 
       await service.createSession(
         accountId,
@@ -348,58 +352,58 @@ describe('AuthValidateService', () => {
   // ─── logoutSession ────────────────────────────────────────────────────────
 
   describe('logoutSession()', () => {
-    it('removes specific session from entity sessions', async () => {
-      const entityWithSession = {
-        ...mockEntity,
-        sessions: [
-          {
-            sessionId: 'sess-to-remove',
-            isActive: true,
-            deviceId: 'dev-1',
-            refreshToken: 'hash',
-            createdAt: new Date(),
-            lastActivityAt: new Date(),
-          },
-          {
-            sessionId: 'sess-keep',
-            isActive: true,
-            deviceId: 'dev-2',
-            refreshToken: 'hash',
-            createdAt: new Date(),
-            lastActivityAt: new Date(),
-          },
-        ],
-        save: jest.fn().mockResolvedValue(undefined),
-      };
-      userModel.findOne.mockResolvedValue(entityWithSession);
+    it('pulls the matching session via updateOne', async () => {
+      userModel.updateOne.mockResolvedValue({
+        matchedCount: 1,
+        modifiedCount: 1,
+      });
 
       await service.logoutSession(accountId, UserRole.USER, 'sess-to-remove');
 
-      expect(
-        entityWithSession.sessions.find(
-          (s) => s.sessionId === 'sess-to-remove',
-        ),
-      ).toBeUndefined();
-      expect(entityWithSession.sessions).toHaveLength(1);
-      expect(entityWithSession.save).toHaveBeenCalled();
+      expect(userModel.updateOne).toHaveBeenCalledWith(
+        expect.any(Object),
+        { $pull: { sessions: { sessionId: 'sess-to-remove' } } },
+      );
+    });
+
+    it('throws UnauthorizedException when entity is not found', async () => {
+      userModel.updateOne.mockResolvedValue({
+        matchedCount: 0,
+        modifiedCount: 0,
+      });
+
+      await expect(
+        service.logoutSession(accountId, UserRole.USER, 'sess-1'),
+      ).rejects.toThrow(UnauthorizedException);
     });
   });
 
   // ─── logoutAllSessions ────────────────────────────────────────────────────
 
   describe('logoutAllSessions()', () => {
-    it('clears all sessions from entity', async () => {
-      const entityWithSessions = {
-        ...mockEntity,
-        sessions: [{ sessionId: 'sess-1' }, { sessionId: 'sess-2' }],
-        save: jest.fn().mockResolvedValue(undefined),
-      };
-      userModel.findOne.mockResolvedValue(entityWithSessions);
+    it('resets sessions via updateOne', async () => {
+      userModel.updateOne.mockResolvedValue({
+        matchedCount: 1,
+        modifiedCount: 1,
+      });
 
       await service.logoutAllSessions(accountId, UserRole.USER);
 
-      expect(entityWithSessions.sessions).toHaveLength(0);
-      expect(entityWithSessions.save).toHaveBeenCalled();
+      expect(userModel.updateOne).toHaveBeenCalledWith(
+        expect.any(Object),
+        { $set: { sessions: [] } },
+      );
+    });
+
+    it('throws UnauthorizedException when entity is not found', async () => {
+      userModel.updateOne.mockResolvedValue({
+        matchedCount: 0,
+        modifiedCount: 0,
+      });
+
+      await expect(
+        service.logoutAllSessions(accountId, UserRole.USER),
+      ).rejects.toThrow(UnauthorizedException);
     });
   });
 
@@ -412,18 +416,53 @@ describe('AuthValidateService', () => {
         tokenVersion: 3,
         save: jest.fn().mockResolvedValue(undefined),
       };
+      userModel.updateOne.mockResolvedValue({
+        matchedCount: 1,
+        modifiedCount: 1,
+      });
       const entityWithSessions = {
         ...mockEntity,
         sessions: [{ sessionId: 'sess-1' }],
         save: jest.fn().mockResolvedValue(undefined),
       };
       authAccountModel.findById.mockResolvedValue(accountWithVersion);
-      userModel.findOne.mockResolvedValue(entityWithSessions);
 
       await service.revokeAllTokens(accountId, UserRole.USER);
 
       expect(accountWithVersion.tokenVersion).toBe(4);
-      expect(entityWithSessions.sessions).toHaveLength(0);
+      expect(userModel.updateOne).toHaveBeenCalledWith(
+        expect.any(Object),
+        { $set: { sessions: [] } },
+      );
+    });
+  });
+
+  // ─── updateSessionActivity ────────────────────────────────────────────────
+
+  describe('updateSessionActivity()', () => {
+    it('issues a positional $set on the matching session subdocument', async () => {
+      userModel.updateOne.mockResolvedValue({
+        matchedCount: 1,
+        modifiedCount: 1,
+      });
+
+      await service.updateSessionActivity(accountId, UserRole.USER, 'sess-1');
+
+      const [filter, update] = userModel.updateOne.mock.calls[0];
+      expect(filter['sessions.sessionId']).toBe('sess-1');
+      expect(Object.keys(update.$set)).toEqual(['sessions.$.lastActivityAt']);
+      expect(update.$set['sessions.$.lastActivityAt']).toBeInstanceOf(Date);
+    });
+
+    it('is silent when no session matches', async () => {
+      userModel.updateOne.mockResolvedValue({
+        matchedCount: 0,
+        modifiedCount: 0,
+      });
+
+      await expect(
+        service.updateSessionActivity(accountId, UserRole.USER, 'nope'),
+      ).resolves.toBeUndefined();
     });
   });
 
@@ -448,7 +487,9 @@ describe('AuthValidateService', () => {
         },
       ];
       userModel.findOne.mockReturnValue({
-        lean: jest.fn().mockResolvedValue({ ...mockEntity, sessions }),
+        select: jest.fn().mockReturnValue({
+          lean: jest.fn().mockResolvedValue({ ...mockEntity, sessions }),
+        }),
       });
 
       const result = await service.getActiveSessions(accountId, UserRole.USER);

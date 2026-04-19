@@ -32,6 +32,7 @@ import {
   GalleryImageStatus,
   PostStatus,
 } from '@app/common/database/schemas/common.enums';
+import { AdminUpdateField } from './dto/request-admin-update-otp.dto';
 
 jest.mock('bcrypt');
 
@@ -783,6 +784,401 @@ describe('AdminService', () => {
       await expect(service.getDoctorById(doctorId.toString())).rejects.toThrow(
         NotFoundException,
       );
+    });
+  });
+
+  // ─── deleteDoctor ─────────────────────────────────────────────────────────
+  describe('deleteDoctor()', () => {
+    const buildDoctorMock = () => ({
+      _id: doctorId,
+      authAccountId: new Types.ObjectId(),
+      firstName: 'Ahmad',
+      lastName: 'Khalil',
+      imageFileName: 'doctors/abc/profile/1.jpg',
+      imageBucket: 'tababti-doctors',
+      gallery: [
+        {
+          imageId: 'g1',
+          url: 'u1',
+          fileName: 'doctors/abc/gallery/1.jpg',
+          bucket: 'tababti-doctors',
+          uploadedAt: new Date(),
+          status: GalleryImageStatus.APPROVED,
+        },
+      ],
+      documents: {
+        certificateImageFileName: 'doctors/abc/certificates/images/c.jpg',
+        certificateImageBucket: 'tababti-doctors',
+        licenseDocumentFileName: 'doctors/abc/licenses/pdfs/l.pdf',
+        licenseDocumentBucket: 'tababti-doctors',
+      },
+    });
+
+    it('throws BadRequestException for invalid doctor ID', async () => {
+      await expect(service.deleteDoctor('bad-id')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('throws NotFoundException when doctor not found', async () => {
+      doctorModel.findById.mockReturnValue({
+        select: jest.fn().mockReturnThis(),
+        lean: jest.fn().mockResolvedValue(null),
+      });
+
+      await expect(
+        service.deleteDoctor(doctorId.toString()),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('deletes MinIO files, doctor, auth account and emits doctor.deleted', async () => {
+      const mock = buildDoctorMock();
+      doctorModel.findById.mockReturnValue({
+        select: jest.fn().mockReturnThis(),
+        lean: jest.fn().mockResolvedValue(mock),
+      });
+      doctorModel.deleteOne.mockResolvedValue({ deletedCount: 1 });
+      authAccountModel.deleteOne.mockResolvedValue({ deletedCount: 1 });
+
+      const result = await service.deleteDoctor(doctorId.toString());
+
+      expect(minioService.deleteFiles).toHaveBeenCalledWith(
+        'tababti-doctors',
+        expect.arrayContaining([
+          mock.imageFileName,
+          mock.gallery[0].fileName,
+          mock.documents.certificateImageFileName,
+          mock.documents.licenseDocumentFileName,
+        ]),
+      );
+      expect(doctorModel.deleteOne).toHaveBeenCalledWith({ _id: mock._id });
+      expect(authAccountModel.deleteOne).toHaveBeenCalledWith({
+        _id: mock.authAccountId,
+      });
+      expect(kafkaService.emit).toHaveBeenCalledWith(
+        'doctor.deleted',
+        expect.objectContaining({ doctorId: mock._id.toString() }),
+      );
+      expect(result).toEqual({
+        message: 'Doctor deleted successfully',
+        doctorId: mock._id.toString(),
+      });
+    });
+
+    it('still deletes DB records when MinIO cleanup throws', async () => {
+      const mock = buildDoctorMock();
+      doctorModel.findById.mockReturnValue({
+        select: jest.fn().mockReturnThis(),
+        lean: jest.fn().mockResolvedValue(mock),
+      });
+      doctorModel.deleteOne.mockResolvedValue({ deletedCount: 1 });
+      authAccountModel.deleteOne.mockResolvedValue({ deletedCount: 1 });
+      minioService.deleteFiles.mockRejectedValueOnce(new Error('s3 down'));
+
+      await expect(
+        service.deleteDoctor(doctorId.toString()),
+      ).resolves.toBeDefined();
+
+      expect(doctorModel.deleteOne).toHaveBeenCalled();
+      expect(authAccountModel.deleteOne).toHaveBeenCalled();
+      expect(kafkaService.emit).toHaveBeenCalledWith(
+        'doctor.deleted',
+        expect.any(Object),
+      );
+    });
+  });
+
+  // ─── requestAdminUpdateOtp ────────────────────────────────────────────────
+  describe('requestAdminUpdateOtp()', () => {
+    it('throws NotFoundException when admin not found', async () => {
+      adminModel.findById.mockReturnValue({
+        lean: jest.fn().mockResolvedValue(null),
+      });
+
+      await expect(
+        service.requestAdminUpdateOtp(adminId.toString(), {
+          field: AdminUpdateField.USERNAME,
+          newValue: 'new-name',
+        } as any),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('stores OTP in cache and emits WhatsApp OTP kafka event', async () => {
+      adminModel.findById.mockReturnValue({
+        lean: jest.fn().mockResolvedValue({ ...mockAdmin }),
+      });
+      adminModel.exists.mockResolvedValue(null);
+
+      const result = await service.requestAdminUpdateOtp(adminId.toString(), {
+        field: AdminUpdateField.PHONE,
+        newValue: '+963988888888',
+      } as any);
+
+      expect(result.message).toMatch(/OTP sent/);
+      expect(kafkaService.emit).toHaveBeenCalledWith(
+        'whatsapp.send.otp',
+        expect.objectContaining({
+          phone: mockAdmin.phone,
+          otp: expect.stringMatching(/^\d{6}$/),
+        }),
+      );
+    });
+  });
+
+  // ─── confirmAdminUpdate ───────────────────────────────────────────────────
+  describe('confirmAdminUpdate()', () => {
+    let cacheService: ReturnType<typeof createMockCacheService>;
+
+    beforeEach(() => {
+      // Grab the injected CacheService instance so we can drive its mock .get
+      cacheService = (service as any).ca;
+    });
+
+    it('throws BadRequestException when OTP not found in cache', async () => {
+      adminModel.findById.mockResolvedValue({
+        ...mockAdmin,
+        save: jest.fn(),
+      });
+      cacheService.get.mockResolvedValue(null);
+
+      await expect(
+        service.confirmAdminUpdate(adminId.toString(), {
+          field: AdminUpdateField.USERNAME,
+          otp: '123456',
+        } as any),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws BadRequestException when OTP does not match', async () => {
+      adminModel.findById.mockResolvedValue({
+        ...mockAdmin,
+        save: jest.fn(),
+      });
+      cacheService.get.mockResolvedValue({
+        otp: '999999',
+        newValue: 'new-name',
+      });
+
+      await expect(
+        service.confirmAdminUpdate(adminId.toString(), {
+          field: AdminUpdateField.USERNAME,
+          otp: '123456',
+        } as any),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('applies username update, burns OTP and emits admin.profile.updated', async () => {
+      const adminDoc = { ...mockAdmin, save: jest.fn().mockResolvedValue(mockAdmin) };
+      adminModel.findById.mockResolvedValue(adminDoc);
+      cacheService.get.mockResolvedValue({
+        otp: '123456',
+        newValue: 'new-name',
+      });
+
+      const result = await service.confirmAdminUpdate(adminId.toString(), {
+        field: AdminUpdateField.USERNAME,
+        otp: '123456',
+      } as any);
+
+      expect(adminDoc.username).toBe('new-name');
+      expect(adminDoc.save).toHaveBeenCalled();
+      expect(cacheService.invalidate).toHaveBeenCalled();
+      expect(kafkaService.emit).toHaveBeenCalledWith(
+        'admin.profile.updated',
+        expect.objectContaining({ field: AdminUpdateField.USERNAME }),
+      );
+      expect(result.message).toMatch(/username updated/);
+    });
+
+    it('bcrypt-hashes password on password update', async () => {
+      const adminDoc = { ...mockAdmin, save: jest.fn().mockResolvedValue(mockAdmin) };
+      adminModel.findById.mockResolvedValue(adminDoc);
+      cacheService.get.mockResolvedValue({
+        otp: '123456',
+        newValue: 'NewStrongPass!1',
+      });
+      (bcrypt.hash as jest.Mock).mockResolvedValue('hashed-new-pass');
+
+      await service.confirmAdminUpdate(adminId.toString(), {
+        field: AdminUpdateField.PASSWORD,
+        otp: '123456',
+      } as any);
+
+      expect(bcrypt.hash).toHaveBeenCalledWith('NewStrongPass!1', 10);
+      expect(adminDoc.password).toBe('hashed-new-pass');
+    });
+
+    it('syncs AuthAccount phones on phone update', async () => {
+      const adminDoc = {
+        ...mockAdmin,
+        authAccountId: mockAdmin.authAccountId,
+        save: jest.fn().mockResolvedValue(mockAdmin),
+      };
+      adminModel.findById.mockResolvedValue(adminDoc);
+      cacheService.get.mockResolvedValue({
+        otp: '123456',
+        newValue: '+963977777777',
+      });
+
+      await service.confirmAdminUpdate(adminId.toString(), {
+        field: AdminUpdateField.PHONE,
+        otp: '123456',
+      } as any);
+
+      expect(adminDoc.phone).toBe('+963977777777');
+      expect(authAccountModel.findByIdAndUpdate).toHaveBeenCalledWith(
+        mockAdmin.authAccountId,
+        { phones: ['+963977777777'] },
+      );
+    });
+  });
+
+  // ─── requestBulkAdminUpdateOtp ────────────────────────────────────────────
+  describe('requestBulkAdminUpdateOtp()', () => {
+    it('throws BadRequestException when no fields are provided', async () => {
+      await expect(
+        service.requestBulkAdminUpdateOtp(adminId.toString(), {} as any),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws NotFoundException when admin not found', async () => {
+      adminModel.findById.mockReturnValue({
+        lean: jest.fn().mockResolvedValue(null),
+      });
+
+      await expect(
+        service.requestBulkAdminUpdateOtp(adminId.toString(), {
+          username: 'new-name',
+        } as any),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('stores OTP and returns list of pending fields', async () => {
+      adminModel.findById.mockReturnValue({
+        lean: jest.fn().mockResolvedValue({ ...mockAdmin }),
+      });
+      adminModel.exists.mockResolvedValue(null);
+
+      const result = await service.requestBulkAdminUpdateOtp(
+        adminId.toString(),
+        {
+          username: 'new-name',
+          password: 'NewStrongPass!1',
+          phone: '+963988888888',
+        } as any,
+      );
+
+      expect(result.fields).toEqual(
+        expect.arrayContaining(['username', 'password', 'phone']),
+      );
+      expect(kafkaService.emit).toHaveBeenCalledWith(
+        'whatsapp.send.otp',
+        expect.objectContaining({
+          phone: mockAdmin.phone,
+          otp: expect.stringMatching(/^\d{6}$/),
+        }),
+      );
+    });
+  });
+
+  // ─── confirmBulkAdminUpdate ───────────────────────────────────────────────
+  describe('confirmBulkAdminUpdate()', () => {
+    let cacheService: ReturnType<typeof createMockCacheService>;
+
+    beforeEach(() => {
+      cacheService = (service as any).ca;
+    });
+
+    it('throws BadRequestException when OTP not in cache', async () => {
+      adminModel.findById.mockResolvedValue({
+        ...mockAdmin,
+        save: jest.fn(),
+      });
+      cacheService.get.mockResolvedValue(null);
+
+      await expect(
+        service.confirmBulkAdminUpdate(adminId.toString(), {
+          otp: '123456',
+        } as any),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws BadRequestException when OTP does not match', async () => {
+      adminModel.findById.mockResolvedValue({
+        ...mockAdmin,
+        save: jest.fn(),
+      });
+      cacheService.get.mockResolvedValue({
+        otp: '999999',
+        fields: { username: 'new-name' },
+      });
+
+      await expect(
+        service.confirmBulkAdminUpdate(adminId.toString(), {
+          otp: '123456',
+        } as any),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('applies all three fields, syncs AuthAccount phone and emits single event', async () => {
+      const adminDoc = {
+        ...mockAdmin,
+        authAccountId: mockAdmin.authAccountId,
+        save: jest.fn().mockResolvedValue(mockAdmin),
+      };
+      adminModel.findById.mockResolvedValue(adminDoc);
+      cacheService.get.mockResolvedValue({
+        otp: '123456',
+        fields: {
+          username: 'new-name',
+          password: 'NewStrongPass!1',
+          phone: '+963977777777',
+        },
+      });
+      (bcrypt.hash as jest.Mock).mockResolvedValue('hashed-new-pass');
+
+      const result = await service.confirmBulkAdminUpdate(adminId.toString(), {
+        otp: '123456',
+      } as any);
+
+      expect(adminDoc.username).toBe('new-name');
+      expect(adminDoc.password).toBe('hashed-new-pass');
+      expect(adminDoc.phone).toBe('+963977777777');
+      expect(authAccountModel.findByIdAndUpdate).toHaveBeenCalledWith(
+        mockAdmin.authAccountId,
+        { phones: ['+963977777777'] },
+      );
+      expect(adminDoc.save).toHaveBeenCalledTimes(1);
+      expect(cacheService.invalidate).toHaveBeenCalled();
+      expect(kafkaService.emit).toHaveBeenCalledWith(
+        'admin.profile.updated',
+        expect.objectContaining({
+          fields: expect.arrayContaining(['password', 'username', 'phone']),
+        }),
+      );
+      expect(result.updatedFields).toEqual(
+        expect.arrayContaining(['password', 'username', 'phone']),
+      );
+    });
+
+    it('only updates fields present in the stored payload', async () => {
+      const adminDoc = {
+        ...mockAdmin,
+        save: jest.fn().mockResolvedValue(mockAdmin),
+      };
+      adminModel.findById.mockResolvedValue(adminDoc);
+      cacheService.get.mockResolvedValue({
+        otp: '123456',
+        fields: { username: 'only-name' },
+      });
+
+      const result = await service.confirmBulkAdminUpdate(adminId.toString(), {
+        otp: '123456',
+      } as any);
+
+      expect(adminDoc.username).toBe('only-name');
+      expect(result.updatedFields).toEqual(['username']);
+      expect(authAccountModel.findByIdAndUpdate).not.toHaveBeenCalled();
     });
   });
 });

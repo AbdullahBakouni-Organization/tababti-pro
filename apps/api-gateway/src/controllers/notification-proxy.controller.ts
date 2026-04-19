@@ -1,67 +1,16 @@
-import { Controller, All, Logger, Req, Res } from '@nestjs/common';
-import { HttpService } from '@nestjs/axios';
+import { All, Controller, Req, Res } from '@nestjs/common';
 import type { Request, Response } from 'express';
-import { firstValueFrom } from 'rxjs';
-import { AxiosRequestConfig } from 'axios';
+import { ProxyService } from '../services/proxy.service';
 
 @Controller('notification')
 export class NotificationProxyController {
-  private readonly logger = new Logger(NotificationProxyController.name);
-  constructor(private readonly httpService: HttpService) {}
+  constructor(private readonly proxy: ProxyService) {}
 
   @All('*')
-  async proxy(@Req() req: Request, @Res() res: Response) {
-    const path = req.url.replace(/^\/notification\/?/, '');
-    const notificationServiceUrl = `${process.env.NOTIFICATION_SERVICE_URL}`;
-
-    if (!notificationServiceUrl) {
-      return res.status(500).json({
-        message: 'NOTIFICATION_SERVICE_URL not configured',
-      });
-    }
-
-    const url = `${notificationServiceUrl}/${path}`;
-    const isMultipart = req.headers['content-type']?.includes(
-      'multipart/form-data',
-    );
-
-    try {
-      const config: AxiosRequestConfig = {
-        method: req.method,
-        url,
-        headers: {
-          ...req.headers,
-          host: undefined,
-          'content-length': undefined,
-          // Keep content-type for multipart
-        },
-        maxBodyLength: Infinity,
-        maxContentLength: Infinity,
-        validateStatus: () => true,
-      };
-
-      // ✅ For multipart/form-data, pipe the raw request
-      if (isMultipart) {
-        config.data = req; // Pass the raw request stream
-      } else {
-        config.data = req.body;
-      }
-
-      const response = await firstValueFrom(this.httpService.request(config));
-
-      res.status(response.status).json(response.data);
-    } catch (error) {
-      const err = error as {
-        message: string;
-        response?: { status: number; data: unknown };
-      };
-      this.logger.error(`Proxy error: ${err.message}`, err.response?.data);
-      const status = err.response?.status ?? 500;
-      const data = err.response?.data ?? {
-        message: 'Service unavailable',
-        error: err.message,
-      };
-      res.status(status).json(data);
-    }
+  async forward(@Req() req: Request, @Res() res: Response) {
+    await this.proxy.forward(req, res, {
+      target: process.env.NOTIFICATION_SERVICE_URL ?? '',
+      prefix: '/notification',
+    });
   }
 }

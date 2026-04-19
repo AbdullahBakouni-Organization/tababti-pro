@@ -53,6 +53,7 @@ describe('DoctorController', () => {
     updateDoctorFCMToken: jest.fn(),
     completeBooking: jest.fn(),
     getDoctorPatientGenderStats: jest.fn(),
+    getDoctorPatientGenderWeekly: jest.fn(),
     searchDoctors: jest.fn(),
   };
 
@@ -314,6 +315,50 @@ describe('DoctorController', () => {
       const result = await controller.getPatientGenderStats(makeReq());
 
       expect(result).toEqual(stats);
+    });
+  });
+
+  // ─── getPatientGenderWeekly ─────────────────────────────────────────────────
+
+  describe('getPatientGenderWeekly()', () => {
+    it('wraps service result in { success, data } and forwards endDate', async () => {
+      const serviceData = {
+        period: { startDate: '2026-04-13', endDate: '2026-04-18' },
+        days: [
+          { day: 'Mo', date: '2026-04-13', male: 1, female: 2 },
+          { day: 'Tu', date: '2026-04-14', male: 0, female: 0 },
+          { day: 'We', date: '2026-04-15', male: 3, female: 0 },
+          { day: 'Th', date: '2026-04-16', male: 0, female: 1 },
+          { day: 'Fr', date: '2026-04-17', male: 0, female: 0 },
+          { day: 'Sa', date: '2026-04-18', male: 4, female: 5 },
+        ],
+      };
+      mockDoctorService.getDoctorPatientGenderWeekly.mockResolvedValue(
+        serviceData,
+      );
+
+      const result = await controller.getPatientGenderWeekly(
+        { endDate: '2026-04-18' },
+        makeReq(),
+      );
+
+      expect(
+        mockDoctorService.getDoctorPatientGenderWeekly,
+      ).toHaveBeenCalledWith(realDoctorId.toString(), '2026-04-18');
+      expect(result).toEqual({ success: true, data: serviceData });
+    });
+
+    it('passes undefined endDate when query is empty (service applies default)', async () => {
+      mockDoctorService.getDoctorPatientGenderWeekly.mockResolvedValue({
+        period: { startDate: '', endDate: '' },
+        days: [],
+      });
+
+      await controller.getPatientGenderWeekly({}, makeReq());
+
+      expect(
+        mockDoctorService.getDoctorPatientGenderWeekly,
+      ).toHaveBeenCalledWith(realDoctorId.toString(), undefined);
     });
   });
 

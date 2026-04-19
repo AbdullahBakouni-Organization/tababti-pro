@@ -122,6 +122,42 @@ describe('DoctorProfileService', () => {
     });
   });
 
+  // ─── getMainProfile ────────────────────────────────────────────────────
+
+  describe('getMainProfile()', () => {
+    it('throws NotFoundException when doctor not found', async () => {
+      mockRepo.findByAuthAccountId.mockResolvedValue(null);
+      await expect(service.getMainProfile(authAccountId)).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('returns image, gender and concatenated username', async () => {
+      mockRepo.findByAuthAccountId.mockResolvedValue(mockDoctor);
+
+      const result = await service.getMainProfile(authAccountId);
+
+      expect(result).toEqual({
+        image: 'img.jpg',
+        gender: 'male',
+        username: 'Ali Ahmad Mahmoud',
+      });
+    });
+
+    it('omits empty name parts when building username', async () => {
+      mockRepo.findByAuthAccountId.mockResolvedValue({
+        ...mockDoctor,
+        middleName: '',
+        image: null,
+      });
+
+      const result = await service.getMainProfile(authAccountId);
+
+      expect(result.username).toBe('Ali Mahmoud');
+      expect(result.image).toBeNull();
+    });
+  });
+
   // ─── getProfileById ────────────────────────────────────────────────────
 
   describe('getProfileById()', () => {

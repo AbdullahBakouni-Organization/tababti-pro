@@ -498,15 +498,6 @@ AppointmentSlotSchema.methods.releaseHold = function (
   this.holdExpiresAt = undefined;
 };
 
-AppointmentSlotSchema.methods.releaseHold = function (
-  this: AppointmentSlotDocument,
-): void {
-  this.status = SlotStatus.AVAILABLE;
-  this.heldBy = undefined;
-  this.holdStartedAt = undefined;
-  this.holdExpiresAt = undefined;
-};
-
 /**
  * Book the slot
  */

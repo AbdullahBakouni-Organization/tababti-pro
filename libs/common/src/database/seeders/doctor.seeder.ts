@@ -5,7 +5,6 @@ import { Injectable } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { getModelToken } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import * as bcrypt from 'bcrypt';
 import { faker } from '@faker-js/faker';
 
 import { DatabaseModule } from '../database.module';
@@ -60,6 +59,23 @@ const CityMapping: Record<string, string[]> = {
 export class DoctorSeeder {
   constructor(private app) {}
   async seed() {
+    // Hard guard: never run the destructive seeder against a production DB.
+    // `deleteMany({})` runs below — wiping real doctor records would be a
+    // full outage.
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(
+        'DoctorSeeder refuses to run with NODE_ENV=production. ' +
+          'Set NODE_ENV=development or unset it before seeding.',
+      );
+    }
+
+    const seedPassword = process.env.SEED_DOCTOR_PASSWORD;
+    if (!seedPassword || seedPassword.length < 8) {
+      throw new Error(
+        'SEED_DOCTOR_PASSWORD env var is required (min 8 chars) to run DoctorSeeder.',
+      );
+    }
+
     console.log('🌱 Starting Doctor Seed...\n');
 
     const app = await NestFactory.createApplicationContext(DatabaseModule);
@@ -166,7 +182,11 @@ export class DoctorSeeder {
         isActive: true,
       });
 
-      const hashedPassword = await bcrypt.hash('password123', 10);
+      // Plaintext value — the Doctor schema's pre('save') middleware
+      // re-hashes with scrypt, matching the runtime `comparePassword` method.
+      // Double-hashing with bcrypt first (the previous behaviour) produced
+      // un-loginable accounts.
+      const seededPlainPassword = seedPassword;
       const yearsOfExperience = 1 + Math.floor(Math.random() * 20);
       function sanitize(name: string): string {
         if (!name) throw new Error('الاسم فارغ.');
@@ -186,7 +206,7 @@ export class DoctorSeeder {
         firstName: sanitize(faker.person.firstName()),
         middleName: sanitize(faker.person.middleName()),
         lastName: sanitize(faker.person.lastName()),
-        password: hashedPassword,
+        password: seededPlainPassword,
         cityId: city._id,
         city: city.name,
         subcity: randomArea,

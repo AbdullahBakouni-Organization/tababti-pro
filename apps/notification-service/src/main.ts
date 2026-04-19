@@ -3,6 +3,13 @@ import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import { NotificationServiceModule } from './notification-service.module';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import {
+  validateEnv,
+  JWT_RULES,
+  INFRA_RULES,
+} from '@app/common/config/env.validation';
+
+validateEnv([...JWT_RULES, ...INFRA_RULES]);
 
 async function bootstrap() {
   const logger = new Logger('NotificationServiceBootstrap');
@@ -61,6 +68,6 @@ async function bootstrap() {
 }
 
 bootstrap().catch((error) => {
-  console.error('❌ Failed to start home service:', error);
+  console.error('❌ Failed to start notification service:', error);
   process.exit(1);
 });

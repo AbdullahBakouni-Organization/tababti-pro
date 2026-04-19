@@ -4,6 +4,7 @@ import { Model, Types } from 'mongoose';
 
 import { calculateDistanceKm } from '../../common/utiles/distance.util';
 import { buildSmartRegex } from '../../common/utiles/formatname.util';
+import { escapeRegex } from '@app/common/utils/escape-regex.util';
 import { NearbyCache } from './nearby-cache.service';
 import {
   NearbyFilters,
@@ -218,7 +219,10 @@ export class NearbyRepository {
         if (entityIdFilter) query._id = { $in: entityIdFilter };
         if (filters.cityId) query.cityId = new Types.ObjectId(filters.cityId);
         if (filters.hospitalName)
-          query.name = { $regex: filters.hospitalName, $options: 'i' };
+          query.name = {
+            $regex: escapeRegex(filters.hospitalName),
+            $options: 'i',
+          };
         if (filters.hospitalCategory) query.category = filters.hospitalCategory;
         if (filters.hospitalStatus)
           query.hospitalstatus = filters.hospitalStatus;
@@ -319,7 +323,10 @@ export class NearbyRepository {
         if (filters.centerSpecialization)
           query.centerSpecialization = filters.centerSpecialization;
         if (filters.centerName)
-          query.name = { $regex: filters.centerName, $options: 'i' };
+          query.name = {
+            $regex: escapeRegex(filters.centerName),
+            $options: 'i',
+          };
 
         if (filters.minRating != null || filters.maxRating != null) {
           query.rating = {};

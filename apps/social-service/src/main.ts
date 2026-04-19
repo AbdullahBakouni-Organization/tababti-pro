@@ -4,19 +4,30 @@ import { SocialServiceModule } from './social-service.module';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { I18nExceptionFilter } from './common/filters/i18n-exception.filter';
+import {
+  validateEnv,
+  JWT_RULES,
+  INFRA_RULES,
+} from '@app/common/config/env.validation';
+
+validateEnv([...JWT_RULES, ...INFRA_RULES]);
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
 
-  // ── Mongoose debug logging ────────────────────────────────────────────────
-  mongoose.set(
-    'debug',
-    (collectionName: string, method: string, query: any, doc: any) => {
-      logger.debug(
-        `MongoDB ${collectionName}.${method} → ${JSON.stringify(query)}${doc ? ' ' + JSON.stringify(doc) : ''}`,
-      );
-    },
-  );
+  // Mongoose debug is extremely verbose — one log line per query. Keep it on
+  // in development where it's useful for debugging, but turn it off in
+  // production where it will drown other logs and hit disk hard.
+  if (process.env.NODE_ENV !== 'production') {
+    mongoose.set(
+      'debug',
+      (collectionName: string, method: string, query: any, doc: any) => {
+        logger.debug(
+          `MongoDB ${collectionName}.${method} → ${JSON.stringify(query)}${doc ? ' ' + JSON.stringify(doc) : ''}`,
+        );
+      },
+    );
+  }
 
   const app = await NestFactory.create(SocialServiceModule);
   app.enableCors({

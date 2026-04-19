@@ -32,6 +32,9 @@ import {
   LocationChartDto,
   LocationChartDataPointDto,
   RecentPatientsResponseDto,
+  MonthlyIncomeQueryDto,
+  MonthlyIncomeDto,
+  MonthlyIncomeBucketDto,
 } from '../dto/dashboard-query.dto';
 import { Question } from '@app/common/database/schemas/question.schema';
 import { Answer } from '@app/common/database/schemas/answer.schema';
@@ -60,6 +63,37 @@ const LOCATION_BUCKETS: Record<string, 'clinic' | 'hospital' | 'center'> = {
 function toBucket(raw: string): 'clinic' | 'hospital' | 'center' | null {
   return LOCATION_BUCKETS[(raw ?? '').toLowerCase().trim()] ?? null;
 }
+
+// ─── Month name mappings ──────────────────────────────────────────────────────
+// Index 0 = January. Keep both arrays in lock-step.
+const MONTH_KEYS_EN = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
+const MONTH_LABELS_AR = [
+  'كانون الثاني',
+  'شباط',
+  'آذار',
+  'نيسان',
+  'أيار',
+  'حزيران',
+  'تموز',
+  'آب',
+  'أيلول',
+  'تشرين الأول',
+  'تشرين الثاني',
+  'كانون الأول',
+];
 
 function resolveRefDate(selectedDate?: string): Date {
   if (!selectedDate) return new Date();
@@ -390,33 +424,51 @@ export class DashboardService {
     const startOfLastMonth = new Date(y, m - 1, 1, 0, 0, 0, 0);
     const endOfLastMonth = new Date(y, m, 0, 23, 59, 59, 999);
 
-    const [currentAgg, lastAgg] = await Promise.all([
-      this.bookingModel.aggregate([
-        {
-          $match: {
-            doctorId,
-            bookingDate: { $gte: startOfMonth, $lte: endOfMonth },
-          },
+    const currentWeekStart = new Date(refDate);
+    currentWeekStart.setDate(refDate.getDate() - 6);
+    currentWeekStart.setHours(0, 0, 0, 0);
+    const currentWeekEnd = new Date(refDate);
+    currentWeekEnd.setHours(23, 59, 59, 999);
+    const lastWeekStart = new Date(refDate);
+    lastWeekStart.setDate(refDate.getDate() - 13);
+    lastWeekStart.setHours(0, 0, 0, 0);
+    const lastWeekEnd = new Date(refDate);
+    lastWeekEnd.setDate(refDate.getDate() - 7);
+    lastWeekEnd.setHours(23, 59, 59, 999);
+
+    const statusGroupPipeline = (start: Date, end: Date): PipelineStage[] => [
+      { $match: { doctorId, bookingDate: { $gte: start, $lte: end } } },
+      {
+        $group: {
+          _id: '$status',
+          count: { $sum: 1 },
+          revenue: { $sum: '$price' },
         },
-        {
-          $group: {
-            _id: '$status',
-            count: { $sum: 1 },
-            revenue: { $sum: '$price' },
+      },
+    ];
+
+    const [currentAgg, lastAgg, currentWeekAgg, lastWeekAgg] =
+      await Promise.all([
+        this.bookingModel.aggregate(
+          statusGroupPipeline(startOfMonth, endOfMonth),
+        ),
+        this.bookingModel.aggregate([
+          {
+            $match: {
+              doctorId,
+              bookingDate: { $gte: startOfLastMonth, $lte: endOfLastMonth },
+              status: BookingStatus.COMPLETED,
+            },
           },
-        },
-      ]),
-      this.bookingModel.aggregate([
-        {
-          $match: {
-            doctorId,
-            bookingDate: { $gte: startOfLastMonth, $lte: endOfLastMonth },
-            status: BookingStatus.COMPLETED,
-          },
-        },
-        { $group: { _id: null, total: { $sum: '$price' } } },
-      ]),
-    ]);
+          { $group: { _id: null, total: { $sum: '$price' } } },
+        ]),
+        this.bookingModel.aggregate(
+          statusGroupPipeline(currentWeekStart, currentWeekEnd),
+        ),
+        this.bookingModel.aggregate(
+          statusGroupPipeline(lastWeekStart, lastWeekEnd),
+        ),
+      ]);
 
     let total = 0,
       completed = 0,
@@ -435,12 +487,44 @@ export class DashboardService {
         ? Math.round(((revenue - lastRevenue) / lastRevenue) * 100)
         : 0;
 
+    const summarizeWeek = (
+      rows: Array<{ _id: string; count: number; revenue: number }>,
+    ) => {
+      let t = 0,
+        c = 0,
+        r = 0;
+      for (const row of rows) {
+        t += row.count;
+        if (row._id === BookingStatus.COMPLETED) {
+          c += row.count;
+          r += row.revenue;
+        }
+      }
+      return { total: t, completed: c, incomplete: t - c, revenue: r };
+    };
+
+    const cw = summarizeWeek(currentWeekAgg);
+    const lw = summarizeWeek(lastWeekAgg);
+
+    const pctChange = (curr: number, prev: number): number => {
+      if (prev === 0) return curr > 0 ? 100 : 0;
+      return Math.round(((curr - prev) / prev) * 100);
+    };
+
     return {
       totalAppointments: total,
       completedAppointments: completed,
       incompleteAppointments: total - completed,
       estimatedRevenue: revenue,
       revenueChangePercent,
+      weeklyNewAppointments: cw.total,
+      totalAppointmentsChange: pctChange(cw.total, lw.total),
+      weeklyCompletedAppointments: cw.completed,
+      completedAppointmentsChange: pctChange(cw.completed, lw.completed),
+      weeklyIncompleteAppointments: cw.incomplete,
+      incompleteAppointmentsChange: pctChange(cw.incomplete, lw.incomplete),
+      weeklyRevenue: cw.revenue,
+      revenueChange: pctChange(cw.revenue, lw.revenue),
     };
   }
 
@@ -491,6 +575,7 @@ export class DashboardService {
                       username: 1,
                       profileImage: 1,
                       gender: 1,
+                      phone: 1,
                     },
                   },
                 ],
@@ -510,7 +595,9 @@ export class DashboardService {
                     { $ifNull: ['$patientName', 'Unknown'] },
                   ],
                 },
-                Patientphone: { $ifNull: ['$patientPhone', null] },
+                Patientphone: {
+                  $ifNull: ['$patient.phone', '$patientPhone'],
+                },
                 Patientimage: '$patient.profileImage',
                 Patientgender: '$patient.gender',
 
@@ -903,6 +990,85 @@ export class DashboardService {
       totalHospital,
       totalCenter,
       totalAppointments: totalClinic + totalHospital + totalCenter,
+    };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // MONTHLY INCOME
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  async getMonthlyIncome(
+    accountId: string,
+    query: MonthlyIncomeQueryDto,
+  ): Promise<MonthlyIncomeDto> {
+    const doctor = await this.resolveDoctor(accountId);
+    const doctorId = doctor._id;
+    const months = query.months ?? 3;
+    return this._getMonthlyIncomeRaw(doctorId, months);
+  }
+
+  private async _getMonthlyIncomeRaw(
+    doctorId: Types.ObjectId,
+    monthsCount: number,
+  ): Promise<MonthlyIncomeDto> {
+    const now = new Date();
+    const endMonthIndex = now.getMonth();
+    const endYear = now.getFullYear();
+
+    // Inclusive window: N trailing months ending on current month.
+    const windowStart = new Date(endYear, endMonthIndex - (monthsCount - 1), 1);
+    const windowEnd = new Date(endYear, endMonthIndex + 1, 0, 23, 59, 59, 999);
+
+    const rows = await this.bookingModel.aggregate([
+      {
+        $match: {
+          doctorId,
+          bookingDate: { $gte: windowStart, $lte: windowEnd },
+          status: BookingStatus.COMPLETED,
+        },
+      },
+      {
+        $group: {
+          _id: {
+            y: { $year: '$bookingDate' },
+            m: { $month: '$bookingDate' },
+          },
+          total: { $sum: '$price' },
+        },
+      },
+    ]);
+
+    const totalsByKey = new Map<string, number>();
+    for (const r of rows) {
+      totalsByKey.set(`${r._id.y}-${r._id.m}`, r.total ?? 0);
+    }
+
+    const buckets: MonthlyIncomeBucketDto[] = [];
+    for (let i = monthsCount - 1; i >= 0; i--) {
+      const d = new Date(endYear, endMonthIndex - i, 1);
+      const y = d.getFullYear();
+      const monthIndex = d.getMonth(); // 0-based
+      const rawTotal = totalsByKey.get(`${y}-${monthIndex + 1}`) ?? 0;
+      buckets.push({
+        key: MONTH_KEYS_EN[monthIndex],
+        label: MONTH_LABELS_AR[monthIndex],
+        monthIndex,
+        year: y,
+        value: Math.round(rawTotal * 100) / 100,
+      });
+    }
+
+    // Peak bucket — highest value; ties → most recent (latest index wins).
+    let peakIdx = 0;
+    for (let i = 1; i < buckets.length; i++) {
+      if (buckets[i].value >= buckets[peakIdx].value) peakIdx = i;
+    }
+    const peak = buckets[peakIdx];
+
+    return {
+      currency: 'USD',
+      months: buckets,
+      peak: { key: peak.key, value: peak.value },
     };
   }
 

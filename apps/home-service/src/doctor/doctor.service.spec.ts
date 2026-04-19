@@ -954,6 +954,77 @@ describe('DoctorService', () => {
     });
   });
 
+  // ─── getDoctorPatientGenderWeekly ─────────────────────────────────────────
+
+  describe('getDoctorPatientGenderWeekly()', () => {
+    it('throws BadRequestException for invalid doctor ID', async () => {
+      await expect(
+        service.getDoctorPatientGenderWeekly('invalid-id'),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws BadRequestException for invalid endDate format', async () => {
+      await expect(
+        service.getDoctorPatientGenderWeekly(doctorId, 'not-a-date'),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('returns a 6-day window with zero-filled missing days and matches shape', async () => {
+      bookingModel.aggregate.mockResolvedValue([
+        { _id: { day: '2026-04-13', gender: 'male' }, count: 2 },
+        { _id: { day: '2026-04-13', gender: 'female' }, count: 1 },
+        { _id: { day: '2026-04-18', gender: 'female' }, count: 4 },
+      ]);
+
+      const result = await service.getDoctorPatientGenderWeekly(
+        doctorId,
+        '2026-04-18',
+      );
+
+      expect(result.period).toEqual({
+        startDate: '2026-04-13',
+        endDate: '2026-04-18',
+      });
+      expect(result.days).toHaveLength(6);
+      expect(result.days[0]).toEqual({
+        day: expect.any(String),
+        date: '2026-04-13',
+        male: 2,
+        female: 1,
+      });
+      // Middle days must be present with zeros.
+      expect(result.days[1]).toMatchObject({
+        date: '2026-04-14',
+        male: 0,
+        female: 0,
+      });
+      expect(result.days[5]).toEqual({
+        day: expect.any(String),
+        date: '2026-04-18',
+        male: 0,
+        female: 4,
+      });
+      // Days codes are a 2-letter English weekday from the Sa,Su,Mo,Tu,We,Th,Fr set.
+      for (const d of result.days) {
+        expect(['Sa', 'Su', 'Mo', 'Tu', 'We', 'Th', 'Fr']).toContain(d.day);
+      }
+    });
+
+    it('defaults to a window ending today when endDate is omitted', async () => {
+      bookingModel.aggregate.mockResolvedValue([]);
+
+      const result = await service.getDoctorPatientGenderWeekly(doctorId);
+
+      expect(result.days).toHaveLength(6);
+      const today = new Date();
+      const y = today.getFullYear();
+      const m = String(today.getMonth() + 1).padStart(2, '0');
+      const d = String(today.getDate()).padStart(2, '0');
+      expect(result.period.endDate).toBe(`${y}-${m}-${d}`);
+      expect(result.days[5].date).toBe(`${y}-${m}-${d}`);
+    });
+  });
+
   // ─── computeAndCacheStats ─────────────────────────────────────────────────
 
   describe('computeAndCacheStats()', () => {

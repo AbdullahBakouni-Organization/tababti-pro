@@ -92,6 +92,10 @@ import {
 
 import { DoctorPatientStatsDto } from './dto/doctor-patient-stats.dto';
 import {
+  WeeklyGenderStatsQueryDto,
+  WeeklyGenderStatsResponseDto,
+} from './dto/weekly-gender-stats.dto';
+import {
   GetDoctorBookingsDto,
   GetDoctorBookingsResponseDto,
 } from './dto/get-doctor-booking.dto';
@@ -956,6 +960,36 @@ export class DoctorController {
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.DOCTOR)
+  @Get('stats/patients/gender/weekly')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Weekly gender breakdown of this doctor’s patients',
+    description:
+      'Returns a 6-day window ending on `endDate` (inclusive, defaults to today). ' +
+      'Counts DISTINCT patients per day grouped by gender. Missing days are returned as 0/0.',
+  })
+  @ApiQuery({
+    name: 'endDate',
+    required: false,
+    type: String,
+    example: '2026-04-18',
+  })
+  async getPatientGenderWeekly(
+    @Query() query: WeeklyGenderStatsQueryDto,
+    @Req() req: any,
+  ): Promise<WeeklyGenderStatsResponseDto> {
+    const doctorId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
+    const data = await this.DoctorService.getDoctorPatientGenderWeekly(
+      doctorId,
+      query.endDate,
+    );
+    return { success: true, data };
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
   @Patch('reschedule')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -1413,7 +1447,10 @@ export class DoctorController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.DOCTOR, UserRole.ADMIN)
   @Get('search')
-  async searchDoctors(@Query() dto: SearchDoctorsDto) {
-    return this.DoctorServiceV2.searchDoctorsByName(dto);
+  async searchDoctors(@Query() dto: SearchDoctorsDto, @Req() req: any) {
+    return this.DoctorServiceV2.searchDoctorsByName(
+      dto,
+      req.user.entity._id.toString(),
+    );
   }
 }

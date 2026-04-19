@@ -44,6 +44,7 @@ import { GetQuestionsFilterDto } from './dto/get-questions.filter.dto';
 import { PaginatedQuestionsResponseDto } from './dto/question-response.dto';
 import { Question } from '@app/common/database/schemas/question.schema';
 import { User, UserDocument } from '@app/common/database/schemas/user.schema';
+import { escapeRegex } from '@app/common/utils/escape-regex.util';
 import { GetDoctorsFilterDto } from './dto/get-doctors.filter.dto';
 import {
   DoctorDetailDto,
@@ -68,6 +69,14 @@ import { AdminCreateDoctorDto } from './dto/create-doctor.dto';
 import { AdminUpdateDoctorDto } from './dto/update-doctor.dto';
 import { CityMapping, SpecialtyMapping } from '../doctor/dto/sign-up.dto';
 import { WorkingHoursService } from '../working-hours/working-hours.service';
+import { randomInt } from 'crypto';
+import {
+  AdminUpdateField,
+  RequestAdminUpdateOtpDto,
+} from './dto/request-admin-update-otp.dto';
+import { ConfirmAdminUpdateDto } from './dto/confirm-admin-update.dto';
+import { BulkAdminUpdateOtpDto } from './dto/bulk-admin-update-otp.dto';
+import { ConfirmBulkAdminUpdateDto } from './dto/confirm-bulk-admin-update.dto';
 
 @Injectable()
 export class AdminService {
@@ -100,6 +109,7 @@ export class AdminService {
           username: dto.username,
           phone: dto.phone,
         })
+        .select('+sessions +maxSessions')
         .session(session);
 
       if (!admin) {
@@ -1426,12 +1436,9 @@ export class AdminService {
   }
 
   private buildDoctorNameRegex(searchTerm: string): RegExp {
-    // Escape special regex characters
-    const escaped = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-    // Create case-insensitive regex that works with Arabic and English
-    // The 'u' flag enables proper Unicode support for Arabic characters
-    return new RegExp(escaped, 'iu');
+    // Create case-insensitive regex that works with Arabic and English.
+    // The 'u' flag enables proper Unicode support for Arabic characters.
+    return new RegExp(escapeRegex(searchTerm), 'iu');
   }
 
   /**
@@ -1516,20 +1523,23 @@ export class AdminService {
       matchStage.gender = filters.gender;
     }
     if (filters.city) {
-      matchStage.city = { $regex: filters.city, $options: 'i' };
+      matchStage.city = { $regex: escapeRegex(filters.city), $options: 'i' };
     }
     if (filters.subCity) {
-      matchStage.subCity = { $regex: filters.city, $options: 'i' };
+      matchStage.subCity = {
+        $regex: escapeRegex(filters.subCity),
+        $options: 'i',
+      };
     }
     if (filters.publicSpecialization) {
       matchStage.publicSpecialization = {
-        $regex: filters.publicSpecialization,
+        $regex: escapeRegex(filters.publicSpecialization),
         $options: 'i',
       };
     }
     if (filters.privateSpecialization) {
       matchStage.privateSpecialization = {
-        $regex: filters.privateSpecialization,
+        $regex: escapeRegex(filters.privateSpecialization),
         $options: 'i',
       };
     }
@@ -1545,7 +1555,7 @@ export class AdminService {
               input: {
                 $concat: ['$firstName', ' ', '$middleName', ' ', '$lastName'],
               },
-              regex: filters.name,
+              regex: escapeRegex(filters.name),
               options: 'i',
             },
           },
@@ -2383,5 +2393,403 @@ export class AdminService {
       lastLoginAt: doctor.lastLoginAt,
       createdAt: doctor.createdAt,
     } as DoctorListItemDto;
+  }
+
+  // ============================================
+  // Admin Delete Doctor
+  // ============================================
+
+  async deleteDoctor(
+    doctorId: string,
+  ): Promise<{ message: string; doctorId: string }> {
+    this.logger.log(`Admin deleting doctor: ${doctorId}`);
+
+    if (!Types.ObjectId.isValid(doctorId)) {
+      throw new BadRequestException('Invalid doctor ID');
+    }
+
+    // 1) Fetch the doctor with every MinIO-tracked field
+    const doctor = await this.doctorModel
+      .findById(doctorId)
+      .select(
+        'authAccountId imageFileName imageBucket gallery documents firstName lastName',
+      )
+      .lean();
+
+    if (!doctor) {
+      throw new NotFoundException('Doctor not found');
+    }
+
+    // 2) Group every MinIO object by bucket so we can batch-delete per bucket
+    const filesByBucket = new Map<string, string[]>();
+    const enqueue = (bucket?: string, fileName?: string): void => {
+      if (!bucket || !fileName) return;
+      const list = filesByBucket.get(bucket) ?? [];
+      list.push(fileName);
+      filesByBucket.set(bucket, list);
+    };
+
+    // Profile photo
+    enqueue(doctor.imageBucket, doctor.imageFileName);
+
+    // Gallery images (any status — doctor is being wiped)
+    for (const img of doctor.gallery ?? []) {
+      enqueue(img.bucket, img.fileName);
+    }
+
+    // Certificate / license documents
+    const docs = doctor.documents;
+    if (docs) {
+      enqueue(docs.certificateImageBucket, docs.certificateImageFileName);
+      enqueue(docs.licenseImageBucket, docs.licenseImageFileName);
+      enqueue(docs.certificateDocumentBucket, docs.certificateDocumentFileName);
+      enqueue(docs.licenseDocumentBucket, docs.licenseDocumentFileName);
+    }
+
+    // 3) Batch-delete from MinIO (per bucket). Swallow errors per bucket so a
+    //    missing file never blocks the DB cleanup — we log and keep going.
+    for (const [bucket, fileNames] of filesByBucket.entries()) {
+      try {
+        await this.minioService.deleteFiles(bucket, fileNames);
+      } catch (error) {
+        this.logger.warn(
+          `Failed to delete ${fileNames.length} MinIO object(s) from bucket ${bucket} for doctor ${doctorId}: ${(error as Error).message}`,
+        );
+      }
+    }
+
+    // 4) Delete the doctor document
+    await this.doctorModel.deleteOne({ _id: doctor._id });
+
+    // 5) Delete the linked AuthAccount (doctor can no longer authenticate)
+    if (doctor.authAccountId) {
+      await this.authAccountModel.deleteOne({ _id: doctor.authAccountId });
+    }
+
+    // 6) Fan-out: let booking / social / notification services clean up
+    //    their own data. Fire-and-forget; never block the response.
+    try {
+      this.kafkaProducer.emit('doctor.deleted', {
+        doctorId: doctor._id.toString(),
+        deletedAt: new Date(),
+      });
+    } catch (error) {
+      this.logger.error('Failed to publish doctor.deleted event', error);
+    }
+
+    // 7) Invalidate caches so stale profiles / galleries / posts disappear
+    try {
+      await Promise.all([
+        invalidateProfileDoctorGalleryCaches(
+          this.ca,
+          doctor._id.toString(),
+          this.logger,
+        ),
+        invalidateProfileDoctorPostCaches(
+          this.ca,
+          doctor._id.toString(),
+          this.logger,
+        ),
+        doctor.authAccountId
+          ? invalidateMainProfileCaches(
+              this.ca,
+              doctor.authAccountId.toString(),
+              this.logger,
+            )
+          : Promise.resolve(),
+      ]);
+    } catch (error) {
+      this.logger.warn(
+        `Cache invalidation failed after doctor delete: ${(error as Error).message}`,
+      );
+    }
+
+    this.logger.log(`Doctor ${doctorId} deleted successfully`);
+
+    return {
+      message: 'Doctor deleted successfully',
+      doctorId: doctor._id.toString(),
+    };
+  }
+
+  // ============================================
+  // Admin Self-Update (username / password / phone) via WhatsApp OTP
+  // ============================================
+
+  private adminOtpKey(adminId: string, field: AdminUpdateField): string {
+    return `admin:update-otp:${adminId}:${field}`;
+  }
+
+  async requestAdminUpdateOtp(
+    adminId: string,
+    dto: RequestAdminUpdateOtpDto,
+  ): Promise<{ message: string }> {
+    if (!Types.ObjectId.isValid(adminId)) {
+      throw new BadRequestException('Invalid admin ID');
+    }
+
+    const admin = await this.adminModel.findById(adminId).lean();
+    if (!admin) {
+      throw new NotFoundException('Admin not found');
+    }
+
+    // Pre-check uniqueness for phone/username so the user gets a clear error
+    // BEFORE we send an OTP they cannot possibly redeem.
+    if (dto.field === AdminUpdateField.PHONE) {
+      const conflict = await this.adminModel.exists({
+        _id: { $ne: admin._id },
+        phone: dto.newValue,
+      });
+      if (conflict) {
+        throw new ConflictException(
+          'This phone number is already in use by another admin',
+        );
+      }
+    } else if (dto.field === AdminUpdateField.USERNAME) {
+      const conflict = await this.adminModel.exists({
+        _id: { $ne: admin._id },
+        username: dto.newValue,
+      });
+      if (conflict) {
+        throw new ConflictException(
+          'This username is already in use by another admin',
+        );
+      }
+    }
+
+    // 6-digit numeric OTP via CSPRNG so it cannot be predicted from Date.now().
+    const otp = randomInt(0, 1_000_000).toString().padStart(6, '0');
+
+    // Store { otp, newValue } in Redis for 5 minutes. CacheService wraps Redis
+    // and publishes invalidations to other instances on del — good for OTPs.
+    await this.ca.set(
+      this.adminOtpKey(adminId, dto.field),
+      { otp, newValue: dto.newValue },
+      300, // memory TTL (seconds)
+      300, // redis TTL (seconds)
+    );
+
+    // Emit WhatsApp OTP event — consumer lives in a separate microservice.
+    try {
+      this.kafkaProducer.emit(KAFKA_TOPICS.WHATSAPP_SEND_OTP, {
+        phone: admin.phone,
+        otp,
+        lang: 'ar',
+      });
+    } catch (error) {
+      this.logger.error('Failed to publish WhatsApp OTP event', error);
+      throw new BadRequestException('Failed to send OTP, please try again');
+    }
+
+    return { message: 'OTP sent to your registered WhatsApp number' };
+  }
+
+  async confirmAdminUpdate(
+    adminId: string,
+    dto: ConfirmAdminUpdateDto,
+  ): Promise<{ message: string }> {
+    if (!Types.ObjectId.isValid(adminId)) {
+      throw new BadRequestException('Invalid admin ID');
+    }
+
+    const admin = await this.adminModel.findById(adminId);
+    if (!admin) {
+      throw new NotFoundException('Admin not found');
+    }
+
+    const key = this.adminOtpKey(adminId, dto.field);
+    const stored = await this.ca.get<{ otp: string; newValue: string }>(key);
+
+    if (!stored) {
+      throw new BadRequestException('OTP expired or not found');
+    }
+
+    if (stored.otp !== dto.otp) {
+      throw new BadRequestException('Invalid OTP');
+    }
+
+    // Apply the update. Password is bcrypt-hashed; username/phone are stored
+    // directly. Phone also needs to stay in sync with AuthAccount.phones so
+    // the unified JWT flow keeps working.
+    if (dto.field === AdminUpdateField.PASSWORD) {
+      const hashed = await bcrypt.hash(stored.newValue, 10);
+      admin.password = hashed;
+    } else if (dto.field === AdminUpdateField.USERNAME) {
+      admin.username = stored.newValue;
+    } else if (dto.field === AdminUpdateField.PHONE) {
+      admin.phone = stored.newValue;
+      if (admin.authAccountId) {
+        await this.authAccountModel.findByIdAndUpdate(admin.authAccountId, {
+          phones: [stored.newValue],
+        });
+      }
+    }
+
+    await admin.save();
+
+    // OTP consumed — burn the Redis key so it cannot be replayed.
+    await this.ca.invalidate(key);
+
+    try {
+      this.kafkaProducer.emit('admin.profile.updated', {
+        adminId: admin._id.toString(),
+        field: dto.field,
+        updatedAt: new Date(),
+      });
+    } catch (error) {
+      this.logger.error('Failed to publish admin.profile.updated event', error);
+    }
+
+    return { message: `${dto.field} updated successfully` };
+  }
+
+  // ============================================
+  // Bulk self-update (one OTP, multiple fields)
+  // ============================================
+
+  private adminBulkOtpKey(adminId: string): string {
+    return `admin:update-otp-bulk:${adminId}`;
+  }
+
+  async requestBulkAdminUpdateOtp(
+    adminId: string,
+    dto: BulkAdminUpdateOtpDto,
+  ): Promise<{ message: string; fields: string[] }> {
+    if (!Types.ObjectId.isValid(adminId)) {
+      throw new BadRequestException('Invalid admin ID');
+    }
+
+    const fields: { username?: string; password?: string; phone?: string } = {};
+    if (dto.username !== undefined) fields.username = dto.username;
+    if (dto.password !== undefined) fields.password = dto.password;
+    if (dto.phone !== undefined) fields.phone = dto.phone;
+
+    const names = Object.keys(fields);
+    if (names.length === 0) {
+      throw new BadRequestException(
+        'At least one of username, password, phone must be provided',
+      );
+    }
+
+    const admin = await this.adminModel.findById(adminId).lean();
+    if (!admin) {
+      throw new NotFoundException('Admin not found');
+    }
+
+    if (fields.phone !== undefined) {
+      const conflict = await this.adminModel.exists({
+        _id: { $ne: admin._id },
+        phone: fields.phone,
+      });
+      if (conflict) {
+        throw new ConflictException(
+          'This phone number is already in use by another admin',
+        );
+      }
+    }
+
+    if (fields.username !== undefined) {
+      const conflict = await this.adminModel.exists({
+        _id: { $ne: admin._id },
+        username: fields.username,
+      });
+      if (conflict) {
+        throw new ConflictException(
+          'This username is already in use by another admin',
+        );
+      }
+    }
+
+    const otp = randomInt(0, 1_000_000).toString().padStart(6, '0');
+
+    await this.ca.set(
+      this.adminBulkOtpKey(adminId),
+      { otp, fields },
+      300,
+      300,
+    );
+
+    try {
+      this.kafkaProducer.emit(KAFKA_TOPICS.WHATSAPP_SEND_OTP, {
+        phone: admin.phone,
+        otp,
+        lang: 'ar',
+      });
+    } catch (error) {
+      this.logger.error('Failed to publish WhatsApp OTP event', error);
+      throw new BadRequestException('Failed to send OTP, please try again');
+    }
+
+    return {
+      message: 'OTP sent to your registered WhatsApp number',
+      fields: names,
+    };
+  }
+
+  async confirmBulkAdminUpdate(
+    adminId: string,
+    dto: ConfirmBulkAdminUpdateDto,
+  ): Promise<{ message: string; updatedFields: string[] }> {
+    if (!Types.ObjectId.isValid(adminId)) {
+      throw new BadRequestException('Invalid admin ID');
+    }
+
+    const admin = await this.adminModel.findById(adminId);
+    if (!admin) {
+      throw new NotFoundException('Admin not found');
+    }
+
+    const key = this.adminBulkOtpKey(adminId);
+    const stored = await this.ca.get<{
+      otp: string;
+      fields: { username?: string; password?: string; phone?: string };
+    }>(key);
+
+    if (!stored) {
+      throw new BadRequestException('OTP expired or not found');
+    }
+
+    if (stored.otp !== dto.otp) {
+      throw new BadRequestException('Invalid OTP');
+    }
+
+    const updatedFields: string[] = [];
+
+    if (stored.fields.password !== undefined) {
+      admin.password = await bcrypt.hash(stored.fields.password, 10);
+      updatedFields.push('password');
+    }
+    if (stored.fields.username !== undefined) {
+      admin.username = stored.fields.username;
+      updatedFields.push('username');
+    }
+    if (stored.fields.phone !== undefined) {
+      admin.phone = stored.fields.phone;
+      updatedFields.push('phone');
+      if (admin.authAccountId) {
+        await this.authAccountModel.findByIdAndUpdate(admin.authAccountId, {
+          phones: [stored.fields.phone],
+        });
+      }
+    }
+
+    await admin.save();
+
+    await this.ca.invalidate(key);
+
+    try {
+      this.kafkaProducer.emit('admin.profile.updated', {
+        adminId: admin._id.toString(),
+        fields: updatedFields,
+        updatedAt: new Date(),
+      });
+    } catch (error) {
+      this.logger.error('Failed to publish admin.profile.updated event', error);
+    }
+
+    return {
+      message: `Updated: ${updatedFields.join(', ')}`,
+      updatedFields,
+    };
   }
 }

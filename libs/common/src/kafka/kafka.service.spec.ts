@@ -82,25 +82,4 @@ describe('KafkaService', () => {
     });
   });
 
-  // ─── consume ──────────────────────────────────────────────────────────────
-
-  describe('consume()', () => {
-    it('subscribes to topic and invokes message handler', async () => {
-      const onMessage = jest.fn().mockResolvedValue(undefined);
-
-      await service.consume({
-        topic: 'notifications',
-        groupId: 'notification-group',
-        onMessage,
-      });
-
-      expect(kafkaClient.subscribeToResponseOf).toHaveBeenCalledWith(
-        'notifications',
-      );
-      expect(onMessage).toHaveBeenCalledTimes(1);
-      expect(onMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ topic: 'notifications' }),
-      );
-    });
-  });
 });

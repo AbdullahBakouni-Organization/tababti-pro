@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { escapeRegex } from '@app/common/utils/escape-regex.util';
 
 export type MongoCondition = Record<string, any>;
 
@@ -8,7 +9,7 @@ export class BaseConditionBuilder {
     return {
       $or: terms.flatMap((term) =>
         fields.map((field) => ({
-          [field]: { $regex: term, $options: 'i' },
+          [field]: { $regex: escapeRegex(term), $options: 'i' },
         })),
       ),
     };
