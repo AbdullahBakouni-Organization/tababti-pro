@@ -1160,7 +1160,7 @@ export class DashboardService {
     const [answeredRate, rejectedPostsRate, approvedPostsRate] =
       await Promise.all([
         this.calcAnsweredQuestionsRate(
-          doctor.authAccountId,
+          doctor._id,
           curStart,
           curEnd,
           prevStart,
