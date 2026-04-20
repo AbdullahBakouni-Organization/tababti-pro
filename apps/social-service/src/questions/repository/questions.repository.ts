@@ -184,7 +184,7 @@ export class QuestionsRepository {
       limit,
       doctorId: null,
       showOnlyMine: false,
-      includeAnswers: false,
+      includeAnswers: true,
     });
   }
 

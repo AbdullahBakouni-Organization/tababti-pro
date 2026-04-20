@@ -22,6 +22,15 @@ const TTL_ROUTE = 86400;
 const MATRIX_BATCH = 50;
 const MAX_CONCURRENT = 5;
 const ORS_API_BASE = 'https://api.openrouteservice.org/v2';
+// Per-call ORS timeout for *foreground* requests. Bounds the worst case so one
+// stalled connection (common from low-bandwidth links) can't dominate the
+// request budget — the catch blocks in callMatrixAPI / callDirectionsAPI fall
+// back gracefully.
+const ORS_FETCH_TIMEOUT_MS = 4000;
+// Per-call ORS timeout for *background* (queue worker) requests. Generous,
+// because the user is no longer waiting and we want to populate the real
+// route into the cache so subsequent foreground requests hit warm data.
+const ORS_BG_FETCH_TIMEOUT_MS = 30_000;
 
 @Injectable()
 export class RoutingService {
@@ -221,10 +230,34 @@ export class RoutingService {
     originLng: number,
     entities: any[],
     profile: TravelMode,
+    timeoutMs: number = ORS_FETCH_TIMEOUT_MS,
   ): Promise<MatrixResponse> {
+    const ors = await this.fetchOrsMatrix(
+      originLat,
+      originLng,
+      entities,
+      profile,
+      timeoutMs,
+    );
+    return (
+      ors ?? this.fallbackMatrix(entities, originLat, originLng, profile)
+    );
+  }
+
+  /**
+   * Calls ORS matrix and returns the real response, or `null` on
+   * missing-key / timeout / non-2xx. No fallback applied — callers that need
+   * a guaranteed response should use `callMatrixAPI` instead.
+   */
+  private async fetchOrsMatrix(
+    originLat: number,
+    originLng: number,
+    entities: any[],
+    profile: TravelMode,
+    timeoutMs: number,
+  ): Promise<MatrixResponse | null> {
     const apiKey = process.env.OPENROUTE_API_KEY;
-    if (!apiKey)
-      return this.fallbackMatrix(entities, originLat, originLng, profile);
+    if (!apiKey) return null;
 
     try {
       const locations = [
@@ -251,13 +284,14 @@ export class RoutingService {
             units: 'km',
           }),
         },
+        timeoutMs,
       );
 
       if (!res.ok) throw new Error(`Matrix API ${res.status}`);
       return (await res.json()) as MatrixResponse;
     } catch (error) {
       this.logger.error('Matrix API error:', error);
-      return this.fallbackMatrix(entities, originLat, originLng, profile);
+      return null;
     }
   }
 
@@ -267,6 +301,7 @@ export class RoutingService {
     destLat: number,
     destLng: number,
     profile: TravelMode,
+    timeoutMs: number = ORS_FETCH_TIMEOUT_MS,
   ): Promise<OpenRouteServiceDirectionsResponse | null> {
     const apiKey = process.env.OPENROUTE_API_KEY;
     if (!apiKey) return null;
@@ -292,6 +327,7 @@ export class RoutingService {
             geometry_simplify: true,
           }),
         },
+        timeoutMs,
       );
 
       if (!res.ok) throw new Error(`Directions API ${res.status}`);
@@ -370,6 +406,93 @@ export class RoutingService {
         durationText: this.formatDuration(Math.round(duration / 60)),
       },
     };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // BACKGROUND JOB ENTRY POINTS — invoked by Bull processors
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Recompute a matrix in the background and write the *real* ORS result to
+   * the cache. Foreground requests pin a 4s timeout to stay responsive — when
+   * that times out, the response uses Haversine fallback but doesn't pollute
+   * the cache, so this background call is what actually warms it.
+   */
+  async runMatrixJob(
+    originLat: number,
+    originLng: number,
+    entities: any[],
+    profile: TravelMode,
+    cacheKey: string,
+  ): Promise<void> {
+    const matrix = await this.fetchOrsMatrix(
+      originLat,
+      originLng,
+      entities,
+      profile,
+      ORS_BG_FETCH_TIMEOUT_MS,
+    );
+    if (!matrix) return; // Don't cache failures — let next attempt retry.
+    await this.cache.set(cacheKey, matrix, TTL_MATRIX);
+  }
+
+  /**
+   * Recompute a single detailed route in the background and cache it.
+   */
+  async runRouteJob(
+    originLat: number,
+    originLng: number,
+    destLat: number,
+    destLng: number,
+    profile: TravelMode,
+    cacheKey: string,
+  ): Promise<void> {
+    const ors = await this.callDirectionsAPI(
+      originLat,
+      originLng,
+      destLat,
+      destLng,
+      profile,
+      ORS_BG_FETCH_TIMEOUT_MS,
+    );
+    if (!ors?.routes?.length) return;
+    const route = this.processRouteData(
+      ors,
+      originLat,
+      originLng,
+      destLat,
+      destLng,
+      profile,
+    );
+    await this.cache.set(cacheKey, route, TTL_ROUTE);
+  }
+
+  /**
+   * Warm the route cache for several entities relative to one origin grid.
+   */
+  async runWarmupJob(
+    entities: Array<{ latitude: number; longitude: number }>,
+    customerLat: number,
+    customerLng: number,
+    travelMode: TravelMode,
+  ): Promise<void> {
+    const originKey = this.cache.gridKey(
+      customerLat,
+      customerLng,
+      'route',
+      1,
+    );
+    for (const e of entities) {
+      const cacheKey = `${originKey}:${e.latitude.toFixed(6)},${e.longitude.toFixed(6)}:${travelMode}`;
+      await this.runRouteJob(
+        customerLat,
+        customerLng,
+        e.latitude,
+        e.longitude,
+        travelMode,
+        cacheKey,
+      );
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -559,11 +682,15 @@ export class RoutingService {
   private async rateLimitedFetch(
     url: string,
     options: RequestInit,
+    timeoutMs: number = ORS_FETCH_TIMEOUT_MS,
   ): Promise<Response> {
     while (this.requestQueue.length >= MAX_CONCURRENT) {
       await Promise.race(this.requestQueue);
     }
-    const promise = fetch(url, options).finally(() => {
+    const promise = fetch(url, {
+      ...options,
+      signal: options.signal ?? AbortSignal.timeout(timeoutMs),
+    }).finally(() => {
       const i = this.requestQueue.indexOf(promise);
       // eslint-disable-next-line @typescript-eslint/no-floating-promises
       if (i > -1) this.requestQueue.splice(i, 1);

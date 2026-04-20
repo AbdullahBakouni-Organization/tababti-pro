@@ -257,7 +257,7 @@ export class QuestionsService {
       } else if (filter === 'pending') {
         match.status = QuestionStatus.PENDING;
       } else {
-        match.status = QuestionStatus.APPROVED;
+        match.status = { $in: VISIBLE_STATUSES };
       }
 
       // allQuestions → must have unknownId

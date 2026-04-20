@@ -8,6 +8,8 @@ import { NearbyRepository } from './nearby-repository.service';
 import { RoutingService } from './routing.service';
 import { EntityMapper } from './entity-mapper.service';
 import { NearbyCache } from './nearby-cache.service';
+import { MatrixProcessor } from './processors/matrix.processor';
+import { RouteProcessor } from './processors/route.processor';
 import { RedisService } from '@app/common/redis/redis.service';
 
 import {
@@ -76,6 +78,11 @@ import {
     NearbyRepository,
     RoutingService,
     EntityMapper,
+    // ── 5. Bull processors — workers for the route/matrix queues ───────────
+    // Without these, queued cache-warmup jobs would sit forever and the
+    // Redis-backed route cache would never populate from real ORS data.
+    MatrixProcessor,
+    RouteProcessor,
   ],
   exports: [UserService],
 })

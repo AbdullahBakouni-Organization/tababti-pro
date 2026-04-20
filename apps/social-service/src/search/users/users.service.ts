@@ -195,11 +195,21 @@ export class UserService implements OnModuleInit {
     let centerPage = centers.slice(skip, skip + limit);
 
     // ── 4. Optionally attach turn-by-turn routes ─────────────────────────────
+    // Best-effort: if ORS is slow (common from low-bandwidth regions), return
+    // the entity list without `route` rather than blowing the gateway timeout.
+    // The slow ORS responses still complete and populate Redis via NearbyCache,
+    // so the next request hits the warm cache.
     if (includeRoutes) {
-      [doctorPage, hospitalPage, centerPage] = await Promise.all([
+      const ROUTE_BUDGET_MS = 8000;
+      const TIMEOUT = Symbol('routes-budget');
+      const budget = new Promise<typeof TIMEOUT>((resolve) =>
+        setTimeout(() => resolve(TIMEOUT), ROUTE_BUDGET_MS),
+      );
+
+      const enrichAll = Promise.all([
         doctorPage.length
           ? this.routing.loadRoutesInParallel(doctorPage, lat, lng, travelMode)
-          : Promise.resolve([]),
+          : Promise.resolve(doctorPage),
         hospitalPage.length
           ? this.routing.loadRoutesInParallel(
               hospitalPage,
@@ -207,11 +217,26 @@ export class UserService implements OnModuleInit {
               lng,
               travelMode,
             )
-          : Promise.resolve([]),
+          : Promise.resolve(hospitalPage),
         centerPage.length
           ? this.routing.loadRoutesInParallel(centerPage, lat, lng, travelMode)
-          : Promise.resolve([]),
+          : Promise.resolve(centerPage),
       ]);
+
+      const result = await Promise.race([enrichAll, budget]);
+      if (result === TIMEOUT) {
+        this.logger.warn(
+          `Route enrichment exceeded ${ROUTE_BUDGET_MS}ms — responding without routes; queued for warmup`,
+        );
+        void this.routing.queueCacheWarmup(
+          [...doctorPage, ...hospitalPage, ...centerPage],
+          lat,
+          lng,
+          travelMode,
+        );
+      } else {
+        [doctorPage, hospitalPage, centerPage] = result;
+      }
 
       // Warm-up next page in the background (fire-and-forget)
       const allSorted = [...doctors, ...hospitals, ...centers];
