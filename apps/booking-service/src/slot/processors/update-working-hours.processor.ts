@@ -102,8 +102,10 @@ export class WorkingHoursUpdateProcessorV2 {
     for (const day of updatedDays) {
       // Idempotency: browser retries republish the same Kafka event, landing
       // multiple jobs on the queue. A per-(doctor, day) Redis lock lets only
-      // the first job process the day; duplicates arriving inside the TTL
-      // window skip cleanly instead of racing the same transactional rewrite.
+      // the first in-flight job process the day; duplicates arriving while
+      // the first is running skip cleanly. The lock is released in `finally`
+      // so legitimate follow-up edits submitted after the first job finishes
+      // are not silently dropped.
       const lockKey = `lock:working_hours_update:${doctorId}:${day}`;
       const acquired = await this.cacheService.acquireLock(lockKey, 300);
       if (!acquired) {
@@ -113,15 +115,19 @@ export class WorkingHoursUpdateProcessorV2 {
         continue;
       }
 
-      await this.processSingleDay(
-        doctorObjectId,
-        day,
-        oldWorkingHours,
-        newWorkingHours,
-        version,
-        inspectionDuration,
-        inspectionPrice,
-      );
+      try {
+        await this.processSingleDay(
+          doctorObjectId,
+          day,
+          oldWorkingHours,
+          newWorkingHours,
+          version,
+          inspectionDuration,
+          inspectionPrice,
+        );
+      } finally {
+        await this.cacheService.del(lockKey);
+      }
     }
   }
 
@@ -152,6 +158,16 @@ export class WorkingHoursUpdateProcessorV2 {
 
       // ✅ الـ ranges الجديدة لهذا اليوم فقط
       const validRanges = newWH.filter((w) => w.day === day);
+
+      // Surface a caller contract bug: when `updatedDays` contains a day that
+      // has no corresponding entry in `newWorkingHours`, nothing is generated
+      // and nothing is updated — the transaction silently commits empty.
+      if (validRanges.length === 0) {
+        this.logger.warn(
+          `No newWorkingHours entries for day=${day} (doctor=${doctorId.toString()}) — ` +
+            `nothing will be generated. Caller may have sent a mismatched updatedDays list.`,
+        );
+      }
 
       // ✅ الـ locations المتأثرة في هذا اليوم فقط (من oldWH و newWH)
       const affectedLocations = this.getAffectedLocations(day, oldWH, newWH);

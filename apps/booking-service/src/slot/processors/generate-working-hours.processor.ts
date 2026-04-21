@@ -69,11 +69,10 @@ export class SlotGenerationProcessor {
 
     // Idempotency: browser retries republish the same Kafka event, so the
     // create-working-hours event may fire multiple times. A per-(doctor, day)
-    // Redis lock absorbs duplicates — the first job wins; retries arriving
-    // inside the TTL window skip cleanly.
-    const uniqueDays = Array.from(
-      new Set(WorkingHours.map((wh) => wh.day)),
-    ) as Days[];
+    // Redis lock absorbs duplicates while the first job is in-flight. The
+    // locks are released in `finally` so legitimate follow-up edits after
+    // the job completes aren't silently dropped by the TTL window.
+    const uniqueDays = Array.from(new Set(WorkingHours.map((wh) => wh.day)));
 
     const lockedDays: Days[] = [];
     for (const day of uniqueDays) {
@@ -138,6 +137,11 @@ export class SlotGenerationProcessor {
       );
       // Re-throw so Bull marks the job as failed and triggers retries
       throw error;
+    } finally {
+      for (const day of lockedDays) {
+        const lockKey = `lock:working_hours_create:${doctorId}:${day}`;
+        await this.cacheService.del(lockKey);
+      }
     }
   }
 

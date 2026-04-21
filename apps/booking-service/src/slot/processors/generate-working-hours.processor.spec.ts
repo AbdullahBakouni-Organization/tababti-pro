@@ -19,6 +19,7 @@ describe('SlotGenerationProcessor', () => {
 
   const mockCacheService = {
     acquireLock: jest.fn().mockResolvedValue(true),
+    del: jest.fn().mockResolvedValue(undefined),
   };
 
   beforeEach(async () => {
@@ -162,9 +163,7 @@ describe('SlotGenerationProcessor', () => {
       await processor.handleSlotGeneration({ ...baseJob });
 
       expect(mockSlotModel.insertMany).not.toHaveBeenCalled();
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('lock '),
-      );
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('lock '));
       warnSpy.mockRestore();
     });
 
@@ -179,6 +178,36 @@ describe('SlotGenerationProcessor', () => {
       ).resolves.toBeUndefined();
 
       expect(mockSlotModel.insertMany).not.toHaveBeenCalled();
+    });
+
+    it('releases every acquired day-lock once the job finishes', async () => {
+      mockCacheService.acquireLock.mockResolvedValue(true);
+      mockSlotModel.insertMany.mockResolvedValue([]);
+
+      await processor.handleSlotGeneration({ ...baseJob });
+
+      expect(mockCacheService.del).toHaveBeenCalledWith(
+        `lock:working_hours_create:${doctorId}:${Days.MONDAY}`,
+      );
+      expect(mockCacheService.del).toHaveBeenCalledWith(
+        `lock:working_hours_create:${doctorId}:${Days.TUESDAY}`,
+      );
+    });
+
+    it('releases acquired day-locks even when the inner work throws', async () => {
+      mockCacheService.acquireLock.mockResolvedValue(true);
+      mockSlotModel.insertMany.mockRejectedValueOnce(new Error('boom'));
+
+      await expect(
+        processor.handleSlotGeneration({ ...baseJob }),
+      ).rejects.toThrow('boom');
+
+      expect(mockCacheService.del).toHaveBeenCalledWith(
+        `lock:working_hours_create:${doctorId}:${Days.MONDAY}`,
+      );
+      expect(mockCacheService.del).toHaveBeenCalledWith(
+        `lock:working_hours_create:${doctorId}:${Days.TUESDAY}`,
+      );
     });
   });
 });

@@ -101,7 +101,10 @@ describe('InspectionDurationUpdateProcessor', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         InspectionDurationUpdateProcessor,
-        { provide: getModelToken(AppointmentSlot.name), useValue: mockSlotModel },
+        {
+          provide: getModelToken(AppointmentSlot.name),
+          useValue: mockSlotModel,
+        },
         { provide: getModelToken(Booking.name), useValue: mockBookingModel },
         { provide: getConnectionToken(), useValue: mockConnection },
         { provide: KafkaService, useValue: mockKafkaService },
@@ -164,9 +167,7 @@ describe('InspectionDurationUpdateProcessor', () => {
       expect(mockSlotModel.find).not.toHaveBeenCalled();
       expect(mockSlotModel.deleteMany).not.toHaveBeenCalled();
       expect(mockSlotModel.insertMany).not.toHaveBeenCalled();
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('lock '),
-      );
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('lock '));
       warnSpy.mockRestore();
     });
 
@@ -179,6 +180,28 @@ describe('InspectionDurationUpdateProcessor', () => {
       ).resolves.toBeUndefined();
 
       expect(mockConnection.startSession).not.toHaveBeenCalled();
+    });
+
+    it('releases the doctor-wide lock after a successful run', async () => {
+      await processor.process({ data: jobData } as any);
+
+      expect(mockCacheService.del).toHaveBeenCalledWith(
+        `lock:inspection_duration_update:${doctorId}`,
+      );
+    });
+
+    it('releases the doctor-wide lock even when the transaction aborts', async () => {
+      mockSlotModel.find.mockImplementationOnce(() => ({
+        session: jest.fn().mockRejectedValue(new Error('DB down')),
+      }));
+
+      await expect(
+        processor.process({ data: jobData } as any),
+      ).rejects.toThrow('DB down');
+
+      expect(mockCacheService.del).toHaveBeenCalledWith(
+        `lock:inspection_duration_update:${doctorId}`,
+      );
     });
   });
 });

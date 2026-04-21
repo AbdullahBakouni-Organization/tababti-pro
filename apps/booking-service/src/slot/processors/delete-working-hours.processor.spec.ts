@@ -85,7 +85,10 @@ describe('WorkingHoursDeleteProcessor', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         WorkingHoursDeleteProcessor,
-        { provide: getModelToken(AppointmentSlot.name), useValue: mockSlotModel },
+        {
+          provide: getModelToken(AppointmentSlot.name),
+          useValue: mockSlotModel,
+        },
         { provide: getModelToken(Booking.name), useValue: mockBookingModel },
         { provide: getConnectionToken(), useValue: mockConnection },
         { provide: KafkaService, useValue: mockKafkaService },
@@ -164,7 +167,7 @@ describe('WorkingHoursDeleteProcessor', () => {
       // Exactly one find() call on the slot model — proves the per-date loop
       // is gone. The filter must include both dayOfWeek and a date range.
       expect(mockSlotModel.find).toHaveBeenCalledTimes(1);
-      const filter = (mockSlotModel.find as jest.Mock).mock.calls[0][0];
+      const filter = mockSlotModel.find.mock.calls[0][0];
       expect(filter.dayOfWeek).toBe(Days.MONDAY);
       expect(filter.date.$gte).toBeInstanceOf(Date);
       expect(filter.date.$lte).toBeInstanceOf(Date);
@@ -210,9 +213,7 @@ describe('WorkingHoursDeleteProcessor', () => {
 
       expect(mockConnection.startSession).not.toHaveBeenCalled();
       expect(mockSlotModel.find).not.toHaveBeenCalled();
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('lock '),
-      );
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('lock '));
       warnSpy.mockRestore();
     });
 
@@ -225,6 +226,32 @@ describe('WorkingHoursDeleteProcessor', () => {
       ).resolves.toBeUndefined();
 
       expect(mockConnection.startSession).not.toHaveBeenCalled();
+    });
+
+    it('releases the lock after a successful run so follow-ups proceed', async () => {
+      mockSlotModel.find.mockReturnValue({
+        session: jest.fn().mockResolvedValue([]),
+      });
+
+      await processor.processWorkingHoursDelete({ data: jobData } as any);
+
+      expect(mockCacheService.del).toHaveBeenCalledWith(
+        `lock:working_hours_delete:${doctorId}:${Days.MONDAY}`,
+      );
+    });
+
+    it('releases the lock even when the transaction aborts', async () => {
+      mockSlotModel.find.mockReturnValue({
+        session: jest.fn().mockRejectedValue(new Error('DB down')),
+      });
+
+      await expect(
+        processor.processWorkingHoursDelete({ data: jobData } as any),
+      ).rejects.toThrow('DB down');
+
+      expect(mockCacheService.del).toHaveBeenCalledWith(
+        `lock:working_hours_delete:${doctorId}:${Days.MONDAY}`,
+      );
     });
   });
 });

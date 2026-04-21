@@ -224,11 +224,12 @@ export class CacheService {
   /**
    * Redis SET NX EX — atomic distributed lock. Returns `true` only when the
    * caller acquires the lock (key did not exist); `false` when another holder
-   * is still inside the TTL window. The lock is intentionally NOT released on
-   * success: callers rely on the TTL to debounce duplicate events arriving
-   * within the window (e.g. browser retries republishing the same Kafka
-   * message). Redis failures return `false` so callers treat the job as
-   * already running rather than duplicating work under an outage.
+   * is still inside the TTL window. Callers should release the lock via
+   * `del(key)` in a `finally` block once their work completes (success or
+   * failure) so legitimate follow-up events aren't dropped; the TTL then
+   * only acts as a crash-safety net for processes that terminate mid-job.
+   * Redis failures return `false` so callers treat the job as already
+   * running rather than duplicating work under an outage.
    */
   async acquireLock(key: string, ttlSeconds: number): Promise<boolean> {
     try {

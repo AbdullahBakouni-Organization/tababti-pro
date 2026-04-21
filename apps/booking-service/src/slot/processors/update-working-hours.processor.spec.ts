@@ -209,4 +209,100 @@ describe('WorkingHoursUpdateProcessorV2', () => {
       expect(mockSession.abortTransaction).toHaveBeenCalled();
     });
   });
+
+  // ─── Redis idempotency lock ──────────────────────────────────────────────
+  describe('Redis idempotency lock', () => {
+    const jobData: WorkingHoursUpdateJobData = {
+      doctorId,
+      oldWorkingHours: [],
+      newWorkingHours: [
+        {
+          day: Days.MONDAY,
+          location: {
+            type: 'PRIVATE' as any,
+            entity_name: 'New Clinic',
+            address: 'New Address',
+          },
+          startTime: '09:00',
+          endTime: '13:00',
+        },
+      ],
+      inspectionDuration: 30,
+      inspectionPrice: 5000,
+      version: 2,
+      updatedDays: [Days.MONDAY],
+    };
+
+    beforeEach(() => {
+      mockSlotModel.find.mockReturnValue({
+        session: jest.fn().mockResolvedValue([]),
+      });
+      mockSlotModel.findOne.mockReturnValue({
+        session: jest.fn().mockResolvedValue(null),
+      });
+    });
+
+    it('acquires the per-day lock with the documented key + 300s TTL', async () => {
+      await processor.processWorkingHoursUpdate({ data: jobData } as any);
+
+      expect(mockCacheService.acquireLock).toHaveBeenCalledWith(
+        `lock:working_hours_update:${doctorId}:${Days.MONDAY}`,
+        300,
+      );
+    });
+
+    it('skips the day without starting a transaction when lock is already held', async () => {
+      mockCacheService.acquireLock.mockResolvedValueOnce(false);
+      const warnSpy = jest
+        .spyOn((processor as any).logger, 'warn')
+        .mockImplementation(() => {});
+
+      await processor.processWorkingHoursUpdate({ data: jobData } as any);
+
+      expect(mockConnection.startSession).not.toHaveBeenCalled();
+      expect(mockSlotModel.find).not.toHaveBeenCalled();
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('lock '));
+      warnSpy.mockRestore();
+    });
+
+    it('releases the lock after a successful run so legitimate follow-ups proceed', async () => {
+      await processor.processWorkingHoursUpdate({ data: jobData } as any);
+
+      expect(mockCacheService.del).toHaveBeenCalledWith(
+        `lock:working_hours_update:${doctorId}:${Days.MONDAY}`,
+      );
+    });
+
+    it('releases the lock even when the transaction aborts', async () => {
+      mockSlotModel.find.mockReturnValue({
+        session: jest.fn().mockRejectedValue(new Error('DB down')),
+      });
+
+      await expect(
+        processor.processWorkingHoursUpdate({ data: jobData } as any),
+      ).rejects.toThrow('DB down');
+
+      expect(mockCacheService.del).toHaveBeenCalledWith(
+        `lock:working_hours_update:${doctorId}:${Days.MONDAY}`,
+      );
+    });
+
+    it('warns when updatedDays contains a day with no matching newWorkingHours entry', async () => {
+      const warnSpy = jest
+        .spyOn((processor as any).logger, 'warn')
+        .mockImplementation(() => {});
+
+      const mismatched: WorkingHoursUpdateJobData = {
+        ...jobData,
+        newWorkingHours: [],
+      };
+
+      await processor.processWorkingHoursUpdate({ data: mismatched } as any);
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('No newWorkingHours entries for day='),
+      );
+      warnSpy.mockRestore();
+    });
+  });
 });

@@ -70,8 +70,9 @@ export class WorkingHoursDeleteProcessor {
 
     // Idempotency: browser retries republish the same Kafka event, landing
     // multiple jobs on the queue. A per-(doctor, day) Redis lock lets only
-    // the first job invalidate the day; duplicates arriving inside the TTL
-    // window skip cleanly instead of racing the same transactional rewrite.
+    // the first in-flight job invalidate the day; duplicates arriving while
+    // the first is running skip cleanly. The lock is released in `finally`
+    // so legitimate follow-up edits after the job completes aren't dropped.
     const lockKey = `lock:working_hours_delete:${doctorId}:${deletedWorkingHour.day}`;
     const acquired = await this.cacheService.acquireLock(lockKey, 300);
     if (!acquired) {
@@ -235,6 +236,7 @@ export class WorkingHoursDeleteProcessor {
       throw error;
     } finally {
       await session.endSession();
+      await this.cacheService.del(lockKey);
     }
   }
 
