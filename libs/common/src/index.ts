@@ -16,6 +16,7 @@ export * from './redis/redis.module';
 export * from './auth-validate/auth-validate.service';
 export * from './auth-validate/auth-validate.module';
 export * from './database/database.module';
+export * from './throttler';
 
 // Interfaces
 export * from './interfaces/gallery-image.interface';

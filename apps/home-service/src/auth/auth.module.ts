@@ -6,29 +6,10 @@ import { SmsService } from '../sms/sms.service';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
 import { AuthValidateModule } from '@app/common/auth-validate';
 import { MinioModule } from '@app/common/file-storage';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
-import { APP_GUARD } from '@nestjs/core';
+
 @Module({
-  imports: [
-    ThrottlerModule.forRoot([
-      {
-        ttl: 60,
-        limit: 5,
-      },
-    ]),
-    DatabaseModule,
-    AuthValidateModule,
-    WhatsappModule,
-    MinioModule,
-  ],
-  providers: [
-    AuthService,
-    SmsService,
-    {
-      provide: APP_GUARD,
-      useClass: ThrottlerGuard,
-    },
-  ],
+  imports: [DatabaseModule, AuthValidateModule, WhatsappModule, MinioModule],
+  providers: [AuthService, SmsService],
   controllers: [AuthController],
   exports: [AuthService],
 })

@@ -16,20 +16,12 @@ import { HolidayBlockProcessor } from './processors/holidayblock.processor';
 import { PatientStatsCron } from './cron/patient-stats.cron';
 import { ScheduleModule } from '@nestjs/schedule';
 import { DoctorBookingsQueryService } from './doctor.service.v2';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
-import { APP_GUARD } from '@nestjs/core';
 import { MinioModule } from '@app/common/file-storage';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
 
 @Module({
   imports: [
     ScheduleModule.forRoot(),
-    ThrottlerModule.forRoot([
-      {
-        ttl: 60,
-        limit: 5,
-      },
-    ]),
     ConfigModule.forRoot({
       isGlobal: true,
     }),
@@ -92,10 +84,6 @@ import { WhatsappModule } from '../whatsapp/whatsapp.module';
     HolidayBlockProcessor,
     PatientStatsCron,
     DoctorBookingsQueryService,
-    {
-      provide: APP_GUARD,
-      useClass: ThrottlerGuard,
-    },
   ],
   controllers: [DoctorController],
 })

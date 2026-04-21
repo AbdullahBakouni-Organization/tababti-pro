@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getModelToken } from '@nestjs/mongoose';
 import { getConnectionToken } from '@nestjs/mongoose';
 import { Types } from 'mongoose';
+import { DateTime } from 'luxon';
 import {
   WorkingHoursUpdateProcessorV2,
   WorkingHoursUpdateJobData,
@@ -11,6 +12,14 @@ import { Booking } from '@app/common/database/schemas/booking.schema';
 import { KafkaService } from '@app/common/kafka/kafka.service';
 import { CacheService } from '@app/common/cache/cache.service';
 import { Days, SlotStatus } from '@app/common/database/schemas/common.enums';
+
+// Matches the processor's window-start calculation so mocked slots land in
+// the same date bucket as the bulk-fetch grouping.
+const firstFutureMonday = (() => {
+  let dt = DateTime.now().setZone('Asia/Damascus').startOf('day');
+  while (dt.weekday !== 1) dt = dt.plus({ days: 1 });
+  return new Date(Date.UTC(dt.year, dt.month - 1, dt.day, 0, 0, 0, 0));
+})();
 
 jest.mock('@app/common/utils/cache-invalidation.util', () => ({
   invalidateBookingCaches: jest.fn().mockResolvedValue(undefined),
@@ -66,6 +75,7 @@ describe('WorkingHoursUpdateProcessorV2', () => {
     invalidatePattern: jest.fn().mockResolvedValue(undefined),
     del: jest.fn().mockResolvedValue(undefined),
     invalidate: jest.fn().mockResolvedValue(undefined),
+    acquireLock: jest.fn().mockResolvedValue(true),
   };
 
   beforeEach(async () => {
@@ -160,6 +170,7 @@ describe('WorkingHoursUpdateProcessorV2', () => {
         status: SlotStatus.AVAILABLE,
         startTime: '07:00',
         endTime: '07:30',
+        date: firstFutureMonday,
         location: {
           type: 'PRIVATE' as any,
           entity_name: 'Old Clinic',

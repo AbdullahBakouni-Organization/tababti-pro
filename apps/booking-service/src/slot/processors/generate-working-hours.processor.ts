@@ -14,6 +14,7 @@ import {
 } from '@app/common/database/schemas/common.enums';
 import { SlotGenerationEvent } from '@app/common/kafka/interfaces/kafka-event.interface'; // adjust path
 import { getSyriaDate } from '@app/common/utils/get-syria-date'; // adjust path
+import { CacheService } from '@app/common/cache/cache.service';
 
 export interface SlotGenerationJobData {
   eventType: 'SLOTS_GENERATE';
@@ -47,6 +48,7 @@ export class SlotGenerationProcessor {
   constructor(
     @InjectModel(AppointmentSlot.name)
     private slotModel: Model<AppointmentSlotDocument>,
+    private readonly cacheService: CacheService,
   ) {
     this.logger.log(`[Slot Generation Job] Processing for doctor`);
   }
@@ -57,24 +59,56 @@ export class SlotGenerationProcessor {
 
   @Process('PROCESS_WORKING_HOURS_GENERATE')
   async handleSlotGeneration(job: Job<SlotGenerationJobData>): Promise<void> {
-    const { doctorId } = job.data;
+    const { doctorId, WorkingHours } = job.data;
 
     this.logger.log(
       `[Slot Generation Job] Processing for doctor ${doctorId} | Job ID: ${job.id}`,
     );
 
-    // Update job progress
     await job.progress(0);
 
+    // Idempotency: browser retries republish the same Kafka event, so the
+    // create-working-hours event may fire multiple times. A per-(doctor, day)
+    // Redis lock absorbs duplicates — the first job wins; retries arriving
+    // inside the TTL window skip cleanly.
+    const uniqueDays = Array.from(
+      new Set(WorkingHours.map((wh) => wh.day)),
+    ) as Days[];
+
+    const lockedDays: Days[] = [];
+    for (const day of uniqueDays) {
+      const lockKey = `lock:working_hours_create:${doctorId}:${day}`;
+      const acquired = await this.cacheService.acquireLock(lockKey, 300);
+      if (!acquired) {
+        this.logger.warn(
+          `Skipped PROCESS_WORKING_HOURS_GENERATE for doctor=${doctorId} day=${day}: lock ${lockKey} held by concurrent job`,
+        );
+        continue;
+      }
+      lockedDays.push(day);
+    }
+
+    if (lockedDays.length === 0) {
+      this.logger.warn(
+        `[Slot Generation Job] No days acquired for doctor ${doctorId} — all locks held. Skipping entire job.`,
+      );
+      await job.progress(100);
+      return;
+    }
+
     try {
-      // Build a SlotGenerationEvent-like shape from the job data
-      // to keep generateSlots() unchanged
+      // Build a SlotGenerationEvent-like shape from the job data,
+      // scoped to only the days this job actually owns a lock for.
+      const scopedWorkingHours = WorkingHours.filter((wh) =>
+        lockedDays.includes(wh.day),
+      );
+
       const event: SlotGenerationEvent = {
         eventType: job.data.eventType,
         timestamp: new Date(job.data.timestamp),
         data: {
           doctorId: job.data.doctorId,
-          WorkingHours: job.data.WorkingHours,
+          WorkingHours: scopedWorkingHours,
           inspectionDuration: job.data.inspectionDuration,
           inspectionPrice: job.data.inspectionPrice,
           doctorInfo: job.data.doctorInfo,

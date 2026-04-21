@@ -16,6 +16,13 @@ import { FcmModule } from '@app/common/fcm';
 import { UsersModule } from './users/users.module';
 import { MinioModule } from '@app/common/file-storage';
 import { CacheModule } from '@app/common/cache/cache.module';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
+import {
+  RedisThrottlerStorage,
+  ThrottlerStorageModule,
+  UserAwareThrottlerGuard,
+} from '@app/common';
 
 @Module({
   imports: [
@@ -52,6 +59,34 @@ import { CacheModule } from '@app/common/cache/cache.module';
       brokers: [process.env.KAFKA_BROKER!],
       groupId: 'home-service-group', // Important: Consumer group ID
     }),
+    // Named throttlers must match the keys referenced by `@Throttle({ short: ... })`
+    // / `@Throttle({ long: ... })` decorators across this service. The default
+    // (unnamed) throttler stays permissive so un-decorated routes behave as
+    // before while OTP endpoints actually enforce their intended burst limits.
+    ThrottlerModule.forRootAsync({
+      imports: [ThrottlerStorageModule],
+      inject: [ConfigService, RedisThrottlerStorage],
+      useFactory: (config: ConfigService, storage: RedisThrottlerStorage) => ({
+        throttlers: [
+          {
+            name: 'default',
+            ttl: config.get<number>('THROTTLE_DEFAULT_TTL', 60_000), // 60s
+            limit: config.get<number>('THROTTLE_DEFAULT_LIMIT', 120),
+          },
+          {
+            name: 'short',
+            ttl: config.get<number>('THROTTLE_SHORT_TTL', 1000), // 1s
+            limit: config.get<number>('THROTTLE_SHORT_LIMIT', 3),
+          },
+          {
+            name: 'long',
+            ttl: config.get<number>('THROTTLE_LONG_TTL', 60_000), // 60s
+            limit: config.get<number>('THROTTLE_LONG_LIMIT', 100),
+          },
+        ],
+        storage,
+      }),
+    }),
     DatabaseModule,
     SmsModule,
     WhatsappModule,
@@ -65,6 +100,12 @@ import { CacheModule } from '@app/common/cache/cache.module';
     CacheModule,
   ],
   controllers: [HomeServiceController],
-  providers: [HomeServiceService],
+  providers: [
+    HomeServiceService,
+    {
+      provide: APP_GUARD,
+      useClass: UserAwareThrottlerGuard,
+    },
+  ],
 })
 export class HomeServiceModule {}

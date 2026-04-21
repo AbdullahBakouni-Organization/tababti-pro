@@ -24,7 +24,7 @@ describe('SocialProxyController', () => {
   });
 
   it('delegates to ProxyService with the configured target and prefix', async () => {
-    const req = {} as Request;
+    const req = { url: '/social/profile' } as Request;
     const res = {} as Response;
 
     await controller.forward(req, res);
@@ -32,6 +32,20 @@ describe('SocialProxyController', () => {
     expect(proxy.forward).toHaveBeenCalledWith(req, res, {
       target: 'http://social-service:3002',
       prefix: '/social',
+      timeoutMs: undefined,
+    });
+  });
+
+  it('extends the proxy timeout for /social/nearby (slow ORS upstream)', async () => {
+    const req = { url: '/social/nearby?lat=33.5&lng=36.3' } as Request;
+    const res = {} as Response;
+
+    await controller.forward(req, res);
+
+    expect(proxy.forward).toHaveBeenCalledWith(req, res, {
+      target: 'http://social-service:3002',
+      prefix: '/social',
+      timeoutMs: 30_000,
     });
   });
 });

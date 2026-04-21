@@ -100,6 +100,19 @@ export class WorkingHoursUpdateProcessorV2 {
     this.logger.log(`beginning of PROCESS_WORKING_HOURS_UPDATE`);
 
     for (const day of updatedDays) {
+      // Idempotency: browser retries republish the same Kafka event, landing
+      // multiple jobs on the queue. A per-(doctor, day) Redis lock lets only
+      // the first job process the day; duplicates arriving inside the TTL
+      // window skip cleanly instead of racing the same transactional rewrite.
+      const lockKey = `lock:working_hours_update:${doctorId}:${day}`;
+      const acquired = await this.cacheService.acquireLock(lockKey, 300);
+      if (!acquired) {
+        this.logger.warn(
+          `Skipped PROCESS_WORKING_HOURS_UPDATE for doctor=${doctorId} day=${day}: lock ${lockKey} held by concurrent job`,
+        );
+        continue;
+      }
+
       await this.processSingleDay(
         doctorObjectId,
         day,
@@ -143,78 +156,97 @@ export class WorkingHoursUpdateProcessorV2 {
       // ✅ الـ locations المتأثرة في هذا اليوم فقط (من oldWH و newWH)
       const affectedLocations = this.getAffectedLocations(day, oldWH, newWH);
 
+      // ✅ Single bulk fetch covering every future occurrence of this weekday
+      // in the affected locations — replaces 48 per-week queries. All statuses
+      // are pulled (including INVALIDATED) so generateNewSlotsForDate can
+      // reactivate candidates from memory instead of round-tripping per slot.
+      const windowStart = futureDates[0];
+      const windowEnd = new Date(
+        futureDates[futureDates.length - 1].getTime() + 24 * 60 * 60 * 1000 - 1,
+      );
+
+      const allSlotsInWindow = affectedLocations.length
+        ? await this.slotModel
+            .find({
+              doctorId: doctorId,
+              dayOfWeek: day,
+              date: { $gte: windowStart, $lte: windowEnd },
+              $or: affectedLocations.map((loc) => ({
+                'location.type': loc.type,
+                'location.entity_name': loc.entity_name,
+                'location.address': loc.address,
+              })),
+            })
+            .session(session)
+        : [];
+
+      const slotsByDateKey = new Map<string, AppointmentSlotDocument[]>();
+      for (const slot of allSlotsInWindow) {
+        const key = new Date(slot.date).toISOString().slice(0, 10);
+        const bucket = slotsByDateKey.get(key);
+        if (bucket) bucket.push(slot);
+        else slotsByDateKey.set(key, [slot]);
+      }
+
+      this.logger.log(
+        `Bulk-fetched ${allSlotsInWindow.length} slots across ${futureDates.length} future ${day}s for doctor ${doctorId.toString()}`,
+      );
+
       for (const date of futureDates) {
-        const startOfDay = new Date(date);
-        const endOfDay = new Date(date.getTime() + 24 * 60 * 60 * 1000 - 1);
+        const dateKey = date.toISOString().slice(0, 10);
+        const slotsForDate = slotsByDateKey.get(dateKey) ?? [];
 
-        // ✅ جلب الـ slots في الـ locations المتأثرة فقط
-        const oldSlots = await this.slotModel
-          .find({
-            doctorId: doctorId,
-            date: { $gte: startOfDay, $lte: endOfDay },
-            status: { $ne: SlotStatus.INVALIDATED },
-            $or: affectedLocations.map((loc) => ({
-              'location.type': loc.type,
-              'location.entity_name': loc.entity_name,
-              'location.address': loc.address,
-            })),
-          })
-          .session(session);
-
-        this.logger.log(
-          `Found ${oldSlots.length} affected slots for ${day} on ${date.toISOString()}`,
-        );
-
-        for (const slot of oldSlots) {
+        for (const slot of slotsForDate) {
+          if (slot.status === SlotStatus.INVALIDATED) continue;
           // ✅ التحقق من الوقت والـ location معاً
-          if (!this.slotFitsRanges(slot, validRanges)) {
-            if (slot.status === SlotStatus.BOOKED) {
-              const booking = await this.bookingModel
-                .findOne({ slotId: slot._id })
-                .populate<{ patientId: User }>('patientId', 'fcmToken')
-                .populate<{
-                  doctorId: Doctor;
-                }>('doctorId', 'firstName lastName')
-                .session(session)
-                .exec();
+          if (this.slotFitsRanges(slot, validRanges)) continue;
 
-              if (booking && typeof booking.patientId !== 'string') {
-                const patient = booking.patientId as unknown as User;
-                const doctor = booking.doctorId as unknown as Doctor;
+          if (slot.status === SlotStatus.BOOKED) {
+            const booking = await this.bookingModel
+              .findOne({ slotId: slot._id })
+              .populate<{ patientId: User }>('patientId', 'fcmToken')
+              .populate<{
+                doctorId: Doctor;
+              }>('doctorId', 'firstName lastName')
+              .session(session)
+              .exec();
 
-                if (patient?.fcmToken) {
-                  affectedBookings.push({
-                    bookingId: booking._id.toString(),
-                    patientId: patient._id.toString(),
-                    doctorId: doctor._id.toString(),
-                    fcmToken: patient.fcmToken,
-                    doctorName: `${doctor.firstName} ${doctor.lastName}`,
-                    appointmentDate: booking.bookingDate,
-                    appointmentTime: booking.bookingTime,
-                  });
-                }
+            if (booking && typeof booking.patientId !== 'string') {
+              const patient = booking.patientId as unknown as User;
+              const doctor = booking.doctorId as unknown as Doctor;
+
+              if (patient?.fcmToken) {
+                affectedBookings.push({
+                  bookingId: booking._id.toString(),
+                  patientId: patient._id.toString(),
+                  doctorId: doctor._id.toString(),
+                  fcmToken: patient.fcmToken,
+                  doctorName: `${doctor.firstName} ${doctor.lastName}`,
+                  appointmentDate: booking.bookingDate,
+                  appointmentTime: booking.bookingTime,
+                });
               }
-
-              await this.bookingModel.updateOne(
-                { slotId: slot._id },
-                {
-                  status: BookingStatus.NEEDS_RESCHEDULE,
-                  cancellation: {
-                    cancelledBy: 'SYSTEM',
-                    reason: 'Doctor updated working hours',
-                    cancelledAt: new Date(),
-                  },
-                },
-                { session },
-              );
             }
 
-            slot.status = SlotStatus.INVALIDATED;
-            await slot.save({ session });
+            await this.bookingModel.updateOne(
+              { slotId: slot._id },
+              {
+                status: BookingStatus.NEEDS_RESCHEDULE,
+                cancellation: {
+                  cancelledBy: 'SYSTEM',
+                  reason: 'Doctor updated working hours',
+                  cancelledAt: new Date(),
+                },
+              },
+              { session },
+            );
           }
+
+          slot.status = SlotStatus.INVALIDATED;
+          await slot.save({ session });
         }
 
-        // ✅ توليد slots جديدة للـ ranges والـ locations الجديدة فقط
+        // ✅ توليد slots جديدة — uses pre-fetched list to avoid per-slot lookups
         await this.generateNewSlotsForDate(
           doctorId,
           date,
@@ -223,6 +255,7 @@ export class WorkingHoursUpdateProcessorV2 {
           duration,
           price,
           session,
+          slotsForDate,
         );
       }
       await invalidateBookingCaches(this.cacheService, doctorId.toString());
@@ -287,10 +320,8 @@ export class WorkingHoursUpdateProcessorV2 {
     duration: number,
     price: number,
     session: ClientSession,
+    slotsForDate: AppointmentSlotDocument[],
   ) {
-    const startOfDay = new Date(date);
-    const endOfDay = new Date(date.getTime() + 24 * 60 * 60 * 1000 - 1);
-
     for (const range of ranges) {
       const generatedSlots = this.buildSlotsFromRange(
         doctorId,
@@ -305,61 +336,65 @@ export class WorkingHoursUpdateProcessorV2 {
       );
 
       for (const slot of generatedSlots) {
-        // ✅ تحقق إذا في slot نشط (مش INVALIDATED)
-        const activeExists = await this.slotModel
-          .findOne({
-            doctorId: doctorId,
-            date: { $gte: startOfDay, $lte: endOfDay },
-            startTime: slot.startTime,
-            'location.type': range.location.type,
-            'location.entity_name': range.location.entity_name,
-            'location.address': range.location.address,
-            status: { $ne: SlotStatus.INVALIDATED },
-          })
-          .session(session);
+        // In-memory check: is there an active (non-INVALIDATED) slot at this
+        // exact time+location? Replaces per-slot findOne round-trips.
+        const activeExists = slotsForDate.some(
+          (s) =>
+            s.status !== SlotStatus.INVALIDATED &&
+            s.startTime === slot.startTime &&
+            s.location?.type === range.location.type &&
+            s.location?.entity_name === range.location.entity_name &&
+            s.location?.address === range.location.address,
+        );
 
-        if (!activeExists) {
-          // ✅ حاول تحوّل INVALIDATED موجود إلى AVAILABLE
-          const invalidatedExists = await this.slotModel
-            .findOne({
-              doctorId: doctorId,
-              date: { $gte: startOfDay, $lte: endOfDay },
-              startTime: slot.startTime,
-              'location.entity_name': range.location.entity_name,
+        if (activeExists) continue;
+
+        // In-memory INVALIDATED candidate (match time+entity_name, matching
+        // the original reactivation predicate).
+        const invalidatedExists = slotsForDate.find(
+          (s) =>
+            s.status === SlotStatus.INVALIDATED &&
+            s.startTime === slot.startTime &&
+            s.location?.entity_name === range.location.entity_name,
+        );
+
+        if (invalidatedExists) {
+          // Guarded: only reactivate if the slot is still INVALIDATED when
+          // the update executes. Prevents clobbering a slot that another
+          // writer already repurposed in the same window.
+          const res = await this.slotModel.updateOne(
+            {
+              _id: invalidatedExists._id,
               status: SlotStatus.INVALIDATED,
-            })
-            .session(session);
+            },
+            {
+              $set: {
+                status: SlotStatus.AVAILABLE,
+                startTime: slot.startTime,
+                endTime: slot.endTime,
+                workingHoursVersion: version,
+                duration: duration,
+                price: price,
+                location: range.location,
+                dayOfWeek: range.day,
+                date: new Date(date),
+              },
+              $inc: { version: 1 },
+            },
+            { session },
+          );
 
-          if (invalidatedExists) {
-            // ✅ أعد تفعيله بدل ما تولّد جديد
-            // Guarded: only reactivate if the slot is still INVALIDATED
-            // when the update executes. Prevents clobbering a slot that
-            // another writer already repurposed in the same window.
-            await this.slotModel.updateOne(
-              {
-                _id: invalidatedExists._id,
-                status: SlotStatus.INVALIDATED,
-              },
-              {
-                $set: {
-                  status: SlotStatus.AVAILABLE,
-                  startTime: slot.startTime,
-                  endTime: slot.endTime,
-                  workingHoursVersion: version,
-                  duration: duration,
-                  price: price,
-                  location: range.location,
-                  dayOfWeek: range.day,
-                  date: new Date(date),
-                },
-                $inc: { version: 1 },
-              },
-              { session },
-            );
-          } else {
-            // ✅ ولّد slot جديد تماماً
-            await this.slotModel.insertMany([slot], { session });
+          if (res.modifiedCount) {
+            // Reflect the change locally so subsequent generated slots in
+            // this same loop don't re-pick the same INVALIDATED candidate.
+            invalidatedExists.status = SlotStatus.AVAILABLE;
+            invalidatedExists.startTime = slot.startTime as string;
+            invalidatedExists.endTime = slot.endTime as string;
+            invalidatedExists.location = range.location;
           }
+        } else {
+          // ✅ ولّد slot جديد تماماً
+          await this.slotModel.insertMany([slot], { session });
         }
       }
     }

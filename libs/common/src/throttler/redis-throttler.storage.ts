@@ -12,9 +12,10 @@ import Redis from 'ioredis';
 
 /**
  * ThrottlerStorage backed by Redis so rate-limit counters are shared across
- * all API-Gateway replicas. The default `ThrottlerStorageService` is an
- * in-memory `Map` — each replica counts independently, which means the
- * effective rate limit scales with the number of instances.
+ * all replicas (gateway + any microservice that exposes HTTP and enables the
+ * throttler). The default `ThrottlerStorageService` is an in-memory `Map` —
+ * each replica counts independently, which means the effective rate limit
+ * scales with the number of instances.
  *
  * Contract (from @nestjs/throttler):
  *   - Return the cumulative hit count for the window.
@@ -43,7 +44,7 @@ export class RedisThrottlerStorage
       db: this.config.get<number>('REDIS_DB', 0),
       keyPrefix: 'throttle:',
       // Fail-open on Redis outage — better a brief lack of rate limiting than
-      // a completely unavailable gateway.
+      // a completely unavailable service.
       enableOfflineQueue: false,
       maxRetriesPerRequest: 2,
       retryStrategy: (times) => Math.min(times * 100, 2_000),

@@ -80,6 +80,20 @@ export class InspectionDurationUpdateProcessor {
       `Processing INSPECTION_DURATION_UPDATE for doctor ${doctorId} → ${newInspectionDuration}min`,
     );
 
+    // Idempotency: browser retries republish the same Kafka event, so the
+    // inspection-duration event may fire multiple times. Inspection duration
+    // is doctor-wide (affects every day), so the lock is keyed by doctorId
+    // only — not per-day. The first job wins; duplicates arriving inside
+    // the TTL window skip cleanly instead of racing the wipe + regenerate.
+    const lockKey = `lock:inspection_duration_update:${doctorId}`;
+    const acquired = await this.cacheService.acquireLock(lockKey, 300);
+    if (!acquired) {
+      this.logger.warn(
+        `Skipped PROCESS_INSPECTION_DURATION_UPDATE for doctor=${doctorId}: lock ${lockKey} held by concurrent job`,
+      );
+      return;
+    }
+
     const session = await this.connection.startSession();
     session.startTransaction();
 

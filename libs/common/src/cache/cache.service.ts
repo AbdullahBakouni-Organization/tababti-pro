@@ -221,6 +221,26 @@ export class CacheService {
     return this.invalidate(key);
   }
 
+  /**
+   * Redis SET NX EX — atomic distributed lock. Returns `true` only when the
+   * caller acquires the lock (key did not exist); `false` when another holder
+   * is still inside the TTL window. The lock is intentionally NOT released on
+   * success: callers rely on the TTL to debounce duplicate events arriving
+   * within the window (e.g. browser retries republishing the same Kafka
+   * message). Redis failures return `false` so callers treat the job as
+   * already running rather than duplicating work under an outage.
+   */
+  async acquireLock(key: string, ttlSeconds: number): Promise<boolean> {
+    try {
+      const client = this.redisService.getClient();
+      const result = await client.set(key, '1', 'EX', ttlSeconds, 'NX');
+      return result === 'OK';
+    } catch (err) {
+      this.logger.error(`acquireLock(${key}) failed`, err as Error);
+      return false;
+    }
+  }
+
   // ─── Private ───────────────────────────────────────────────────────────────
 
   private _deleteByPattern(pattern: string): void {

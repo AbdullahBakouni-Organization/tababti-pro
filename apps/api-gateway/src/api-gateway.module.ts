@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { ApiGatewayController } from './controllers/api-gateway.controller';
 import { ApiGatewayService } from './api-gateway.service';
@@ -9,8 +9,11 @@ import { NotificationProxyController } from './controllers/notification-proxy.co
 import { BookingProxyController } from './controllers/booking-proxy.controller';
 import { SocialProxyController } from './controllers/social-proxy.controller';
 import { ProxyService } from './services/proxy.service';
-import { RedisThrottlerStorage } from './services/redis-throttler.storage';
-import { ThrottlerStorageModule } from './services/throttler-storage.module';
+import {
+  RedisThrottlerStorage,
+  ThrottlerStorageModule,
+  UserAwareThrottlerGuard,
+} from '@app/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 
 @Module({
@@ -60,7 +63,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
     ProxyService,
     {
       provide: APP_GUARD,
-      useClass: ThrottlerGuard, // applies globally to all controllers
+      useClass: UserAwareThrottlerGuard, // applies globally to all controllers
     },
   ],
 })

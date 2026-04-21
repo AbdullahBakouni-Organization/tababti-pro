@@ -217,4 +217,45 @@ describe('CacheService', () => {
       );
     });
   });
+
+  // ─── acquireLock ──────────────────────────────────────────────────────────
+
+  describe('acquireLock()', () => {
+    it('returns true and issues SET NX EX when Redis confirms the lock', async () => {
+      const clientSet = jest.fn().mockResolvedValue('OK');
+      redisService.getClient.mockReturnValue({ set: clientSet });
+
+      const acquired = await service.acquireLock(
+        'lock:working_hours_update:doc1:MONDAY',
+        300,
+      );
+
+      expect(acquired).toBe(true);
+      expect(clientSet).toHaveBeenCalledWith(
+        'lock:working_hours_update:doc1:MONDAY',
+        '1',
+        'EX',
+        300,
+        'NX',
+      );
+    });
+
+    it('returns false when the key already exists (SET NX returns null)', async () => {
+      const clientSet = jest.fn().mockResolvedValue(null);
+      redisService.getClient.mockReturnValue({ set: clientSet });
+
+      const acquired = await service.acquireLock('lock:x:y', 300);
+
+      expect(acquired).toBe(false);
+    });
+
+    it('returns false when Redis throws (fails closed, treat as locked)', async () => {
+      const clientSet = jest.fn().mockRejectedValue(new Error('Redis down'));
+      redisService.getClient.mockReturnValue({ set: clientSet });
+
+      const acquired = await service.acquireLock('lock:x:y', 300);
+
+      expect(acquired).toBe(false);
+    });
+  });
 });
