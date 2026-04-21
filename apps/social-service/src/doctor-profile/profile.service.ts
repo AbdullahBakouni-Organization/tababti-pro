@@ -46,7 +46,7 @@ export class DoctorProfileService {
       throw new NotFoundException('doctor.NOT_FOUND');
     }
 
-    const cacheKey = `doctor:profile:${authAccountId}`;
+    const cacheKey = `doctor:profile:${doctor._id.toString()}`;
 
     // Try cache
     const cached = await this.cacheService.get<any>(cacheKey);
@@ -64,9 +64,11 @@ export class DoctorProfileService {
   }
 
   // ── GET main profile (compact) ─────────────────────────────────────────
-  async getMainProfile(
-    authAccountId: string,
-  ): Promise<{ image: string | null; gender: Doctor['gender']; username: string }> {
+  async getMainProfile(authAccountId: string): Promise<{
+    image: string | null;
+    gender: Doctor['gender'];
+    username: string;
+  }> {
     const doctor = await this.doctorRepo.findByAuthAccountId(authAccountId);
     if (!doctor) throw new NotFoundException('doctor.NOT_FOUND');
 

@@ -13,6 +13,7 @@ export async function invalidateBookingCaches(
       `slots:available:${doctorId}:*`,
       `doctor:${doctorId}:working-hours`,
       `doctor_mobile_profile:${doctorId}`,
+      `doctor:profile:${doctorId}`,
     ];
 
     const patientIds = patientId
