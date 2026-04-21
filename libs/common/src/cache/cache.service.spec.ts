@@ -221,7 +221,7 @@ describe('CacheService', () => {
   // ─── acquireLock ──────────────────────────────────────────────────────────
 
   describe('acquireLock()', () => {
-    it('returns true and issues SET NX EX when Redis confirms the lock', async () => {
+    it('returns a UUID token and issues SET NX EX when Redis confirms the lock', async () => {
       const clientSet = jest.fn().mockResolvedValue('OK');
       redisService.getClient.mockReturnValue({ set: clientSet });
 
@@ -230,14 +230,17 @@ describe('CacheService', () => {
         300,
       );
 
-      expect(acquired).toBe(true);
-      expect(clientSet).toHaveBeenCalledWith(
-        'lock:working_hours_update:doc1:MONDAY',
-        '1',
-        'EX',
-        300,
-        'NX',
-      );
+      expect(typeof acquired).toBe('string');
+      // RFC 4122 v4 UUID — 36 chars including 4 dashes
+      expect((acquired as string).length).toBe(36);
+      expect(clientSet).toHaveBeenCalledTimes(1);
+      const callArgs = clientSet.mock.calls[0];
+      expect(callArgs[0]).toBe('lock:working_hours_update:doc1:MONDAY');
+      // Token argument is the same UUID we returned
+      expect(callArgs[1]).toBe(acquired);
+      expect(callArgs[2]).toBe('EX');
+      expect(callArgs[3]).toBe(300);
+      expect(callArgs[4]).toBe('NX');
     });
 
     it('returns false when the key already exists (SET NX returns null)', async () => {
@@ -249,13 +252,42 @@ describe('CacheService', () => {
       expect(acquired).toBe(false);
     });
 
-    it('returns false when Redis throws (fails closed, treat as locked)', async () => {
+    it('returns null when Redis throws (fail open — caller should retry)', async () => {
       const clientSet = jest.fn().mockRejectedValue(new Error('Redis down'));
       redisService.getClient.mockReturnValue({ set: clientSet });
 
       const acquired = await service.acquireLock('lock:x:y', 300);
 
-      expect(acquired).toBe(false);
+      expect(acquired).toBeNull();
+    });
+  });
+
+  // ─── releaseLock ──────────────────────────────────────────────────────────
+
+  describe('releaseLock()', () => {
+    it('runs a Lua compare-and-delete with the supplied token', async () => {
+      const clientEval = jest.fn().mockResolvedValue(1);
+      redisService.getClient.mockReturnValue({ eval: clientEval });
+
+      await service.releaseLock('lock:x:y', 'tok-abc');
+
+      expect(clientEval).toHaveBeenCalledTimes(1);
+      const callArgs = clientEval.mock.calls[0];
+      // Lua source must contain compare-and-delete logic
+      expect(callArgs[0]).toContain('redis.call("get"');
+      expect(callArgs[0]).toContain('redis.call("del"');
+      expect(callArgs[1]).toBe(1);
+      expect(callArgs[2]).toBe('lock:x:y');
+      expect(callArgs[3]).toBe('tok-abc');
+    });
+
+    it('swallows Redis errors so a release failure never throws', async () => {
+      const clientEval = jest.fn().mockRejectedValue(new Error('Redis down'));
+      redisService.getClient.mockReturnValue({ eval: clientEval });
+
+      await expect(
+        service.releaseLock('lock:x:y', 'tok-abc'),
+      ).resolves.toBeUndefined();
     });
   });
 });

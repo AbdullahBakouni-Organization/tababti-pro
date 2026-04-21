@@ -1,8 +1,8 @@
-import { Process, Processor } from '@nestjs/bull';
+import { InjectQueue, Process, Processor } from '@nestjs/bull';
 import { Logger } from '@nestjs/common';
-import type { Job } from 'bull';
+import type { Job, Queue } from 'bull';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
-import { Connection, Model, Types } from 'mongoose';
+import { ClientSession, Connection, Model, Types } from 'mongoose';
 import {
   AppointmentSlot,
   AppointmentSlotDocument,
@@ -18,7 +18,10 @@ import {
   BookingDocument,
 } from '@app/common/database/schemas/booking.schema';
 import { User } from '@app/common/database/schemas/user.schema';
-import { Doctor } from '@app/common/database/schemas/doctor.schema';
+import {
+  Doctor,
+  DoctorDocument,
+} from '@app/common/database/schemas/doctor.schema';
 import { KafkaService } from '@app/common/kafka/kafka.service';
 import { KAFKA_TOPICS } from '@app/common/kafka/events/topics';
 import {
@@ -55,17 +58,92 @@ export class InspectionDurationUpdateProcessor {
   private readonly logger = new Logger(InspectionDurationUpdateProcessor.name);
   private readonly SLOT_GENERATION_WEEKS = 48;
 
+  // Phase 1 covers today + the next 13 days (weeks 0-1). Phase 2 backfills
+  // weeks 2..SLOT_GENERATION_WEEKS. Under Option A each phase's wipe +
+  // rebuild is strictly scoped to its own date window so patients never
+  // see an empty booking surface for weeks 3+ while Phase 2 is in flight.
+  private readonly PHASE1_WEEKS = 2;
+  private readonly MS_PER_DAY = 24 * 60 * 60 * 1000;
+
   constructor(
     @InjectModel(AppointmentSlot.name)
     private slotModel: Model<AppointmentSlotDocument>,
     @InjectConnection() private readonly connection: Connection,
     @InjectModel(Booking.name) private bookingModel: Model<BookingDocument>,
+    @InjectModel(Doctor.name) private doctorModel: Model<DoctorDocument>,
     private kafkaProducer: KafkaService,
     private readonly cacheService: CacheService,
+    @InjectQueue('INSPECTION_DURATION_UPDATE')
+    private readonly selfQueue: Queue,
   ) {}
 
   @Process('PROCESS_INSPECTION_DURATION_UPDATE')
   async process(job: Job<InspectionDurationJobData>): Promise<void> {
+    await this.runPhase(job, {
+      phaseLabel: 'Phase 1',
+      lockSuffix: '',
+      startWeek: 0,
+      endWeek: this.PHASE1_WEEKS,
+      dispatchPhase2: true,
+    });
+  }
+
+  @Process('PROCESS_INSPECTION_DURATION_UPDATE_PHASE2')
+  async processPhase2(job: Job<InspectionDurationJobData>): Promise<void> {
+    // RC-6 (FIX 6): Phase 2 staleness check. A Phase 1 dispatched this Phase
+    // 2 at job-creation time, but the doctor may have edited their schedule
+    // again before this job ran. The newer Phase 1 will dispatch its own
+    // Phase 2 with a higher version, so this stale Phase 2 must skip rather
+    // than overwrite the fresh slots. Compare Doctor.workingHoursVersion
+    // (bumped by home-service on every working-hours/inspection-duration
+    // edit) to the version snapshot baked into this job.
+    if (await this.isPhase2Stale(job)) return;
+
+    await this.runPhase(job, {
+      phaseLabel: 'Phase 2',
+      lockSuffix: ':backfill',
+      startWeek: this.PHASE1_WEEKS,
+      endWeek: this.SLOT_GENERATION_WEEKS,
+      dispatchPhase2: false,
+    });
+  }
+
+  private async isPhase2Stale(
+    job: Job<InspectionDurationJobData>,
+  ): Promise<boolean> {
+    const { doctorId, version } = job.data;
+    const doctor = await this.doctorModel
+      .findById(doctorId)
+      .select('workingHoursVersion')
+      .lean()
+      .exec();
+    if (!doctor) {
+      this.logger.warn(
+        `[InspectionDuration] Phase 2 staleness: doctor=${doctorId} not found — skipping (a delete must have happened)`,
+      );
+      return true;
+    }
+    const currentVersion = doctor.workingHoursVersion ?? 0;
+    const jobVersion = version ?? 0;
+    if (currentVersion > jobVersion) {
+      this.logger.warn(
+        `[InspectionDuration] Phase 2 stale for doctor=${doctorId}: doctor.workingHoursVersion=${currentVersion} > job.version=${jobVersion} — newer Phase 1 will dispatch a fresh Phase 2; skipping`,
+      );
+      return true;
+    }
+    return false;
+  }
+
+  private async runPhase(
+    job: Job<InspectionDurationJobData>,
+    opts: {
+      phaseLabel: string;
+      lockSuffix: string;
+      startWeek: number;
+      endWeek: number;
+      dispatchPhase2: boolean;
+    },
+  ): Promise<void> {
     const {
       doctorId,
       newInspectionDuration,
@@ -75,24 +153,39 @@ export class InspectionDurationUpdateProcessor {
       version,
     } = job.data;
     const doctorObjectId = new Types.ObjectId(doctorId);
+    const { phaseLabel, lockSuffix, startWeek, endWeek, dispatchPhase2 } = opts;
 
     this.logger.log(
-      `Processing INSPECTION_DURATION_UPDATE for doctor ${doctorId} → ${newInspectionDuration}min`,
+      `Processing INSPECTION_DURATION_UPDATE (${phaseLabel}) for doctor ${doctorId} → ${newInspectionDuration}min`,
     );
 
-    // Idempotency: browser retries republish the same Kafka event, so the
-    // inspection-duration event may fire multiple times. Inspection duration
-    // is doctor-wide (affects every day), so the lock is keyed by doctorId
-    // only — not per-day. The first in-flight job wins; duplicates arriving
-    // while it runs skip cleanly. The lock is released in `finally` so a
-    // legitimate follow-up edit after the job completes isn't dropped.
-    const lockKey = `lock:inspection_duration_update:${doctorId}`;
-    const acquired = await this.cacheService.acquireLock(lockKey, 300);
-    if (!acquired) {
-      this.logger.warn(
-        `Skipped PROCESS_INSPECTION_DURATION_UPDATE for doctor=${doctorId}: lock ${lockKey} held by concurrent job`,
+    // RC-3 (FIX 3): the doctor-wide `:ALL` lock is the cross-op coordination
+    // barrier shared by every slot-affecting processor (create/update/delete
+    // working-hours, plus inspection-duration). Inspection duration rebuilds
+    // EVERY day, so a concurrent day-op would race on the same slots — the
+    // `:ALL` lock prevents that. Inspection-duration grabs `:ALL` only since
+    // it is already doctor-wide. On contention we throw (not skip) so Bull
+    // retries: contention may come from a day-op holding `:ALL`, in which
+    // case dropping the inspection-duration edit would lose the doctor's
+    // change. Duplicate Kafka events for the same inspection-duration value
+    // simply re-run idempotently after the lock frees. Phase 2 uses a
+    // `:backfill` suffix so it doesn't collide with Phase 1.
+    const lockKey = `lock:doctor:${doctorId}:ALL${lockSuffix}`;
+    const lockToken = await this.cacheService.acquireLock(lockKey, 300);
+    if (lockToken === null) {
+      // Redis is unreachable — fail loudly so Bull retries instead of
+      // silently swallowing the doctor's edit.
+      throw new Error(
+        `Redis unavailable acquiring ${lockKey} — Bull will retry`,
       );
-      return;
+    }
+    if (lockToken === false) {
+      this.logger.warn(
+        `Contended ${lockKey} for PROCESS_INSPECTION_DURATION_UPDATE (${phaseLabel}) doctor=${doctorId} — throwing for Bull retry (cross-op coord)`,
+      );
+      throw new Error(
+        `Cross-op lock ${lockKey} held — Bull will retry to coordinate with concurrent slot-affecting job`,
+      );
     }
 
     try {
@@ -103,10 +196,35 @@ export class InspectionDurationUpdateProcessor {
         workingHours,
         doctorInfo,
         version,
+        startWeek,
+        endWeek,
+        phaseLabel,
       );
     } finally {
-      await this.cacheService.del(lockKey);
+      await this.cacheService.releaseLock(lockKey, lockToken);
     }
+
+    if (dispatchPhase2) this.dispatchPhase2(job);
+  }
+
+  // Fire-and-forget enqueue. Phase 2 failure here must never throw:
+  // Phase 1 has already committed the immediate 2-week changes and
+  // dispatched notifications for those bookings.
+  private dispatchPhase2(job: Job<InspectionDurationJobData>): void {
+    this.selfQueue
+      .add('PROCESS_INSPECTION_DURATION_UPDATE_PHASE2', job.data)
+      .then(() => {
+        this.logger.log(
+          `[InspectionDuration] Phase 2 backfill dispatched for doctor ${job.data.doctorId}`,
+        );
+      })
+      .catch((error) => {
+        const err = error as Error;
+        this.logger.error(
+          `[InspectionDuration] ❌ Failed to dispatch Phase 2 backfill for doctor ${job.data.doctorId}: ${err.message}`,
+          err.stack,
+        );
+      });
   }
 
   private async runInspectionDurationUpdate(
@@ -116,8 +234,26 @@ export class InspectionDurationUpdateProcessor {
     workingHours: InspectionDurationJobData['workingHours'],
     doctorInfo: { fullName: string },
     version: number,
+    startWeek: number,
+    endWeek: number,
+    phaseLabel: string,
   ): Promise<void> {
     const doctorId = doctorObjectId.toString();
+
+    const today = getSyriaDate();
+    const todayStart = new Date(today);
+    todayStart.setUTCHours(0, 0, 0, 0);
+
+    // Compute this phase's date window. Phase 1: days 0-13 from today.
+    // Phase 2: days 14-335 from today. Both inclusive.
+    const phaseStart = new Date(
+      todayStart.getTime() + startWeek * 7 * this.MS_PER_DAY,
+    );
+    const phaseEnd = new Date(
+      todayStart.getTime() + endWeek * 7 * this.MS_PER_DAY - 1,
+    );
+    const dateFilter = { $gte: phaseStart, $lte: phaseEnd };
+
     const session = await this.connection.startSession();
     session.startTransaction();
 
@@ -140,15 +276,13 @@ export class InspectionDurationUpdateProcessor {
       appointmentTime: string;
     }> = [];
 
-    try {
-      const today = getSyriaDate();
-      const todayStart = new Date(today);
-      todayStart.setUTCHours(0, 0, 0, 0);
+    let newSlots: Partial<AppointmentSlot>[] = [];
 
+    try {
       const bookedSlots = await this.slotModel
         .find({
           doctorId: doctorObjectId,
-          date: { $gte: todayStart },
+          date: dateFilter,
           status: SlotStatus.BOOKED,
         })
         .session(session);
@@ -163,7 +297,48 @@ export class InspectionDurationUpdateProcessor {
           .session(session)
           .exec();
 
-        if (!booking) continue;
+        if (!booking) {
+          // Slot was BOOKED in our snapshot but no booking exists — keep the
+          // slot in the invalidated audit set so it isn't deleted entirely.
+          invalidatedSlotIds.push(slot._id);
+          continue;
+        }
+
+        // RC-8 guard: only overwrite bookings that are still actionable. If
+        // the patient already cancelled or the booking otherwise reached a
+        // terminal state, leave their audit trail intact and do not send
+        // them an FCM notification. The slot itself still needs cleanup.
+        const updateRes = await this.bookingModel.updateOne(
+          {
+            _id: booking._id,
+            status: {
+              $in: [
+                BookingStatus.PENDING,
+                BookingStatus.CONFIRMED,
+                BookingStatus.RESCHEDULED,
+              ],
+            },
+          },
+          {
+            $set: {
+              status: BookingStatus.CANCELLED_BY_DOCTOR,
+              cancellation: {
+                cancelledBy: 'DOCTOR',
+                reason: CANCEL_REASON,
+                cancelledAt: new Date(),
+              },
+            },
+          },
+          { session },
+        );
+
+        if (updateRes.modifiedCount === 0) {
+          this.logger.log(
+            `[InspectionDurationUpdate] Booking ${booking._id.toString()} already finalized, skipping cancellation+notification`,
+          );
+          invalidatedSlotIds.push(slot._id);
+          continue;
+        }
 
         const patient =
           booking.patientId && typeof booking.patientId !== 'string'
@@ -199,19 +374,6 @@ export class InspectionDurationUpdateProcessor {
           });
         }
 
-        await this.bookingModel.updateOne(
-          { _id: booking._id },
-          {
-            status: BookingStatus.CANCELLED_BY_DOCTOR,
-            cancellation: {
-              cancelledBy: 'DOCTOR',
-              reason: CANCEL_REASON,
-              cancelledAt: new Date(),
-            },
-          },
-          { session },
-        );
-
         invalidatedSlotIds.push(slot._id);
       }
 
@@ -230,11 +392,50 @@ export class InspectionDurationUpdateProcessor {
       await this.slotModel.deleteMany(
         {
           doctorId: doctorObjectId,
-          date: { $gte: todayStart },
+          date: dateFilter,
           _id: { $nin: invalidatedSlotIds },
         },
         { session },
       );
+
+      // FIX 2 / RC-5: rebuild slots INSIDE the transaction. Previously the
+      // wipe (deleteMany above) committed and the rebuild ran post-session.
+      // A worker crash between the two left the doctor's calendar empty
+      // forever once Bull's 3 retries were exhausted. Doing the rebuild
+      // inside the same transaction makes the wipe-and-rebuild atomic.
+      const keptInvalidated = await this.slotModel
+        .find({
+          doctorId: doctorObjectId,
+          status: SlotStatus.INVALIDATED,
+          date: dateFilter,
+        })
+        .select('date startTime location.entity_name')
+        .session(session)
+        .lean()
+        .exec();
+
+      const blockedKeys = new Set(
+        keptInvalidated.map(
+          (s) =>
+            `${new Date(s.date).toISOString()}|${s.startTime}|${s.location?.entity_name ?? ''}`,
+        ),
+      );
+
+      newSlots = this.buildNewSlots(
+        doctorObjectId,
+        workingHours,
+        newInspectionDuration,
+        inspectionPrice,
+        doctorInfo,
+        version,
+        startWeek,
+        endWeek,
+      ).filter((s) => {
+        const key = `${(s.date as Date).toISOString()}|${s.startTime}|${s.location?.entity_name ?? ''}`;
+        return !blockedKeys.has(key);
+      });
+
+      await this.batchInsertSlots(newSlots, session);
 
       await session.commitTransaction();
     } catch (error) {
@@ -244,38 +445,8 @@ export class InspectionDurationUpdateProcessor {
       await session.endSession();
     }
 
-    const keptInvalidated = await this.slotModel
-      .find({
-        doctorId: doctorObjectId,
-        status: SlotStatus.INVALIDATED,
-        date: { $gte: getSyriaDate() },
-      })
-      .select('date startTime location.entity_name')
-      .lean()
-      .exec();
-
-    const blockedKeys = new Set(
-      keptInvalidated.map(
-        (s) =>
-          `${new Date(s.date).toISOString()}|${s.startTime}|${s.location?.entity_name ?? ''}`,
-      ),
-    );
-
-    const newSlots = this.buildNewSlots(
-      doctorObjectId,
-      workingHours,
-      newInspectionDuration,
-      inspectionPrice,
-      doctorInfo,
-      version,
-    ).filter((s) => {
-      const key = `${(s.date as Date).toISOString()}|${s.startTime}|${s.location?.entity_name ?? ''}`;
-      return !blockedKeys.has(key);
-    });
-    await this.batchInsertSlots(newSlots);
-
     this.logger.log(
-      `Regenerated ${newSlots.length} slots for doctor ${doctorId} at ${newInspectionDuration}min duration`,
+      `Regenerated ${newSlots.length} slots for doctor ${doctorId} at ${newInspectionDuration}min duration (${phaseLabel})`,
     );
 
     if (affectedBookings.length > 0) {
@@ -299,7 +470,7 @@ export class InspectionDurationUpdateProcessor {
     );
 
     this.logger.log(
-      `INSPECTION_DURATION_UPDATE done. Cancelled: ${affectedBookings.length} (app), ${affectedManualBookings.length} (manual).`,
+      `INSPECTION_DURATION_UPDATE (${phaseLabel}) done. Cancelled: ${affectedBookings.length} (app), ${affectedManualBookings.length} (manual).`,
     );
   }
 
@@ -310,11 +481,13 @@ export class InspectionDurationUpdateProcessor {
     price: number | undefined,
     doctorInfo: { fullName: string },
     version: number,
+    startWeek: number,
+    endWeek: number,
   ): Partial<AppointmentSlot>[] {
     const slots: Partial<AppointmentSlot>[] = [];
     const today = getSyriaDate();
 
-    for (let week = 0; week < this.SLOT_GENERATION_WEEKS; week++) {
+    for (let week = startWeek; week < endWeek; week++) {
       for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
         const currentDate = new Date(today);
         currentDate.setDate(today.getDate() + week * 7 + dayOffset);
@@ -396,15 +569,20 @@ export class InspectionDurationUpdateProcessor {
 
   private async batchInsertSlots(
     slots: Partial<AppointmentSlot>[],
+    session?: ClientSession,
   ): Promise<void> {
     if (slots.length === 0) return;
     const BATCH_SIZE = 100;
     for (let i = 0; i < slots.length; i += BATCH_SIZE) {
       const batch = slots.slice(i, i + BATCH_SIZE);
       try {
-        await this.slotModel.insertMany(batch, { ordered: false });
+        await this.slotModel.insertMany(batch, { ordered: false, session });
       } catch (error: any) {
         if (error?.code !== 11000) throw error;
+        // Inside a transaction, a duplicate-key collision means our
+        // pre-filter (blockedKeys) missed something — abort rather than
+        // commit a half-rebuilt calendar; Bull will retry.
+        if (session) throw error;
         this.logger.warn(
           `Skipped duplicate slots in batch ${i / BATCH_SIZE + 1}`,
         );

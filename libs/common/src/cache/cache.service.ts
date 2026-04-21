@@ -109,8 +109,20 @@
 
 // libs/common/cache/cache.service.ts
 import { Injectable, Logger } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { RedisService } from '../redis/redis.service';
 import { LRUCache } from 'lru-cache';
+
+// Compare-and-delete: only release the lock if the stored value still matches
+// the token we issued at acquire time. Prevents Job A (TTL-expired) from
+// deleting Job B's freshly-acquired lock and triggering cascading lock loss.
+const RELEASE_LOCK_LUA = `
+if redis.call("get", KEYS[1]) == ARGV[1] then
+  return redis.call("del", KEYS[1])
+else
+  return 0
+end
+`;
 
 @Injectable()
 export class CacheService {
@@ -222,23 +234,46 @@ export class CacheService {
   }
 
   /**
-   * Redis SET NX EX — atomic distributed lock. Returns `true` only when the
-   * caller acquires the lock (key did not exist); `false` when another holder
-   * is still inside the TTL window. Callers should release the lock via
-   * `del(key)` in a `finally` block once their work completes (success or
-   * failure) so legitimate follow-up events aren't dropped; the TTL then
-   * only acts as a crash-safety net for processes that terminate mid-job.
-   * Redis failures return `false` so callers treat the job as already
-   * running rather than duplicating work under an outage.
+   * Redis SET NX EX — atomic distributed lock with a fencing token.
+   *
+   * Return contract (three-state):
+   *   - `string` (UUID token) → lock acquired; pass this token to
+   *     `releaseLock(key, token)` so the release is compare-and-delete and
+   *     cannot stomp another holder's lock if our TTL expired first.
+   *   - `false` → another holder owns the lock; caller should skip cleanly.
+   *   - `null` → Redis is unreachable; caller should throw and let Bull
+   *     retry. Treating Redis outages as "lock held" silently swallows
+   *     legitimate doctor edits — fail loudly instead.
    */
-  async acquireLock(key: string, ttlSeconds: number): Promise<boolean> {
+  async acquireLock(
+    key: string,
+    ttlSeconds: number,
+  ): Promise<string | false | null> {
     try {
       const client = this.redisService.getClient();
-      const result = await client.set(key, '1', 'EX', ttlSeconds, 'NX');
-      return result === 'OK';
+      const token = randomUUID();
+      const result = await client.set(key, token, 'EX', ttlSeconds, 'NX');
+      return result === 'OK' ? token : false;
     } catch (err) {
       this.logger.error(`acquireLock(${key}) failed`, err as Error);
-      return false;
+      return null;
+    }
+  }
+
+  /**
+   * Compare-and-delete release. Only deletes the key when the stored value
+   * equals the token issued at acquire time. Safe against the classic
+   * "expired holder deletes new holder's lock" cascade.
+   *
+   * Errors during release are logged but never thrown — the TTL remains as
+   * a crash-safety net even if the Lua eval fails.
+   */
+  async releaseLock(key: string, token: string): Promise<void> {
+    try {
+      const client = this.redisService.getClient();
+      await client.eval(RELEASE_LOCK_LUA, 1, key, token);
+    } catch (err) {
+      this.logger.error(`releaseLock(${key}) failed`, err as Error);
     }
   }
 

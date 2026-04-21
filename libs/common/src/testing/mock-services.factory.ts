@@ -22,7 +22,8 @@ export function createMockCacheService() {
     del: jest.fn().mockResolvedValue(undefined),
     invalidate: jest.fn().mockResolvedValue(undefined),
     invalidatePattern: jest.fn().mockResolvedValue(undefined),
-    acquireLock: jest.fn().mockResolvedValue(true),
+    acquireLock: jest.fn().mockResolvedValue('mock-lock-token'),
+    releaseLock: jest.fn().mockResolvedValue(undefined),
     onModuleInit: jest.fn().mockResolvedValue(undefined),
   };
 }
@@ -66,9 +67,10 @@ export function createMockRedisService() {
     // Pattern
     keys: jest.fn().mockResolvedValue([]),
     deletePattern: jest.fn().mockResolvedValue(undefined),
-    // Raw client accessor (used by CacheService.acquireLock)
+    // Raw client accessor (used by CacheService.acquireLock + releaseLock)
     getClient: jest.fn().mockReturnValue({
       set: jest.fn().mockResolvedValue('OK'),
+      eval: jest.fn().mockResolvedValue(1),
     }),
     // Lifecycle
     onModuleInit: jest.fn(),

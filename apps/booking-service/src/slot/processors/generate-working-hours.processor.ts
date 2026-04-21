@@ -1,6 +1,6 @@
-import { Process, Processor } from '@nestjs/bull';
+import { InjectQueue, Process, Processor } from '@nestjs/bull';
 import { Logger } from '@nestjs/common';
-import type { Job } from 'bull';
+import type { Job, Queue } from 'bull';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import {
@@ -12,6 +12,10 @@ import {
   Days,
   WorkigEntity,
 } from '@app/common/database/schemas/common.enums';
+import {
+  Doctor,
+  DoctorDocument,
+} from '@app/common/database/schemas/doctor.schema';
 import { SlotGenerationEvent } from '@app/common/kafka/interfaces/kafka-event.interface'; // adjust path
 import { getSyriaDate } from '@app/common/utils/get-syria-date'; // adjust path
 import { CacheService } from '@app/common/cache/cache.service';
@@ -45,10 +49,18 @@ export class SlotGenerationProcessor {
   // How many weeks ahead to generate slots — keep same as your original service
   private readonly SLOT_GENERATION_WEEKS = 48;
 
+  // Phase 1 covers today + the next 13 days (weeks 0-1). Phase 2 runs
+  // weeks 2..SLOT_GENERATION_WEEKS in a follow-up job so the Kafka handler
+  // responds to the doctor in sub-second time.
+  private readonly PHASE1_WEEKS = 2;
+
   constructor(
     @InjectModel(AppointmentSlot.name)
     private slotModel: Model<AppointmentSlotDocument>,
+    @InjectModel(Doctor.name) private doctorModel: Model<DoctorDocument>,
     private readonly cacheService: CacheService,
+    @InjectQueue('WORKING_HOURS_GENERATE')
+    private readonly selfQueue: Queue,
   ) {
     this.logger.log(`[Slot Generation Job] Processing for doctor`);
   }
@@ -59,10 +71,81 @@ export class SlotGenerationProcessor {
 
   @Process('PROCESS_WORKING_HOURS_GENERATE')
   async handleSlotGeneration(job: Job<SlotGenerationJobData>): Promise<void> {
+    await this.runGenerationPhase(job, {
+      phaseLabel: 'Phase 1',
+      lockSuffix: '',
+      startWeek: 0,
+      endWeek: this.PHASE1_WEEKS,
+      dispatchPhase2: true,
+    });
+  }
+
+  @Process('PROCESS_WORKING_HOURS_GENERATE_PHASE2')
+  async handleSlotGenerationPhase2(
+    job: Job<SlotGenerationJobData>,
+  ): Promise<void> {
+    // RC-6 (FIX 6): Phase 2 staleness check. The SlotGenerationEvent does
+    // not carry a `version` field, so we fall back to comparing
+    // Doctor.updatedAt against the job timestamp baked in at publish time.
+    // Caveat: any unrelated Doctor write (rating bump, profile edit) also
+    // moves `updatedAt`, which can cause a false-positive skip. The user
+    // accepted this trade-off vs adding a schema field — losing a
+    // backfill is recoverable; corrupting fresh slots from the newer
+    // event is not.
+    if (await this.isPhase2Stale(job)) return;
+
+    await this.runGenerationPhase(job, {
+      phaseLabel: 'Phase 2',
+      lockSuffix: ':backfill',
+      startWeek: this.PHASE1_WEEKS,
+      endWeek: this.SLOT_GENERATION_WEEKS,
+      dispatchPhase2: false,
+    });
+  }
+
+  private async isPhase2Stale(
+    job: Job<SlotGenerationJobData>,
+  ): Promise<boolean> {
+    const { doctorId, timestamp } = job.data;
+    const doctor = await this.doctorModel
+      .findById(doctorId)
+      .select('updatedAt')
+      .lean()
+      .exec();
+    if (!doctor) {
+      this.logger.warn(
+        `[SlotGeneration] Phase 2 staleness: doctor=${doctorId} not found — skipping`,
+      );
+      return true;
+    }
+    const doctorUpdatedAt = (doctor as any).updatedAt
+      ? new Date((doctor as any).updatedAt).getTime()
+      : 0;
+    const jobTimestamp = new Date(timestamp).getTime();
+    if (doctorUpdatedAt > jobTimestamp) {
+      this.logger.warn(
+        `[SlotGeneration] Phase 2 stale for doctor=${doctorId}: doctor.updatedAt=${new Date(doctorUpdatedAt).toISOString()} > job.timestamp=${new Date(jobTimestamp).toISOString()} — newer Phase 1 will dispatch a fresh Phase 2; skipping`,
+      );
+      return true;
+    }
+    return false;
+  }
+
+  private async runGenerationPhase(
+    job: Job<SlotGenerationJobData>,
+    opts: {
+      phaseLabel: string;
+      lockSuffix: string;
+      startWeek: number;
+      endWeek: number;
+      dispatchPhase2: boolean;
+    },
+  ): Promise<void> {
     const { doctorId, WorkingHours } = job.data;
+    const { phaseLabel, lockSuffix, startWeek, endWeek, dispatchPhase2 } = opts;
 
     this.logger.log(
-      `[Slot Generation Job] Processing for doctor ${doctorId} | Job ID: ${job.id}`,
+      `[Slot Generation Job ${phaseLabel}] Processing for doctor ${doctorId} | Job ID: ${job.id}`,
     );
 
     await job.progress(0);
@@ -71,35 +154,77 @@ export class SlotGenerationProcessor {
     // create-working-hours event may fire multiple times. A per-(doctor, day)
     // Redis lock absorbs duplicates while the first job is in-flight. The
     // locks are released in `finally` so legitimate follow-up edits after
-    // the job completes aren't silently dropped by the TTL window.
+    // the job completes aren't silently dropped by the TTL window. Phase 2
+    // uses a `:backfill` suffix so it doesn't collide with Phase 1 locks.
     const uniqueDays = Array.from(new Set(WorkingHours.map((wh) => wh.day)));
 
-    const lockedDays: Days[] = [];
+    const lockedDays: Array<{ day: Days; token: string }> = [];
     for (const day of uniqueDays) {
-      const lockKey = `lock:working_hours_create:${doctorId}:${day}`;
-      const acquired = await this.cacheService.acquireLock(lockKey, 300);
-      if (!acquired) {
+      const lockKey = `lock:working_hours_create:${doctorId}:${day}${lockSuffix}`;
+      const lockToken = await this.cacheService.acquireLock(lockKey, 300);
+      if (lockToken === null) {
+        // Redis is unreachable — release whatever we already acquired and
+        // throw so Bull retries the whole job. Silently skipping would
+        // drop the doctor's edit forever.
+        for (const held of lockedDays) {
+          const heldKey = `lock:working_hours_create:${doctorId}:${held.day}${lockSuffix}`;
+          await this.cacheService.releaseLock(heldKey, held.token);
+        }
+        throw new Error(
+          `Redis unavailable acquiring ${lockKey} — Bull will retry`,
+        );
+      }
+      if (lockToken === false) {
         this.logger.warn(
-          `Skipped PROCESS_WORKING_HOURS_GENERATE for doctor=${doctorId} day=${day}: lock ${lockKey} held by concurrent job`,
+          `Skipped PROCESS_WORKING_HOURS_GENERATE (${phaseLabel}) for doctor=${doctorId} day=${day}: lock ${lockKey} held by concurrent job`,
         );
         continue;
       }
-      lockedDays.push(day);
+      lockedDays.push({ day, token: lockToken });
     }
 
     if (lockedDays.length === 0) {
       this.logger.warn(
-        `[Slot Generation Job] No days acquired for doctor ${doctorId} — all locks held. Skipping entire job.`,
+        `[Slot Generation Job ${phaseLabel}] No days acquired for doctor ${doctorId} — all locks held. Skipping entire job.`,
       );
       await job.progress(100);
+      // Concurrent Phase 1 run will dispatch its own Phase 2; skip here.
       return;
+    }
+
+    // RC-3 (FIX 3): cross-op outer lock shared with delete/update/inspection
+    // so only one slot-affecting op runs per (doctor, phase) at a time.
+    // Acquire AFTER all per-day locks (so per-day dedup happens first); on
+    // contention, release every per-day lock and throw so Bull retries —
+    // skipping would silently drop the doctor's create when an inspection-
+    // duration job (which rewrites every day) is mid-flight. Released first
+    // in finally so the inner per-day locks are released last.
+    const allLockKey = `lock:doctor:${doctorId}:ALL${lockSuffix}`;
+    const allLockToken = await this.cacheService.acquireLock(allLockKey, 300);
+    if (allLockToken === null || allLockToken === false) {
+      for (const held of lockedDays) {
+        const heldKey = `lock:working_hours_create:${doctorId}:${held.day}${lockSuffix}`;
+        await this.cacheService.releaseLock(heldKey, held.token);
+      }
+      if (allLockToken === null) {
+        throw new Error(
+          `Redis unavailable acquiring ${allLockKey} — Bull will retry`,
+        );
+      }
+      this.logger.warn(
+        `Contended ${allLockKey} for PROCESS_WORKING_HOURS_GENERATE (${phaseLabel}) doctor=${doctorId} — throwing for Bull retry (cross-op coord)`,
+      );
+      throw new Error(
+        `Cross-op lock ${allLockKey} held — Bull will retry to coordinate with concurrent slot-affecting job`,
+      );
     }
 
     try {
       // Build a SlotGenerationEvent-like shape from the job data,
       // scoped to only the days this job actually owns a lock for.
+      const lockedDayNames = lockedDays.map((d) => d.day);
       const scopedWorkingHours = WorkingHours.filter((wh) =>
-        lockedDays.includes(wh.day),
+        lockedDayNames.includes(wh.day),
       );
 
       const event: SlotGenerationEvent = {
@@ -116,33 +241,57 @@ export class SlotGenerationProcessor {
 
       await job.progress(10);
 
-      const slots = await this.generateSlots(event);
+      const slots = await this.generateSlots(event, startWeek, endWeek);
 
       await job.progress(80);
 
       this.logger.log(
-        `[Slot Generation Job] Generated ${slots.length} slots for doctor ${doctorId}`,
+        `[Slot Generation Job ${phaseLabel}] Generated ${slots.length} slots for doctor ${doctorId}`,
       );
 
       await job.progress(100);
 
       this.logger.log(
-        `[Slot Generation Job] ✅ Completed for doctor ${doctorId}`,
+        `[Slot Generation Job ${phaseLabel}] ✅ Completed for doctor ${doctorId}`,
       );
     } catch (error) {
       const err = error as Error;
       this.logger.error(
-        `[Slot Generation Job] ❌ Failed for doctor ${doctorId}: ${err.message}`,
+        `[Slot Generation Job ${phaseLabel}] ❌ Failed for doctor ${doctorId}: ${err.message}`,
         err.stack,
       );
       // Re-throw so Bull marks the job as failed and triggers retries
       throw error;
     } finally {
-      for (const day of lockedDays) {
-        const lockKey = `lock:working_hours_create:${doctorId}:${day}`;
-        await this.cacheService.del(lockKey);
+      // Release outer `:ALL` lock first, then per-day locks (reverse acquire order).
+      await this.cacheService.releaseLock(allLockKey, allLockToken);
+      for (const held of lockedDays) {
+        const lockKey = `lock:working_hours_create:${doctorId}:${held.day}${lockSuffix}`;
+        await this.cacheService.releaseLock(lockKey, held.token);
       }
     }
+
+    if (dispatchPhase2) this.dispatchPhase2(job);
+  }
+
+  // Fire-and-forget enqueue. A failure here must never rollback Phase 1:
+  // the immediate slots are already committed. We log loudly so an ops
+  // alert can pick up systemic Bull/Redis outages, but we never throw.
+  private dispatchPhase2(job: Job<SlotGenerationJobData>): void {
+    this.selfQueue
+      .add('PROCESS_WORKING_HOURS_GENERATE_PHASE2', job.data)
+      .then(() => {
+        this.logger.log(
+          `[Slot Generation Job] Phase 2 backfill dispatched for doctor ${job.data.doctorId}`,
+        );
+      })
+      .catch((error) => {
+        const err = error as Error;
+        this.logger.error(
+          `[Slot Generation Job] ❌ Failed to dispatch Phase 2 backfill for doctor ${job.data.doctorId}: ${err.message}`,
+          err.stack,
+        );
+      });
   }
 
   /* -------------------------------------------------------------------------- */
@@ -151,6 +300,8 @@ export class SlotGenerationProcessor {
 
   private async generateSlots(
     event: SlotGenerationEvent,
+    startWeek: number,
+    endWeek: number,
   ): Promise<AppointmentSlot[]> {
     const {
       doctorId,
@@ -163,7 +314,7 @@ export class SlotGenerationProcessor {
     const slots: Partial<AppointmentSlot>[] = [];
     const today = getSyriaDate();
 
-    for (let week = 0; week < this.SLOT_GENERATION_WEEKS; week++) {
+    for (let week = startWeek; week < endWeek; week++) {
       for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
         const currentDate = new Date(today);
         currentDate.setDate(today.getDate() + week * 7 + dayOffset);
