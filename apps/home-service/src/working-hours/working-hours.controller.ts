@@ -154,6 +154,21 @@ export class WorkingHoursController {
     },
   })
   @ApiResponse({
+    status: HttpStatus.CONFLICT,
+    description:
+      'A Phase 2 background backfill is still in flight for this doctor. Poll /processing-status and retry once phase2Running is false.',
+    schema: {
+      example: {
+        statusCode: 409,
+        message:
+          'A previous working-hours change is still being applied in the background. Please wait for it to finish before submitting another change.',
+        phase2Running: true,
+        operation: 'update',
+        startedAt: '2026-04-22T06:11:52.000Z',
+      },
+    },
+  })
+  @ApiResponse({
     status: HttpStatus.UNAUTHORIZED,
     description: 'Unauthorized - Invalid or missing token',
   })
@@ -325,7 +340,18 @@ export class WorkingHoursController {
   })
   @ApiResponse({
     status: 409,
-    description: 'Conflicts exist but not confirmed',
+    description:
+      'A Phase 2 background backfill is still in flight for this doctor. Poll /processing-status and retry once phase2Running is false.',
+    schema: {
+      example: {
+        statusCode: 409,
+        message:
+          'A previous working-hours change is still being applied in the background. Please wait for it to finish before submitting another change.',
+        phase2Running: true,
+        operation: 'update',
+        startedAt: '2026-04-22T06:11:52.000Z',
+      },
+    },
   })
   async updateWorkingHours(
     @Body() updateDto: UpdateWorkingHoursDto,
@@ -387,6 +413,21 @@ export class WorkingHoursController {
     status: HttpStatus.NOT_FOUND,
     description: 'No matching working-hours entry found',
   })
+  @ApiResponse({
+    status: HttpStatus.CONFLICT,
+    description:
+      'A Phase 2 background backfill is still in flight for this doctor. Poll /processing-status and retry once phase2Running is false.',
+    schema: {
+      example: {
+        statusCode: 409,
+        message:
+          'A previous working-hours change is still being applied in the background. Please wait for it to finish before submitting another change.',
+        phase2Running: true,
+        operation: 'delete',
+        startedAt: '2026-04-22T06:11:52.000Z',
+      },
+    },
+  })
   async deleteWorkingHours(
     @Body() dto: DeleteWorkingHoursDto,
     @Req() req: any,
@@ -438,6 +479,21 @@ export class WorkingHoursController {
   @ApiResponse({
     status: HttpStatus.BAD_REQUEST,
     description: 'confirm flag missing or doctor has no working hours',
+  })
+  @ApiResponse({
+    status: HttpStatus.CONFLICT,
+    description:
+      'A Phase 2 background backfill is still in flight for this doctor. Poll /processing-status and retry once phase2Running is false.',
+    schema: {
+      example: {
+        statusCode: 409,
+        message:
+          'A previous working-hours change is still being applied in the background. Please wait for it to finish before submitting another change.',
+        phase2Running: true,
+        operation: 'inspection',
+        startedAt: '2026-04-22T06:11:52.000Z',
+      },
+    },
   })
   async updateInspectionDuration(
     @Body() dto: UpdateInspectionDurationDto,

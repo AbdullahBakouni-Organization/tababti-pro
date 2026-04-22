@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ConflictException,
   Logger,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
@@ -116,6 +117,8 @@ export class WorkingHoursService {
         'confirm must be true to proceed with deletion',
       );
     }
+
+    await this.assertNoPhase2InFlight(doctorId);
 
     const doctor = await this.loadDoctor(doctorId);
     const matchIndex = this.findExistingEntryOrThrow(doctor, dto);
@@ -367,6 +370,8 @@ export class WorkingHoursService {
       );
     }
 
+    await this.assertNoPhase2InFlight(doctorId);
+
     const doctor = await this.loadDoctor(doctorId);
 
     const hasWorkingHours =
@@ -585,6 +590,8 @@ export class WorkingHoursService {
       throw new BadRequestException('Invalid doctor ID');
     }
 
+    await this.assertNoPhase2InFlight(doctorId);
+
     // Find doctor
     const doctor = await this.doctorModel.findById(doctorId).exec();
     if (!doctor) {
@@ -723,6 +730,8 @@ export class WorkingHoursService {
    * This route actually performs the update after doctor confirms
    */
   async updateWorkingHours(doctorId: string, updateDto: UpdateWorkingHoursDto) {
+    await this.assertNoPhase2InFlight(doctorId);
+
     const doctor = await this.doctorModel.findById(doctorId);
     if (!doctor) throw new NotFoundException();
 
@@ -1047,6 +1056,52 @@ export class WorkingHoursService {
       operation: parsed.operation,
       startedAt: parsed.startedAt,
     };
+  }
+
+  /**
+   * Rejects a mutating request while a Phase 2 background backfill is still
+   * running for this doctor. Without this guard, rapid repeat submissions
+   * (frontend retries, double-clicks, effect loops) each emit a Kafka event,
+   * each queues a fresh Phase 1 → Phase 2, and the doctor ends up paying for
+   * N full slot rewrites when only the last one is meaningful.
+   *
+   * Fail-open by design: Redis hiccups, malformed payloads, or JSON parse
+   * errors must never block the doctor — the booking-service processors are
+   * the authoritative owner of the key lifecycle (SET after enqueue, DEL in
+   * the Phase 2 `finally`, 900s TTL crash-safety net). The guard layered here
+   * is best-effort throttling, not correctness.
+   */
+  private async assertNoPhase2InFlight(doctorId: string): Promise<void> {
+    let raw: string | null;
+    try {
+      raw = await this.cacheManager.get<string>(`phase2:running:${doctorId}`);
+    } catch (err) {
+      const e = err as Error;
+      this.logger.warn(
+        `Phase 2 in-flight check failed for doctor ${doctorId}: ${e.message}. Allowing request through.`,
+      );
+      return;
+    }
+
+    if (!raw) return;
+
+    let parsed: { operation: string; startedAt: string };
+    try {
+      parsed = JSON.parse(raw) as { operation: string; startedAt: string };
+    } catch {
+      this.logger.warn(
+        `Phase 2 in-flight key malformed for doctor ${doctorId}: ${raw}. Allowing request through.`,
+      );
+      return;
+    }
+
+    throw new ConflictException({
+      message:
+        'A previous working-hours change is still being applied in the background. Please wait for it to finish before submitting another change.',
+      phase2Running: true,
+      operation: parsed.operation,
+      startedAt: parsed.startedAt,
+    });
   }
 
   private checkIfSameAsExisting(

@@ -1,5 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { getModelToken } from '@nestjs/mongoose';
 import { Types } from 'mongoose';
 import { WorkingHoursService } from './working-hours.service';
@@ -297,6 +301,117 @@ describe('WorkingHoursService', () => {
         expect(result.phase2Running).toBe(true);
         expect(result.operation).toBe(op);
       }
+    });
+  });
+
+  // ─── Phase 2 in-flight guard (applies to all 4 mutating entry points) ─────
+
+  describe('assertNoPhase2InFlight guard', () => {
+    const phase2Payload = JSON.stringify({
+      operation: 'update',
+      startedAt: '2026-04-22T06:11:52.000Z',
+    });
+
+    it('addWorkingHours() throws 409 when phase2:running key is set', async () => {
+      cacheManager.get.mockResolvedValueOnce(phase2Payload);
+
+      await expect(
+        service.addWorkingHours(doctorId, {
+          workingHours: mockWorkingHours,
+          inspectionDuration: 30,
+          inspectionPrice: 5000,
+        } as any),
+      ).rejects.toThrow(ConflictException);
+
+      // Guard must reject before touching the DB — otherwise the backend
+      // pays for validation work on a request it was going to reject.
+      expect(doctorModel.findById).not.toHaveBeenCalled();
+    });
+
+    it('updateWorkingHours() throws 409 when phase2:running key is set', async () => {
+      cacheManager.get.mockResolvedValueOnce(phase2Payload);
+
+      await expect(
+        service.updateWorkingHours(doctorId, {
+          workingHours: mockWorkingHours,
+        } as any),
+      ).rejects.toThrow(ConflictException);
+
+      expect(doctorModel.findById).not.toHaveBeenCalled();
+    });
+
+    it('deleteWorkingHours() throws 409 when phase2:running key is set', async () => {
+      cacheManager.get.mockResolvedValueOnce(phase2Payload);
+
+      await expect(
+        service.deleteWorkingHours(doctorId, {
+          confirm: true,
+          day: 'MONDAY',
+          startTime: '09:00',
+          endTime: '17:00',
+          location: {
+            type: 'clinic',
+            entity_name: 'Clinic A',
+            address: 'Addr',
+          },
+        } as any),
+      ).rejects.toThrow(ConflictException);
+
+      expect(doctorModel.findById).not.toHaveBeenCalled();
+    });
+
+    it('updateInspectionDuration() throws 409 when phase2:running key is set', async () => {
+      cacheManager.get.mockResolvedValueOnce(phase2Payload);
+
+      await expect(
+        service.updateInspectionDuration(doctorId, {
+          confirm: true,
+          inspectionDuration: 30,
+        } as any),
+      ).rejects.toThrow(ConflictException);
+
+      expect(doctorModel.findById).not.toHaveBeenCalled();
+    });
+
+    it('fails open when Redis throws — never blocks the doctor on infra flake', async () => {
+      cacheManager.get.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+      // Doctor exists so the rest of the flow can proceed cleanly.
+      const freshDoctor = {
+        ...mockDoctor,
+        workingHours: [],
+        save: jest.fn().mockResolvedValue(undefined),
+      };
+      doctorModel.findById.mockReturnValue({
+        exec: jest.fn().mockResolvedValue(freshDoctor),
+      });
+
+      await expect(
+        service.addWorkingHours(doctorId, {
+          workingHours: mockWorkingHours,
+          inspectionDuration: 30,
+          inspectionPrice: 5000,
+        } as any),
+      ).resolves.toBeDefined();
+    });
+
+    it('fails open on malformed phase2:running payload — never blocks the doctor', async () => {
+      cacheManager.get.mockResolvedValueOnce('not-json-at-all');
+      const freshDoctor = {
+        ...mockDoctor,
+        workingHours: [],
+        save: jest.fn().mockResolvedValue(undefined),
+      };
+      doctorModel.findById.mockReturnValue({
+        exec: jest.fn().mockResolvedValue(freshDoctor),
+      });
+
+      await expect(
+        service.addWorkingHours(doctorId, {
+          workingHours: mockWorkingHours,
+          inspectionDuration: 30,
+          inspectionPrice: 5000,
+        } as any),
+      ).resolves.toBeDefined();
     });
   });
 });
