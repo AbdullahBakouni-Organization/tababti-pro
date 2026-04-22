@@ -92,15 +92,35 @@ export class SlotGenerationProcessor {
     // accepted this trade-off vs adding a schema field — losing a
     // backfill is recoverable; corrupting fresh slots from the newer
     // event is not.
+    // Staleness-skip leaves the `phase2:running` key intact so the newer
+    // Phase 2 (which owns the key) can still signal the frontend.
     if (await this.isPhase2Stale(job)) return;
 
-    await this.runGenerationPhase(job, {
-      phaseLabel: 'Phase 2',
-      lockSuffix: ':backfill',
-      startWeek: this.PHASE1_WEEKS,
-      endWeek: this.SLOT_GENERATION_WEEKS,
-      dispatchPhase2: false,
-    });
+    try {
+      await this.runGenerationPhase(job, {
+        phaseLabel: 'Phase 2',
+        lockSuffix: ':backfill',
+        startWeek: this.PHASE1_WEEKS,
+        endWeek: this.SLOT_GENERATION_WEEKS,
+        dispatchPhase2: false,
+      });
+    } finally {
+      await this.clearPhase2RunningKey(job.data.doctorId);
+    }
+  }
+
+  // Frontend polls `phase2:running:<doctorId>` to know whether background
+  // backfill is still in flight. Never allow a Redis error to swallow the
+  // Phase 2 result — the TTL baked in at SET time is the crash-safety net.
+  private async clearPhase2RunningKey(doctorId: string): Promise<void> {
+    try {
+      await this.cacheService.del(`phase2:running:${doctorId}`);
+    } catch (err) {
+      const e = err as Error;
+      this.logger.warn(
+        `Failed to clear phase2:running key for doctor ${doctorId}: ${e.message}`,
+      );
+    }
   }
 
   private async isPhase2Stale(
@@ -277,18 +297,38 @@ export class SlotGenerationProcessor {
   // Fire-and-forget enqueue. A failure here must never rollback Phase 1:
   // the immediate slots are already committed. We log loudly so an ops
   // alert can pick up systemic Bull/Redis outages, but we never throw.
+  // After a successful enqueue we set `phase2:running:<doctorId>` so the
+  // frontend polling endpoint can report progress; a SET failure is logged
+  // as a warning but never throws (the frontend tolerates stale state).
   private dispatchPhase2(job: Job<SlotGenerationJobData>): void {
+    const doctorId = job.data.doctorId;
     this.selfQueue
       .add('PROCESS_WORKING_HOURS_GENERATE_PHASE2', job.data)
       .then(() => {
         this.logger.log(
-          `[Slot Generation Job] Phase 2 backfill dispatched for doctor ${job.data.doctorId}`,
+          `[Slot Generation Job] Phase 2 backfill dispatched for doctor ${doctorId}`,
         );
+        return this.cacheService
+          .set(
+            `phase2:running:${doctorId}`,
+            JSON.stringify({
+              operation: 'create',
+              startedAt: new Date().toISOString(),
+            }),
+            900,
+            900,
+          )
+          .catch((err) => {
+            const e = err as Error;
+            this.logger.warn(
+              `Failed to SET phase2:running for doctor ${doctorId}: ${e.message}`,
+            );
+          });
       })
       .catch((error) => {
         const err = error as Error;
         this.logger.error(
-          `[Slot Generation Job] ❌ Failed to dispatch Phase 2 backfill for doctor ${job.data.doctorId}: ${err.message}`,
+          `[Slot Generation Job] ❌ Failed to dispatch Phase 2 backfill for doctor ${doctorId}: ${err.message}`,
           err.stack,
         );
       });

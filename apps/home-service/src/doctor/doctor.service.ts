@@ -140,6 +140,10 @@ export interface DoctorRegisteredEvent {
 export class DoctorService {
   private readonly logger = new Logger(DoctorService.name);
   private readonly STATS_CACHE_TTL = 86400;
+  // Trailing 6-day window: today's bucket changes as bookings are created or
+  // cancelled, so keep the TTL short enough that doctor edits surface within
+  // a reasonable window.
+  private readonly GENDER_WEEKLY_CACHE_TTL = 60 * 60 * 3; // 3h
   constructor(
     @InjectModel(Doctor.name) private doctorModel: Model<DoctorDocument>,
     @InjectModel(Otp.name) private otpModel: Model<OtpDocument>,
@@ -2333,6 +2337,16 @@ export class DoctorService {
     const windowEnd = new Date(endDate);
     windowEnd.setHours(23, 59, 59, 999);
 
+    // Key on the resolved end-date so an undefined param doesn't return
+    // yesterday's data after midnight rollover.
+    const cacheKey = `doctor:${doctorId}:patient-gender-weekly:${this.formatLocalYmd(endDate)}`;
+    const cached =
+      await this.cacheManager.get<WeeklyGenderStatsDataDto>(cacheKey);
+    if (cached) {
+      this.logger.debug(`Cache hit for gender-weekly: ${cacheKey}`);
+      return cached;
+    }
+
     const rows = await this.bookingModel.aggregate([
       {
         $match: {
@@ -2401,13 +2415,20 @@ export class DoctorService {
       });
     }
 
-    return {
+    const result: WeeklyGenderStatsDataDto = {
       period: {
         startDate: this.formatLocalYmd(startDate),
         endDate: this.formatLocalYmd(endDate),
       },
       days,
     };
+
+    await this.cacheManager.set(
+      cacheKey,
+      result,
+      this.GENDER_WEEKLY_CACHE_TTL,
+    );
+    return result;
   }
 
   // Parse a YYYY-MM-DD string as a local calendar date, or return today.

@@ -82,6 +82,7 @@ describe('WorkingHoursUpdateProcessorV2', () => {
     invalidate: jest.fn().mockResolvedValue(undefined),
     acquireLock: jest.fn().mockResolvedValue('mock-token'),
     releaseLock: jest.fn().mockResolvedValue(undefined),
+    set: jest.fn().mockResolvedValue(undefined),
   };
 
   const mockQueue = {

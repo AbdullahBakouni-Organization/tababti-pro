@@ -317,6 +317,70 @@ describe('UsersService', () => {
       await service.patientCancelBooking({ bookingId }, patientId);
       expect(kafkaService.emit).toHaveBeenCalled();
     });
+
+    it('emits WHATSAPP_BOOKING_CANCELLED_DOCTOR event when doctor has a normal phone', async () => {
+      const doctorWithPhone = {
+        _id: new Types.ObjectId(doctorId),
+        firstName: 'Dr',
+        lastName: 'Test',
+        fcmToken: 'fcm-token',
+        phones: [{ normal: ['0912345678'], whatsapp: [] }],
+      };
+      const bookingWithPhoneDoctor = {
+        ...mockBooking,
+        doctorId: doctorWithPhone,
+        save: jest.fn().mockResolvedValue(undefined),
+      };
+      bookingModel.findOne.mockReturnValueOnce({
+        populate: jest.fn().mockReturnThis(),
+        session: jest.fn().mockReturnThis(),
+        exec: jest.fn().mockResolvedValue(bookingWithPhoneDoctor),
+      });
+
+      await service.patientCancelBooking({ bookingId }, patientId);
+
+      const whatsappCalls = kafkaService.emit.mock.calls.filter(
+        ([topic]) => topic === 'whatsapp.booking-cancelled-doctor',
+      );
+      expect(whatsappCalls).toHaveLength(1);
+      const payload = whatsappCalls[0][1] as {
+        phone: string;
+        doctorName: string;
+        patientName: string;
+        appointmentTime: string;
+      };
+      expect(payload.phone).toBe('0912345678');
+      expect(payload.doctorName).toBe('Dr Test');
+      expect(payload.patientName).toBe('TestUser');
+      expect(payload.appointmentTime).toBe('10:00');
+    });
+
+    it('skips WhatsApp publish when doctor has no normal phone', async () => {
+      const doctorNoPhone = {
+        _id: new Types.ObjectId(doctorId),
+        firstName: 'Dr',
+        lastName: 'Test',
+        fcmToken: 'fcm-token',
+        phones: [],
+      };
+      const bookingNoPhoneDoctor = {
+        ...mockBooking,
+        doctorId: doctorNoPhone,
+        save: jest.fn().mockResolvedValue(undefined),
+      };
+      bookingModel.findOne.mockReturnValueOnce({
+        populate: jest.fn().mockReturnThis(),
+        session: jest.fn().mockReturnThis(),
+        exec: jest.fn().mockResolvedValue(bookingNoPhoneDoctor),
+      });
+
+      await service.patientCancelBooking({ bookingId }, patientId);
+
+      const whatsappCalls = kafkaService.emit.mock.calls.filter(
+        ([topic]) => topic === 'whatsapp.booking-cancelled-doctor',
+      );
+      expect(whatsappCalls).toHaveLength(0);
+    });
   });
 
   // ─── getActiveBookingsCount ────────────────────────────────────────────────

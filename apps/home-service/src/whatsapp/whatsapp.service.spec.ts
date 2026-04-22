@@ -55,4 +55,30 @@ describe('WhatsappService', () => {
       ).resolves.toBeUndefined();
     });
   });
+
+  describe('sendBookingCancelledToDoctor()', () => {
+    it('forwards an Arabic cancellation message containing patient and doctor info', async () => {
+      const sendSpy = jest
+        .spyOn(service, 'sendMessage')
+        .mockResolvedValue(undefined);
+
+      await service.sendBookingCancelledToDoctor(
+        '0911111111',
+        'Ahmad',
+        'Ali',
+        '2026-04-22',
+        '10:00',
+      );
+
+      expect(sendSpy).toHaveBeenCalledTimes(1);
+      const [phoneArg, textArg, langArg] = sendSpy.mock.calls[0];
+      expect(phoneArg).toBe('0911111111');
+      expect(langArg).toBe('ar');
+      expect(textArg).toContain('إلغاء حجز');
+      expect(textArg).toContain('Ahmad');
+      expect(textArg).toContain('Ali');
+      expect(textArg).toContain('2026-04-22');
+      expect(textArg).toContain('10:00');
+    });
+  });
 });

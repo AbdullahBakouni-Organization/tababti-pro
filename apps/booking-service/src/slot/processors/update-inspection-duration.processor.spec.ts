@@ -58,6 +58,7 @@ describe('InspectionDurationUpdateProcessor', () => {
     invalidate: jest.fn().mockResolvedValue(undefined),
     invalidatePattern: jest.fn().mockResolvedValue(undefined),
     del: jest.fn().mockResolvedValue(undefined),
+    set: jest.fn().mockResolvedValue(undefined),
   };
 
   const mockQueue = {

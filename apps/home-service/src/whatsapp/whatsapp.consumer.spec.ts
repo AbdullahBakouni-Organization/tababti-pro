@@ -11,6 +11,7 @@ describe('WhatsappConsumer', () => {
     sendDoctorWelcome: jest.fn().mockResolvedValue(undefined),
     sendDoctorApproved: jest.fn().mockResolvedValue(undefined),
     sendDoctorRejected: jest.fn().mockResolvedValue(undefined),
+    sendBookingCancelledToDoctor: jest.fn().mockResolvedValue(undefined),
   };
 
   beforeEach(async () => {
@@ -202,6 +203,73 @@ describe('WhatsappConsumer', () => {
           phone: '0911111111',
           doctorName: 'Ahmad',
         }),
+      ).resolves.toBeUndefined();
+    });
+  });
+
+  // ── handleBookingCancelledDoctor ──────────────────────────────────────────
+
+  describe('handleBookingCancelledDoctor()', () => {
+    const validPayload = {
+      phone: '0911111111',
+      doctorName: 'Ahmad',
+      patientName: 'Ali',
+      appointmentDate: '2026-04-22',
+      appointmentTime: '10:00',
+    };
+
+    it('sends booking-cancelled message with valid payload', async () => {
+      await consumer.handleBookingCancelledDoctor(validPayload);
+      expect(
+        mockWhatsappService.sendBookingCancelledToDoctor,
+      ).toHaveBeenCalledWith(
+        '0911111111',
+        'Ahmad',
+        'Ali',
+        '2026-04-22',
+        '10:00',
+      );
+    });
+
+    it('unwraps nested value payload', async () => {
+      await consumer.handleBookingCancelledDoctor({ value: validPayload });
+      expect(
+        mockWhatsappService.sendBookingCancelledToDoctor,
+      ).toHaveBeenCalledWith(
+        '0911111111',
+        'Ahmad',
+        'Ali',
+        '2026-04-22',
+        '10:00',
+      );
+    });
+
+    it('returns early when phone is missing', async () => {
+      await consumer.handleBookingCancelledDoctor({
+        doctorName: 'Ahmad',
+        patientName: 'Ali',
+      });
+      expect(
+        mockWhatsappService.sendBookingCancelledToDoctor,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('returns early when patientName is missing', async () => {
+      await consumer.handleBookingCancelledDoctor({
+        phone: '0911111111',
+        doctorName: 'Ahmad',
+      });
+      expect(
+        mockWhatsappService.sendBookingCancelledToDoctor,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('handles service error gracefully without throwing', async () => {
+      mockWhatsappService.sendBookingCancelledToDoctor.mockRejectedValueOnce(
+        new Error('WA error'),
+      );
+      await expect(
+        consumer.handleBookingCancelledDoctor(validPayload),
       ).resolves.toBeUndefined();
     });
   });

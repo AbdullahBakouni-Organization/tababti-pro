@@ -59,4 +59,5 @@ export const KAFKA_TOPICS = {
   WHATSAPP_DOCTOR_REJECTED: 'whatsapp.doctor-rejected',
   WHATSAPP_DOCTOR_WELCOME_BY_ADMIN: 'whatsapp.doctor-welcome-by-admin',
   WHATSAPP_BOOKING_CREATED_DOCTOR: 'whatsapp.booking-created-doctor',
+  WHATSAPP_BOOKING_CANCELLED_DOCTOR: 'whatsapp.booking-cancelled-doctor',
 };

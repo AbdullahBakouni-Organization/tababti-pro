@@ -9,6 +9,7 @@ import { Question } from '@app/common/database/schemas/question.schema';
 import { Answer } from '@app/common/database/schemas/answer.schema';
 import { Post } from '@app/common/database/schemas/post.schema';
 import { BookingStatus } from '@app/common/database/schemas/common.enums';
+import { CacheService } from '@app/common/cache/cache.service';
 
 describe('DashboardService', () => {
   let service: DashboardService;
@@ -51,8 +52,15 @@ describe('DashboardService', () => {
     find: jest.fn(),
   };
 
+  const mockCacheService = {
+    get: jest.fn().mockResolvedValue(null),
+    set: jest.fn().mockResolvedValue(undefined),
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
+    mockCacheService.get.mockResolvedValue(null);
+    mockCacheService.set.mockResolvedValue(undefined);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -62,6 +70,7 @@ describe('DashboardService', () => {
         { provide: getModelToken(Question.name), useValue: mockQuestionModel },
         { provide: getModelToken(Answer.name), useValue: mockAnswerModel },
         { provide: getModelToken(Post.name), useValue: mockPostModel },
+        { provide: CacheService, useValue: mockCacheService },
       ],
     }).compile();
 
@@ -308,6 +317,53 @@ describe('DashboardService', () => {
       const result = await service.getMonthlyIncome(authAccountId, {});
 
       expect(result.months).toHaveLength(3);
+    });
+
+    describe('caching', () => {
+      it('returns cached value without hitting Mongo when present', async () => {
+        const cachedPayload = {
+          months: [],
+          peak: { key: 'Jan', value: 0 },
+          currency: 'USD',
+        };
+        mockCacheService.get.mockResolvedValueOnce(cachedPayload);
+
+        const result = await service.getMonthlyIncome(authAccountId, {
+          months: 6,
+        });
+
+        expect(result).toEqual(cachedPayload);
+        expect(mockBookingModel.aggregate).not.toHaveBeenCalled();
+        expect(mockCacheService.get).toHaveBeenCalledWith(
+          `doctor:${doctorId.toString()}:income:monthly:6`,
+        );
+      });
+
+      it('writes the computed result to cache with the 1h TTL keyed on doctorId+months', async () => {
+        mockBookingModel.aggregate.mockResolvedValue([]);
+
+        await service.getMonthlyIncome(authAccountId, { months: 6 });
+
+        expect(mockCacheService.set).toHaveBeenCalledWith(
+          `doctor:${doctorId.toString()}:income:monthly:6`,
+          expect.objectContaining({ months: expect.any(Array) }),
+          60 * 60,
+        );
+      });
+
+      it('keys vary by months parameter so different windows do not collide', async () => {
+        mockBookingModel.aggregate.mockResolvedValue([]);
+
+        await service.getMonthlyIncome(authAccountId, { months: 3 });
+        await service.getMonthlyIncome(authAccountId, { months: 12 });
+
+        expect(mockCacheService.get).toHaveBeenCalledWith(
+          `doctor:${doctorId.toString()}:income:monthly:3`,
+        );
+        expect(mockCacheService.get).toHaveBeenCalledWith(
+          `doctor:${doctorId.toString()}:income:monthly:12`,
+        );
+      });
     });
   });
 

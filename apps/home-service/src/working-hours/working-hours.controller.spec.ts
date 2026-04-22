@@ -19,6 +19,11 @@ const mockWorkingHoursService = {
     .fn()
     .mockResolvedValue({ hasConflicts: false }),
   updateWorkingHours: jest.fn().mockResolvedValue({ message: 'Updated' }),
+  getPhase2ProcessingStatus: jest.fn().mockResolvedValue({
+    phase2Running: false,
+    operation: null,
+    startedAt: null,
+  }),
 };
 
 describe('WorkingHoursController', () => {
@@ -71,5 +76,40 @@ describe('WorkingHoursController', () => {
       realDoctorId.toString(),
       dto,
     );
+  });
+
+  it('getProcessingStatus() calls service with doctorId from req and returns its payload verbatim', async () => {
+    const payload = {
+      phase2Running: true,
+      operation: 'update' as const,
+      startedAt: '2026-04-22T06:11:52.000Z',
+    };
+    mockWorkingHoursService.getPhase2ProcessingStatus.mockResolvedValueOnce(
+      payload,
+    );
+
+    const result = await controller.getProcessingStatus(makeReq() as any);
+
+    expect(
+      mockWorkingHoursService.getPhase2ProcessingStatus,
+    ).toHaveBeenCalledWith(realDoctorId.toString());
+    // Shape must be passed through unchanged — frontend contract.
+    expect(result).toEqual(payload);
+  });
+
+  it('getProcessingStatus() passes through the idle shape when no phase 2 is running', async () => {
+    mockWorkingHoursService.getPhase2ProcessingStatus.mockResolvedValueOnce({
+      phase2Running: false,
+      operation: null,
+      startedAt: null,
+    });
+
+    const result = await controller.getProcessingStatus(makeReq() as any);
+
+    expect(result).toEqual({
+      phase2Running: false,
+      operation: null,
+      startedAt: null,
+    });
   });
 });

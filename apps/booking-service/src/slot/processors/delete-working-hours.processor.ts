@@ -89,15 +89,35 @@ export class WorkingHoursDeleteProcessor {
     // Processor for the full rationale. If the doctor's
     // `workingHoursVersion` has advanced past this job's snapshot, a newer
     // Phase 1 will dispatch a fresh Phase 2 — skip cleanly.
+    // Staleness-skip leaves the `phase2:running` key intact so the newer
+    // Phase 2 (which owns the key) can still signal the frontend.
     if (await this.isPhase2Stale(job)) return;
 
-    await this.runDeletePhase(job, {
-      phaseLabel: 'Phase 2',
-      lockSuffix: ':backfill',
-      startWeek: this.PHASE1_WEEKS,
-      endWeek: this.TOTAL_WEEKS,
-      dispatchPhase2: false,
-    });
+    try {
+      await this.runDeletePhase(job, {
+        phaseLabel: 'Phase 2',
+        lockSuffix: ':backfill',
+        startWeek: this.PHASE1_WEEKS,
+        endWeek: this.TOTAL_WEEKS,
+        dispatchPhase2: false,
+      });
+    } finally {
+      await this.clearPhase2RunningKey(job.data.doctorId);
+    }
+  }
+
+  // Frontend polls `phase2:running:<doctorId>` to know whether background
+  // backfill is still in flight. Never allow a Redis error to swallow the
+  // Phase 2 result — the TTL baked in at SET time is the crash-safety net.
+  private async clearPhase2RunningKey(doctorId: string): Promise<void> {
+    try {
+      await this.cacheService.del(`phase2:running:${doctorId}`);
+    } catch (err) {
+      const e = err as Error;
+      this.logger.warn(
+        `Failed to clear phase2:running key for doctor ${doctorId}: ${e.message}`,
+      );
+    }
   }
 
   private async isPhase2Stale(
@@ -211,19 +231,39 @@ export class WorkingHoursDeleteProcessor {
   }
 
   // Fire-and-forget enqueue. Phase 2 failure here must never throw: Phase 1
-  // has already committed its slot invalidations and notifications.
+  // has already committed its slot invalidations and notifications. After
+  // a successful enqueue we set `phase2:running:<doctorId>` so the frontend
+  // polling endpoint can report progress; a SET failure is logged as a
+  // warning but never throws.
   private dispatchPhase2(job: Job<WorkingHoursDeleteJobData>): void {
+    const doctorId = job.data.doctorId;
     this.selfQueue
       .add('PROCESS_WORKING_HOURS_DELETE_PHASE2', job.data)
       .then(() => {
         this.logger.log(
-          `[WorkingHoursDelete] Phase 2 backfill dispatched for doctor ${job.data.doctorId}`,
+          `[WorkingHoursDelete] Phase 2 backfill dispatched for doctor ${doctorId}`,
         );
+        return this.cacheService
+          .set(
+            `phase2:running:${doctorId}`,
+            JSON.stringify({
+              operation: 'delete',
+              startedAt: new Date().toISOString(),
+            }),
+            900,
+            900,
+          )
+          .catch((err) => {
+            const e = err as Error;
+            this.logger.warn(
+              `Failed to SET phase2:running for doctor ${doctorId}: ${e.message}`,
+            );
+          });
       })
       .catch((error) => {
         const err = error as Error;
         this.logger.error(
-          `[WorkingHoursDelete] ❌ Failed to dispatch Phase 2 backfill for doctor ${job.data.doctorId}: ${err.message}`,
+          `[WorkingHoursDelete] ❌ Failed to dispatch Phase 2 backfill for doctor ${doctorId}: ${err.message}`,
           err.stack,
         );
       });

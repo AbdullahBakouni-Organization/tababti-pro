@@ -9,6 +9,7 @@ import { DoctorSchema } from '@app/common/database/schemas/doctor.schema';
 import { UserSchema } from '@app/common/database/schemas/user.schema';
 
 import { AuthValidateModule } from '@app/common/auth-validate';
+import { CacheModule } from '@app/common/cache/cache.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { AuthValidateModule } from '@app/common/auth-validate';
       { name: 'User', schema: UserSchema },
     ]),
     AuthValidateModule,
+    CacheModule,
   ],
   controllers: [DashboardController],
   providers: [DashboardService],

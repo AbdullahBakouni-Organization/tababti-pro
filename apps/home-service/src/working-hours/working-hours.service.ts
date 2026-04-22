@@ -1006,6 +1006,49 @@ export class WorkingHoursService {
     return result;
   }
 
+  /* -------------------------------------------------------------------------- */
+  /*                      PHASE 2 PROCESSING STATUS (POLLED)                    */
+  /* -------------------------------------------------------------------------- */
+
+  /**
+   * Reports whether the doctor has a Phase 2 background backfill in flight.
+   * Mirrors the `phase2:running:<doctorId>` key written by the booking-service
+   * processors immediately after they enqueue a Phase 2 Bull job, and cleared
+   * in the Phase 2 handler's `finally` block. A 15-min TTL is the safety net
+   * for worker crashes that never reach the `del`.
+   *
+   * Shape is pinned: `{ phase2Running, operation, startedAt }`. The frontend
+   * polls this at 5s intervals, so the response must never grow or nest.
+   */
+  async getPhase2ProcessingStatus(doctorId: string): Promise<{
+    phase2Running: boolean;
+    operation: 'create' | 'update' | 'delete' | 'inspection' | null;
+    startedAt: string | null;
+  }> {
+    const raw = await this.cacheManager.get<string>(
+      `phase2:running:${doctorId}`,
+    );
+
+    if (!raw) {
+      return {
+        phase2Running: false,
+        operation: null,
+        startedAt: null,
+      };
+    }
+
+    const parsed = JSON.parse(raw) as {
+      operation: 'create' | 'update' | 'delete' | 'inspection';
+      startedAt: string;
+    };
+
+    return {
+      phase2Running: true,
+      operation: parsed.operation,
+      startedAt: parsed.startedAt,
+    };
+  }
+
   private checkIfSameAsExisting(
     newHours: WorkingHour[],
     existingHours: WorkingHour[],

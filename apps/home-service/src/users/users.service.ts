@@ -227,7 +227,7 @@ export class UsersService {
         })
         .populate<{ doctorId: Doctor }>(
           'doctorId',
-          'firstName lastName fcmToken',
+          'firstName lastName fcmToken phones',
         )
         .populate<{ patientId: User }>('patientId', 'username phone') // Added phone here
         .session(session)
@@ -272,6 +272,7 @@ export class UsersService {
 
       if (doctor && patient) {
         this.sendDoctorNotification(booking, patient, doctor);
+        this.publishBookingCancelledEvent(booking, patient, doctor);
       }
 
       // Publish Kafka event to refresh slots
@@ -364,6 +365,46 @@ export class UsersService {
       const err = error as Error;
       this.logger.error(
         `Failed to emit doctor-cancellation event: ${err.message}`,
+        err.stack,
+      );
+    }
+  }
+
+  // Notify the doctor via WhatsApp when a patient cancels an appointment.
+  // Mirrors publishBookingCreatedEvent in booking-service.service.ts. Uses the
+  // first normal phone on the doctor record. Fire-and-forget — errors logged
+  // so the cancel response is unaffected.
+  private publishBookingCancelledEvent(
+    booking: Pick<Booking, 'bookingTime' | 'bookingDate'>,
+    patient: User,
+    doctor: Doctor,
+  ): void {
+    const doctorPhone = doctor.phones?.[0]?.normal?.[0];
+    if (!doctorPhone) {
+      this.logger.warn(
+        `Doctor ${doctor._id.toString()} has no normal phone. WhatsApp cancel notification skipped.`,
+      );
+      return;
+    }
+
+    const appointmentDate = formatArabicDate(booking.bookingDate);
+    const patientName = patient.username ?? '';
+
+    try {
+      this.kafkaService.emit(KAFKA_TOPICS.WHATSAPP_BOOKING_CANCELLED_DOCTOR, {
+        phone: doctorPhone,
+        doctorName: `${doctor.firstName} ${doctor.lastName}`,
+        patientName,
+        appointmentDate,
+        appointmentTime: booking.bookingTime,
+      });
+      this.logger.log(
+        `📨 WhatsApp booking-cancelled notification emitted for doctor ${doctor._id.toString()}`,
+      );
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(
+        `Failed to emit WhatsApp booking-cancelled notification: ${err.message}`,
         err.stack,
       );
     }

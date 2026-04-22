@@ -243,4 +243,60 @@ describe('WorkingHoursService', () => {
       );
     });
   });
+
+  // ─── getPhase2ProcessingStatus ────────────────────────────────────────────
+
+  describe('getPhase2ProcessingStatus()', () => {
+    it('returns phase2Running=false shape when no key is cached', async () => {
+      cacheManager.get.mockResolvedValueOnce(null);
+
+      const result = await service.getPhase2ProcessingStatus(doctorId);
+
+      expect(cacheManager.get).toHaveBeenCalledWith(
+        `phase2:running:${doctorId}`,
+      );
+      expect(result).toEqual({
+        phase2Running: false,
+        operation: null,
+        startedAt: null,
+      });
+    });
+
+    it('parses the cached JSON payload and reports phase2Running=true', async () => {
+      const startedAt = '2026-04-22T06:11:52.000Z';
+      cacheManager.get.mockResolvedValueOnce(
+        JSON.stringify({ operation: 'update', startedAt }),
+      );
+
+      const result = await service.getPhase2ProcessingStatus(doctorId);
+
+      expect(result).toEqual({
+        phase2Running: true,
+        operation: 'update',
+        startedAt,
+      });
+    });
+
+    it('handles every processor operation label (create/update/delete/inspection)', async () => {
+      const ops: Array<'create' | 'update' | 'delete' | 'inspection'> = [
+        'create',
+        'update',
+        'delete',
+        'inspection',
+      ];
+
+      for (const op of ops) {
+        cacheManager.get.mockResolvedValueOnce(
+          JSON.stringify({
+            operation: op,
+            startedAt: '2026-04-22T06:11:52.000Z',
+          }),
+        );
+
+        const result = await service.getPhase2ProcessingStatus(doctorId);
+        expect(result.phase2Running).toBe(true);
+        expect(result.operation).toBe(op);
+      }
+    });
+  });
 });

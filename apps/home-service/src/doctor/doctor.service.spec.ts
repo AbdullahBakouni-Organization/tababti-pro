@@ -1023,6 +1023,65 @@ describe('DoctorService', () => {
       expect(result.period.endDate).toBe(`${y}-${m}-${d}`);
       expect(result.days[5].date).toBe(`${y}-${m}-${d}`);
     });
+
+    describe('caching', () => {
+      it('returns cached value without hitting the database when present', async () => {
+        const cacheService = (service as any).cacheManager;
+        const cachedPayload = {
+          period: { startDate: '2026-04-13', endDate: '2026-04-18' },
+          days: [
+            { day: 'Mo', date: '2026-04-13', male: 9, female: 9 },
+            { day: 'Tu', date: '2026-04-14', male: 0, female: 0 },
+            { day: 'We', date: '2026-04-15', male: 0, female: 0 },
+            { day: 'Th', date: '2026-04-16', male: 0, female: 0 },
+            { day: 'Fr', date: '2026-04-17', male: 0, female: 0 },
+            { day: 'Sa', date: '2026-04-18', male: 0, female: 0 },
+          ],
+        };
+        cacheService.get.mockResolvedValueOnce(cachedPayload);
+
+        const result = await service.getDoctorPatientGenderWeekly(
+          doctorId,
+          '2026-04-18',
+        );
+
+        expect(result).toEqual(cachedPayload);
+        expect(bookingModel.aggregate).not.toHaveBeenCalled();
+        expect(cacheService.get).toHaveBeenCalledWith(
+          `doctor:${doctorId}:patient-gender-weekly:2026-04-18`,
+        );
+      });
+
+      it('writes the computed result to cache with the 3h TTL keyed on the resolved end-date', async () => {
+        const cacheService = (service as any).cacheManager;
+        bookingModel.aggregate.mockResolvedValue([]);
+
+        await service.getDoctorPatientGenderWeekly(doctorId, '2026-04-18');
+
+        expect(cacheService.set).toHaveBeenCalledWith(
+          `doctor:${doctorId}:patient-gender-weekly:2026-04-18`,
+          expect.objectContaining({
+            period: { startDate: '2026-04-13', endDate: '2026-04-18' },
+          }),
+          60 * 60 * 3,
+        );
+      });
+
+      it('cache key reflects today’s resolved date when endDate is omitted (no day-rollover staleness)', async () => {
+        const cacheService = (service as any).cacheManager;
+        bookingModel.aggregate.mockResolvedValue([]);
+
+        await service.getDoctorPatientGenderWeekly(doctorId);
+
+        const today = new Date();
+        const y = today.getFullYear();
+        const m = String(today.getMonth() + 1).padStart(2, '0');
+        const d = String(today.getDate()).padStart(2, '0');
+        expect(cacheService.get).toHaveBeenCalledWith(
+          `doctor:${doctorId}:patient-gender-weekly:${y}-${m}-${d}`,
+        );
+      });
+    });
   });
 
   // ─── computeAndCacheStats ─────────────────────────────────────────────────

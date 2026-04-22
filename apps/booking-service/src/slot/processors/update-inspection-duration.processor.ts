@@ -97,15 +97,35 @@ export class InspectionDurationUpdateProcessor {
     // than overwrite the fresh slots. Compare Doctor.workingHoursVersion
     // (bumped by home-service on every working-hours/inspection-duration
     // edit) to the version snapshot baked into this job.
+    // Staleness-skip leaves the `phase2:running` key intact so the newer
+    // Phase 2 (which owns the key) can still signal the frontend.
     if (await this.isPhase2Stale(job)) return;
 
-    await this.runPhase(job, {
-      phaseLabel: 'Phase 2',
-      lockSuffix: ':backfill',
-      startWeek: this.PHASE1_WEEKS,
-      endWeek: this.SLOT_GENERATION_WEEKS,
-      dispatchPhase2: false,
-    });
+    try {
+      await this.runPhase(job, {
+        phaseLabel: 'Phase 2',
+        lockSuffix: ':backfill',
+        startWeek: this.PHASE1_WEEKS,
+        endWeek: this.SLOT_GENERATION_WEEKS,
+        dispatchPhase2: false,
+      });
+    } finally {
+      await this.clearPhase2RunningKey(job.data.doctorId);
+    }
+  }
+
+  // Frontend polls `phase2:running:<doctorId>` to know whether background
+  // backfill is still in flight. Never allow a Redis error to swallow the
+  // Phase 2 result — the TTL baked in at SET time is the crash-safety net.
+  private async clearPhase2RunningKey(doctorId: string): Promise<void> {
+    try {
+      await this.cacheService.del(`phase2:running:${doctorId}`);
+    } catch (err) {
+      const e = err as Error;
+      this.logger.warn(
+        `Failed to clear phase2:running key for doctor ${doctorId}: ${e.message}`,
+      );
+    }
   }
 
   private async isPhase2Stale(
@@ -209,19 +229,38 @@ export class InspectionDurationUpdateProcessor {
 
   // Fire-and-forget enqueue. Phase 2 failure here must never throw:
   // Phase 1 has already committed the immediate 2-week changes and
-  // dispatched notifications for those bookings.
+  // dispatched notifications for those bookings. After a successful enqueue
+  // we set `phase2:running:<doctorId>` so the frontend polling endpoint can
+  // report progress; a SET failure is logged as a warning but never throws.
   private dispatchPhase2(job: Job<InspectionDurationJobData>): void {
+    const doctorId = job.data.doctorId;
     this.selfQueue
       .add('PROCESS_INSPECTION_DURATION_UPDATE_PHASE2', job.data)
       .then(() => {
         this.logger.log(
-          `[InspectionDuration] Phase 2 backfill dispatched for doctor ${job.data.doctorId}`,
+          `[InspectionDuration] Phase 2 backfill dispatched for doctor ${doctorId}`,
         );
+        return this.cacheService
+          .set(
+            `phase2:running:${doctorId}`,
+            JSON.stringify({
+              operation: 'inspection',
+              startedAt: new Date().toISOString(),
+            }),
+            900,
+            900,
+          )
+          .catch((err) => {
+            const e = err as Error;
+            this.logger.warn(
+              `Failed to SET phase2:running for doctor ${doctorId}: ${e.message}`,
+            );
+          });
       })
       .catch((error) => {
         const err = error as Error;
         this.logger.error(
-          `[InspectionDuration] ❌ Failed to dispatch Phase 2 backfill for doctor ${job.data.doctorId}: ${err.message}`,
+          `[InspectionDuration] ❌ Failed to dispatch Phase 2 backfill for doctor ${doctorId}: ${err.message}`,
           err.stack,
         );
       });

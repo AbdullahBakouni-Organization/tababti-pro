@@ -252,6 +252,28 @@ export class WhatsappService implements OnModuleInit {
     await this.sendMessage(phone, text, 'ar');
   }
 
+  async sendBookingCancelledToDoctor(
+    phone: string,
+    doctorName: string,
+    patientName: string,
+    appointmentDate: string,
+    appointmentTime: string,
+  ): Promise<void> {
+    const text = `❌ إلغاء حجز - د. ${doctorName}
+
+قام المريض بإلغاء موعده على منصة *طبابتي* 🩺
+
+👤 *المريض:* ${patientName}
+📅 *التاريخ:* ${appointmentDate}
+⏰ *الوقت:* ${appointmentTime}
+
+أصبح هذا الموعد متاحاً لحجوزات أخرى.
+
+— فريق *طبابتي*`;
+
+    await this.sendMessage(phone, text, 'ar');
+  }
+
   async sendDoctorRejected(
     phone: string,
     doctorName: string,

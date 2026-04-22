@@ -43,6 +43,12 @@ import {
   DoctorStatsResponseDto,
   MonthlyStatDto,
 } from '../dto/doctor-community-stats.dto';
+import { CacheService } from '@app/common/cache/cache.service';
+
+// Monthly income TTL: completed-bookings aggregate. New completions land in the
+// current-month bucket, so 1h keeps the doctor dashboard responsive without
+// hammering the aggregation every page load.
+const MONTHLY_INCOME_CACHE_TTL = 60 * 60; // 1h
 
 // ─── Location type mapping ────────────────────────────────────────────────────
 const LOCATION_BUCKETS: Record<string, 'clinic' | 'hospital' | 'center'> = {
@@ -123,6 +129,7 @@ export class DashboardService {
     @InjectModel(Question.name) private readonly questionModel: Model<Question>,
     @InjectModel(Answer.name) private readonly answerModel: Model<Answer>,
     @InjectModel(Post.name) private readonly postModel: Model<Post>,
+    private readonly cacheService: CacheService,
   ) {}
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1004,7 +1011,17 @@ export class DashboardService {
     const doctor = await this.resolveDoctor(accountId);
     const doctorId = doctor._id;
     const months = query.months ?? 3;
-    return this._getMonthlyIncomeRaw(doctorId, months);
+
+    const cacheKey = `doctor:${doctorId.toString()}:income:monthly:${months}`;
+    const cached = await this.cacheService.get<MonthlyIncomeDto>(cacheKey);
+    if (cached) {
+      this.logger.debug(`Cache hit for monthly income: ${cacheKey}`);
+      return cached;
+    }
+
+    const result = await this._getMonthlyIncomeRaw(doctorId, months);
+    await this.cacheService.set(cacheKey, result, MONTHLY_INCOME_CACHE_TTL);
+    return result;
   }
 
   private async _getMonthlyIncomeRaw(

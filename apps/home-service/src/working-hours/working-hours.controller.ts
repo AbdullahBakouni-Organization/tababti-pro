@@ -234,6 +234,57 @@ export class WorkingHoursController {
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.DOCTOR)
+  @Get('processing-status')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Poll Phase 2 background processing status',
+    description:
+      'Returns whether the Phase 2 background backfill for this doctor is still running. ' +
+      'Phase 2 jobs are enqueued by the booking-service after any working-hours or ' +
+      'inspection-duration change (add/update/delete/inspection) to rebuild weeks 2-48 ' +
+      'of the appointment slot grid. The frontend should poll this endpoint every 5 ' +
+      'seconds while the UI is waiting on the backfill to complete. The response shape ' +
+      'is pinned — do not rely on any additional fields.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Phase 2 status retrieved',
+    schema: {
+      oneOf: [
+        {
+          example: {
+            phase2Running: true,
+            operation: 'update',
+            startedAt: '2026-04-22T06:11:52.000Z',
+          },
+        },
+        {
+          example: {
+            phase2Running: false,
+            operation: null,
+            startedAt: null,
+          },
+        },
+      ],
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Unauthorized - Invalid or missing token',
+  })
+  async getProcessingStatus(@Req() req: any): Promise<{
+    phase2Running: boolean;
+    operation: 'create' | 'update' | 'delete' | 'inspection' | null;
+    startedAt: string | null;
+  }> {
+    const doctorId = new ParseMongoIdPipe().transform(
+      req.user.entity._id.toString(),
+    );
+    return this.workingHoursService.getPhase2ProcessingStatus(doctorId);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR)
   @Post('check-conflicts')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({

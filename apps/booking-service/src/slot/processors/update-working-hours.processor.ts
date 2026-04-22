@@ -112,15 +112,35 @@ export class WorkingHoursUpdateProcessorV2 {
     // RC-6 (FIX 6): Phase 2 staleness check — see InspectionDurationUpdate
     // Processor for the full rationale. Skip if a newer Phase 1 has bumped
     // Doctor.workingHoursVersion past this job's snapshot.
+    // Staleness-skip leaves the `phase2:running` key intact so the newer
+    // Phase 2 (which owns the key) can still signal the frontend.
     if (await this.isPhase2Stale(job)) return;
 
-    await this.runUpdatePhase(job, {
-      phaseLabel: 'Phase 2',
-      lockSuffix: ':backfill',
-      startWeek: this.PHASE1_WEEKS,
-      endWeek: this.TOTAL_WEEKS,
-      dispatchPhase2: false,
-    });
+    try {
+      await this.runUpdatePhase(job, {
+        phaseLabel: 'Phase 2',
+        lockSuffix: ':backfill',
+        startWeek: this.PHASE1_WEEKS,
+        endWeek: this.TOTAL_WEEKS,
+        dispatchPhase2: false,
+      });
+    } finally {
+      await this.clearPhase2RunningKey(job.data.doctorId);
+    }
+  }
+
+  // Frontend polls `phase2:running:<doctorId>` to know whether background
+  // backfill is still in flight. Never allow a Redis error to swallow the
+  // Phase 2 result — the TTL baked in at SET time is the crash-safety net.
+  private async clearPhase2RunningKey(doctorId: string): Promise<void> {
+    try {
+      await this.cacheService.del(`phase2:running:${doctorId}`);
+    } catch (err) {
+      const e = err as Error;
+      this.logger.warn(
+        `Failed to clear phase2:running key for doctor ${doctorId}: ${e.message}`,
+      );
+    }
   }
 
   private async isPhase2Stale(
@@ -248,19 +268,38 @@ export class WorkingHoursUpdateProcessorV2 {
   // Fire-and-forget enqueue. Phase 2 failure here must never throw: Phase 1
   // has already committed the immediate 2-week slot changes and emitted
   // notifications. We log loudly for ops alerting but preserve the Phase 1
-  // result unconditionally.
+  // result unconditionally. After a successful enqueue we set
+  // `phase2:running:<doctorId>` so the frontend polling endpoint can report
+  // progress; a SET failure is logged as a warning but never throws.
   private dispatchPhase2(job: Job<WorkingHoursUpdateJobData>): void {
+    const doctorId = job.data.doctorId;
     this.selfQueue
       .add('PROCESS_WORKING_HOURS_UPDATE_PHASE2', job.data)
       .then(() => {
         this.logger.log(
-          `[WorkingHoursUpdate] Phase 2 backfill dispatched for doctor ${job.data.doctorId}`,
+          `[WorkingHoursUpdate] Phase 2 backfill dispatched for doctor ${doctorId}`,
         );
+        return this.cacheService
+          .set(
+            `phase2:running:${doctorId}`,
+            JSON.stringify({
+              operation: 'update',
+              startedAt: new Date().toISOString(),
+            }),
+            900,
+            900,
+          )
+          .catch((err) => {
+            const e = err as Error;
+            this.logger.warn(
+              `Failed to SET phase2:running for doctor ${doctorId}: ${e.message}`,
+            );
+          });
       })
       .catch((error) => {
         const err = error as Error;
         this.logger.error(
-          `[WorkingHoursUpdate] ❌ Failed to dispatch Phase 2 backfill for doctor ${job.data.doctorId}: ${err.message}`,
+          `[WorkingHoursUpdate] ❌ Failed to dispatch Phase 2 backfill for doctor ${doctorId}: ${err.message}`,
           err.stack,
         );
       });

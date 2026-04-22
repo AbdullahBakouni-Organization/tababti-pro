@@ -23,6 +23,7 @@ describe('SlotGenerationProcessor', () => {
     acquireLock: jest.fn().mockResolvedValue('mock-token'),
     releaseLock: jest.fn().mockResolvedValue(undefined),
     del: jest.fn().mockResolvedValue(undefined),
+    set: jest.fn().mockResolvedValue(undefined),
   };
 
   const mockQueue = {
@@ -507,6 +508,142 @@ describe('SlotGenerationProcessor', () => {
       await processor.handleSlotGenerationPhase2({ ...baseJob });
 
       expect(mockQueue.add).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── phase2:running Redis signal (frontend polling) ────────────────────
+  describe('phase2:running key lifecycle', () => {
+    const doctorId = new Types.ObjectId().toString();
+
+    const baseJob = {
+      id: 'job-phase2-signal',
+      data: {
+        eventType: 'SLOTS_GENERATE' as const,
+        timestamp: new Date().toISOString(),
+        doctorId,
+        WorkingHours: [
+          {
+            day: Days.MONDAY,
+            location: {
+              type: WorkigEntity.CLINIC,
+              entity_name: 'Clinic A',
+              address: 'Addr 1',
+            },
+            startTime: '09:00',
+            endTime: '17:00',
+          },
+        ],
+        inspectionDuration: 30,
+        inspectionPrice: 5000,
+        doctorInfo: { fullName: 'Dr. Ali' },
+      },
+      progress: jest.fn().mockResolvedValue(undefined),
+      log: jest.fn(),
+    } as any;
+
+    it('Phase 1 SETs phase2:running with operation=create after a successful Phase 2 enqueue', async () => {
+      mockSlotModel.insertMany.mockResolvedValue([]);
+
+      await processor.handleSlotGeneration({ ...baseJob });
+      // Flush the fire-and-forget .then() chain.
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(mockCacheService.set).toHaveBeenCalledWith(
+        `phase2:running:${doctorId}`,
+        expect.stringContaining('"operation":"create"'),
+        900,
+        900,
+      );
+    });
+
+    it('Phase 1 does not SET phase2:running when Phase 2 enqueue fails', async () => {
+      mockSlotModel.insertMany.mockResolvedValue([]);
+      mockQueue.add.mockRejectedValueOnce(new Error('Bull down'));
+      const errorSpy = jest
+        .spyOn((processor as any).logger, 'error')
+        .mockImplementation(() => {});
+
+      await processor.handleSlotGeneration({ ...baseJob });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(mockCacheService.set).not.toHaveBeenCalled();
+      errorSpy.mockRestore();
+    });
+
+    it('Phase 1 swallows a phase2:running SET failure (does not throw)', async () => {
+      mockSlotModel.insertMany.mockResolvedValue([]);
+      mockCacheService.set.mockRejectedValueOnce(new Error('Redis down'));
+      const warnSpy = jest
+        .spyOn((processor as any).logger, 'warn')
+        .mockImplementation(() => {});
+
+      await expect(
+        processor.handleSlotGeneration({ ...baseJob }),
+      ).resolves.toBeUndefined();
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to SET phase2:running'),
+      );
+      warnSpy.mockRestore();
+    });
+
+    it('Phase 2 handler DELs phase2:running on success', async () => {
+      mockSlotModel.insertMany.mockResolvedValue([]);
+
+      await processor.handleSlotGenerationPhase2({ ...baseJob });
+
+      expect(mockCacheService.del).toHaveBeenCalledWith(
+        `phase2:running:${doctorId}`,
+      );
+    });
+
+    it('Phase 2 handler still DELs phase2:running when the inner work throws (finally)', async () => {
+      mockSlotModel.insertMany.mockRejectedValueOnce(new Error('boom'));
+
+      await expect(
+        processor.handleSlotGenerationPhase2({ ...baseJob }),
+      ).rejects.toThrow('boom');
+
+      expect(mockCacheService.del).toHaveBeenCalledWith(
+        `phase2:running:${doctorId}`,
+      );
+    });
+
+    it('Phase 2 handler does NOT DEL phase2:running on a staleness-skip (newer Phase 2 owns the key)', async () => {
+      // Doctor bumped after the job timestamp → stale skip path.
+      mockDoctorModel.findById.mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          lean: jest.fn().mockReturnValue({
+            exec: jest.fn().mockResolvedValue({
+              updatedAt: new Date(
+                new Date(baseJob.data.timestamp).getTime() + 60_000,
+              ),
+            }),
+          }),
+        }),
+      });
+
+      await processor.handleSlotGenerationPhase2({ ...baseJob });
+
+      expect(mockCacheService.del).not.toHaveBeenCalled();
+    });
+
+    it('Phase 2 handler swallows a DEL failure (never throws)', async () => {
+      mockSlotModel.insertMany.mockResolvedValue([]);
+      mockCacheService.del.mockRejectedValueOnce(new Error('Redis down'));
+      const warnSpy = jest
+        .spyOn((processor as any).logger, 'warn')
+        .mockImplementation(() => {});
+
+      await expect(
+        processor.handleSlotGenerationPhase2({ ...baseJob }),
+      ).resolves.toBeUndefined();
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to clear phase2:running'),
+      );
+      warnSpy.mockRestore();
     });
   });
 

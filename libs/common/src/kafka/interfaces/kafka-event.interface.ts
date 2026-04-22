@@ -367,3 +367,11 @@ export interface WhatsappBookingCreatedDoctorEvent {
   appointmentDate: string;
   appointmentTime: string;
 }
+
+export interface WhatsappBookingCancelledDoctorEvent {
+  phone: string;
+  doctorName: string;
+  patientName: string;
+  appointmentDate: string;
+  appointmentTime: string;
+}
