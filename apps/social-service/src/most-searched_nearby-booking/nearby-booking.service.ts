@@ -105,19 +105,7 @@ export class NearbyBookingService {
     if (doctorId) this.assertObjectId(doctorId);
     const user = await this.repo.findUserByAuthAccountId(authAccountId);
     if (!user) throw new NotFoundException('user.NOT_FOUND');
-    const p = safePage(page),
-      l = safeLimit(limit);
-    const userId = user._id.toString();
-    const key = CK.nextUser(userId, p, l, doctorId);
-    const cached = fromCache(await this.cache.get(key));
-    if (cached) return cached;
     const data = await this.repo.findNextBookingsForUser(user._id, doctorId);
-    await this.cache.set(
-      key,
-      data,
-      TTL.NEXT_BOOKING.memory,
-      TTL.NEXT_BOOKING.redis,
-    );
     return data;
   }
 
