@@ -96,7 +96,7 @@ export interface NearbyFilters {
 
   /**
    * Arabic VALUE from GeneralSpecialty enum.
-   * e.g. GeneralSpecialty.HumanMedicine → 'طب بشري'
+   * e.g. GeneralSpecialty.HumanMedicine → 'طب_بشري'
    * Stored directly as a string on the Doctor document.
    */
   publicSpecialization?: GeneralSpecialty | string;
