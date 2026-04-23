@@ -144,6 +144,7 @@ export class QuestionsController {
   })
   async getQuestions(
     @CurrentUser('accountId') accountId: string,
+    @CurrentUser('role') role: UserRole,
     @Query() query: FilterQuestionDto,
     @Query('page') page = '1',
     @Query('limit') limit = '10',
@@ -152,6 +153,8 @@ export class QuestionsController {
     const limitNumber = Math.min(Math.max(1, parseInt(limit, 10)), 50);
     const data = await this.service.getQuestions(
       query.filter ?? 'main',
+      accountId,
+      role,
       query.privateSpecializationIds,
       pageNumber,
       limitNumber,

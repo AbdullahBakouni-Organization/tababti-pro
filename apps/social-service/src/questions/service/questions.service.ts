@@ -236,14 +236,39 @@ export class QuestionsService {
   // ══════════════════════════════════════════════════════════════
   // GET QUESTIONS — General feed
   // Visibility gate: only APPROVED + ANSWERED questions.
+  // `answered` / `pending` are owner-scoped: they list the requesting
+  // user's own questions by status (only USER role authors questions).
   // ══════════════════════════════════════════════════════════════
   async getQuestions(
     filter: 'allQuestions' | 'answered' | 'pending' | 'main',
+    authAccountId: string,
+    role: UserRole,
     privateSpecializationIds?: string[],
     page = 1,
     limit = 10,
   ): Promise<QuestionPageResult> {
-    const cacheKey = `questions:${filter}:${privateSpecializationIds?.join(',')}:${page}:${limit}`;
+    const isOwnerScoped = filter === 'answered' || filter === 'pending';
+
+    let ownerUserId: Types.ObjectId | null = null;
+    if (isOwnerScoped) {
+      if (role !== UserRole.USER) {
+        return this.emptyPage(page, limit);
+      }
+      if (!Types.ObjectId.isValid(authAccountId))
+        throw new BadRequestException('user.INVALID_ID');
+
+      const user = await this.userModel
+        .findOne(
+          { authAccountId: new Types.ObjectId(authAccountId) },
+          { _id: 1 },
+        )
+        .lean();
+      if (!user) throw new NotFoundException('user.NOT_FOUND');
+      ownerUserId = (user as any)._id as Types.ObjectId;
+    }
+
+    const scopeKey = ownerUserId ? ownerUserId.toString() : 'public';
+    const cacheKey = `questions:${filter}:${scopeKey}:${privateSpecializationIds?.join(',')}:${page}:${limit}`;
 
     const cached = await this.cacheManager.get<QuestionPageResult>(cacheKey);
     if (cached) return cached;
@@ -258,6 +283,11 @@ export class QuestionsService {
         match.status = QuestionStatus.PENDING;
       } else {
         match.status = { $in: VISIBLE_STATUSES };
+      }
+
+      // Owner-scoped filters: only the requester's own questions.
+      if (ownerUserId) {
+        match.userId = ownerUserId;
       }
 
       // allQuestions → must have unknownId
@@ -581,6 +611,20 @@ export class QuestionsService {
   // ══════════════════════════════════════════════════════════════
   // PRIVATE HELPERS
   // ══════════════════════════════════════════════════════════════
+
+  private emptyPage(page: number, limit: number): QuestionPageResult {
+    return {
+      questions: { data: [], total: 0 },
+      meta: {
+        total: 0,
+        page,
+        limit,
+        totalPages: 0,
+        hasNextPage: false,
+        hasPreviousPage: false,
+      },
+    };
+  }
 
   private async resolveResponderId(
     role: UserRole,

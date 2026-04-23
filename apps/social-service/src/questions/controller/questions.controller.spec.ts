@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { QuestionsController } from './questions.controller';
 import { QuestionsService } from '../service/questions.service';
+import { UserRole } from '@app/common/database/schemas/common.enums';
 
 describe('QuestionsController', () => {
   let controller: QuestionsController;
@@ -68,12 +69,15 @@ describe('QuestionsController', () => {
       mockService.getQuestions.mockResolvedValue(returnVal);
       const result = await controller.getQuestions(
         'auth-1',
+        UserRole.USER,
         { filter: 'main' } as any,
         '1',
         '10',
       );
       expect(mockService.getQuestions).toHaveBeenCalledWith(
         'main',
+        'auth-1',
+        UserRole.USER,
         undefined,
         1,
         10,

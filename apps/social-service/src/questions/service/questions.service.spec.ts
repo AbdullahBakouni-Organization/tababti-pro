@@ -230,7 +230,11 @@ describe('QuestionsService', () => {
       const cached = { questions: { data: [], total: 0 }, meta: {} };
       mockCacheService.get.mockResolvedValue(cached);
 
-      const result = await service.getQuestions('main');
+      const result = await service.getQuestions(
+        'main',
+        authId.toString(),
+        UserRole.USER,
+      );
       expect(result).toEqual(cached);
     });
 
@@ -249,9 +253,81 @@ describe('QuestionsService', () => {
         totalPages: 1,
       });
 
-      const result = await service.getQuestions('main', [], 1, 10);
+      const result = await service.getQuestions(
+        'main',
+        authId.toString(),
+        UserRole.USER,
+        [],
+        1,
+        10,
+      );
       expect(result.questions.data).toHaveLength(1);
       expect(mockCacheService.set).toHaveBeenCalled();
+    });
+
+    it('scopes `answered` filter to the requesting user', async () => {
+      mockCacheService.get.mockResolvedValue(null);
+      mockUserModel.findOne.mockReturnValue({
+        lean: jest.fn().mockResolvedValue(mockUser),
+      });
+      mockRepo.findQuestionsWithAnswers.mockResolvedValue({
+        questions: [],
+        total: 0,
+        totalPages: 0,
+      });
+
+      await service.getQuestions(
+        'answered',
+        authId.toString(),
+        UserRole.USER,
+      );
+
+      const matchArg = mockRepo.findQuestionsWithAnswers.mock.calls[0][0];
+      expect(matchArg.status).toBe(QuestionStatus.ANSWERED);
+      expect(matchArg.userId).toEqual(userId);
+    });
+
+    it('scopes `pending` filter to the requesting user', async () => {
+      mockCacheService.get.mockResolvedValue(null);
+      mockUserModel.findOne.mockReturnValue({
+        lean: jest.fn().mockResolvedValue(mockUser),
+      });
+      mockRepo.findQuestionsWithAnswers.mockResolvedValue({
+        questions: [],
+        total: 0,
+        totalPages: 0,
+      });
+
+      await service.getQuestions('pending', authId.toString(), UserRole.USER);
+
+      const matchArg = mockRepo.findQuestionsWithAnswers.mock.calls[0][0];
+      expect(matchArg.status).toBe(QuestionStatus.PENDING);
+      expect(matchArg.userId).toEqual(userId);
+    });
+
+    it('returns empty page for `answered` filter when role is not USER', async () => {
+      mockCacheService.get.mockResolvedValue(null);
+
+      const result = await service.getQuestions(
+        'answered',
+        authId.toString(),
+        UserRole.DOCTOR,
+      );
+
+      expect(result.questions.data).toHaveLength(0);
+      expect(result.meta.total).toBe(0);
+      expect(mockRepo.findQuestionsWithAnswers).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException for owner-scoped filter when user is missing', async () => {
+      mockCacheService.get.mockResolvedValue(null);
+      mockUserModel.findOne.mockReturnValue({
+        lean: jest.fn().mockResolvedValue(null),
+      });
+
+      await expect(
+        service.getQuestions('answered', authId.toString(), UserRole.USER),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 
