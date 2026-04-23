@@ -673,6 +673,8 @@ services:
       kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic doctor.ads.created --partitions 1 --replication-factor 1;
       kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic doctor.offers.created --partitions 1 --replication-factor 1;
       kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic doctor.registered --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic doctor.updated --partitions 1 --replication-factor 1;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic doctor.deleted --partitions 1 --replication-factor 1;
       kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic hospital.profile.updated --partitions 1 --replication-factor 1;
       kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic hospital.approved --partitions 1 --replication-factor 1;
       kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic center.profile.updated --partitions 1 --replication-factor 1;
