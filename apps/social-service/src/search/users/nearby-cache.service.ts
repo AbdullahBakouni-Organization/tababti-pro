@@ -71,6 +71,19 @@ export class NearbyCache {
     this.memory.delete(key);
   }
 
+  /**
+   * Nukes every Redis key that matches the glob pattern (SCAN-based, so safe
+   * on large keyspaces) and clears the local in-memory LRU. Memory clear is
+   * intentionally global rather than key-matched: the LRU is tiny (1000
+   * entries, 60s TTL) so a full clear is cheaper than key-by-key matching,
+   * and remote pods rely on the 60s TTL to converge since this instance can't
+   * reach across the process boundary.
+   */
+  async invalidatePattern(pattern: string): Promise<void> {
+    await this.redis.deletePattern(pattern);
+    this.memory.clear();
+  }
+
   clearMemory(): void {
     this.memory.clear();
   }

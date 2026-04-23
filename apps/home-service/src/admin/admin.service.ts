@@ -2228,6 +2228,15 @@ export class AdminService {
       .select('-password -twoFactorSecret -sessions -deviceTokens')
       .lean()) as DoctorDocument;
 
+    try {
+      this.kafkaProducer.emit(KAFKA_TOPICS.DOCTOR_UPDATED, {
+        doctorId,
+        updatedAt: new Date(),
+      });
+    } catch (error) {
+      this.logger.error('Failed to publish doctor.updated event', error);
+    }
+
     this.logger.log(`Doctor updated by admin: ${doctorId}`);
 
     return {
@@ -2469,7 +2478,7 @@ export class AdminService {
     // 6) Fan-out: let booking / social / notification services clean up
     //    their own data. Fire-and-forget; never block the response.
     try {
-      this.kafkaProducer.emit('doctor.deleted', {
+      this.kafkaProducer.emit(KAFKA_TOPICS.DOCTOR_DELETED, {
         doctorId: doctor._id.toString(),
         deletedAt: new Date(),
       });

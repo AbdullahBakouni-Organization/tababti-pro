@@ -79,15 +79,24 @@ export class UserService implements OnModuleInit {
 
   // ─── Cache invalidation ───────────────────────────────────────────────────
 
-  async invalidateDoctorCache(): Promise<void> {
-    await this.cache.del('doctors:all');
-    this.cache.clearMemory();
-    this.logger.log('Doctor cache invalidated');
-  }
-
-  invalidateHospitalCache(): void {
-    this.cache.clearMemory();
-    this.logger.log('Hospital cache invalidated');
+  /**
+   * Invalidate every doctor-related entry in the nearby cache.
+   *
+   * Two patterns are nuked:
+   *   `doctors:*` — the repo-level cache keyed by doctor filters + grid cell
+   *   `req:*`     — the service-level composite cache that mixes doctors,
+   *                 hospitals and centers. A doctor change may land in any
+   *                 grid cell, so we drop all composites rather than guessing.
+   *
+   * L1 memory is cleared on this pod only; remote pods converge within the
+   * 60s in-memory TTL.
+   */
+  async invalidateDoctorListings(): Promise<void> {
+    await Promise.all([
+      this.cache.invalidatePattern('doctors:*'),
+      this.cache.invalidatePattern('req:*'),
+    ]);
+    this.logger.log('Doctor nearby cache invalidated');
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

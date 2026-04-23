@@ -18,6 +18,8 @@ export const KAFKA_TOPICS = {
   DOCTOR_ADS_CREATED: 'doctor.ads.created',
   DOCTOR_OFFERS_CREATED: 'doctor.offers.created',
   DOCTOR_REGISTERED: 'doctor.registered',
+  DOCTOR_UPDATED: 'doctor.updated',
+  DOCTOR_DELETED: 'doctor.deleted',
   // Hospital/Center Events
   HOSPITAL_PROFILE_UPDATED: 'hospital.profile.updated',
   HOSPITAL_APPROVED: 'hospital.approved',

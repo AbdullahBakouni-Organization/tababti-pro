@@ -5,6 +5,7 @@ import { Model, Types } from 'mongoose';
 import { calculateDistanceKm } from '../../common/utiles/distance.util';
 import { buildSmartRegex } from '../../common/utiles/formatname.util';
 import { escapeRegex } from '@app/common/utils/escape-regex.util';
+import { ApprovalStatus } from '@app/common/database/schemas/common.enums';
 import { NearbyCache } from './nearby-cache.service';
 import {
   NearbyFilters,
@@ -66,6 +67,7 @@ export class NearbyRepository {
         const query: Record<string, any> = {
           latitude: { $ne: null },
           longitude: { $ne: null },
+          status: ApprovalStatus.APPROVED,
         };
 
         if (filters.cityId) {

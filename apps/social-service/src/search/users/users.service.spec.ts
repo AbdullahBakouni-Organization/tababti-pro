@@ -40,6 +40,7 @@ describe('UserService', () => {
     get: jest.fn().mockImplementation((_key, fn) => fn()),
     set: jest.fn().mockResolvedValue(undefined),
     del: jest.fn().mockResolvedValue(undefined),
+    invalidatePattern: jest.fn().mockResolvedValue(undefined),
     clearMemory: jest.fn(),
     gridKey: jest.fn().mockReturnValue('grid:33.5:36.3:req'),
   };
@@ -79,18 +80,11 @@ describe('UserService', () => {
     });
   });
 
-  describe('invalidateDoctorCache()', () => {
-    it('calls cache.del and cache.clearMemory', async () => {
-      await service.invalidateDoctorCache();
-      expect(mockCache.del).toHaveBeenCalledWith('doctors:all');
-      expect(mockCache.clearMemory).toHaveBeenCalled();
-    });
-  });
-
-  describe('invalidateHospitalCache()', () => {
-    it('calls cache.clearMemory', () => {
-      service.invalidateHospitalCache();
-      expect(mockCache.clearMemory).toHaveBeenCalled();
+  describe('invalidateDoctorListings()', () => {
+    it('invalidates both doctor and composite request patterns', async () => {
+      await service.invalidateDoctorListings();
+      expect(mockCache.invalidatePattern).toHaveBeenCalledWith('doctors:*');
+      expect(mockCache.invalidatePattern).toHaveBeenCalledWith('req:*');
     });
   });
 

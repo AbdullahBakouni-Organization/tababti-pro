@@ -1,13 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import { SearchFilterDto } from '../dto/search-filter.dto';
 import { BaseConditionBuilder, MongoCondition } from './base-condition.builder';
+import { ApprovalStatus } from '@app/common/database/schemas/common.enums';
 
 @Injectable()
 export class DoctorConditionBuilder {
   constructor(private readonly base: BaseConditionBuilder) {}
 
   build(dto: SearchFilterDto, variants: string[]): MongoCondition {
-    const conditions: MongoCondition[] = [];
+    const conditions: MongoCondition[] = [
+      { status: ApprovalStatus.APPROVED },
+    ];
 
     if (variants.length) {
       conditions.push(

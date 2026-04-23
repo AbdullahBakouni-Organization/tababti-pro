@@ -7,7 +7,10 @@ import { Doctor } from '@app/common/database/schemas/doctor.schema';
 import { User } from '@app/common/database/schemas/user.schema';
 import { Center } from '@app/common/database/schemas/center.schema';
 import { Hospital } from '@app/common/database/schemas/hospital.schema';
-import { BookingStatus } from '@app/common/database/schemas/common.enums';
+import {
+  ApprovalStatus,
+  BookingStatus,
+} from '@app/common/database/schemas/common.enums';
 
 import { GetDoctorPatientsDto } from './dto/get-doctor-patients.dto';
 import { GetMyAppointmentsDto } from './dto/get-my-appointments.dto';
@@ -54,6 +57,7 @@ export class NearbyBookingRepository {
 
     const [doctors, total] = await Promise.all([
       this.doctorModel.aggregate([
+        { $match: { status: ApprovalStatus.APPROVED } },
         { $sort: { searchCount: -1, _id: 1 } },
         { $skip: skip },
         { $limit: limit },
@@ -129,7 +133,7 @@ export class NearbyBookingRepository {
           },
         },
       ]),
-      this.doctorModel.countDocuments(),
+      this.doctorModel.countDocuments({ status: ApprovalStatus.APPROVED }),
     ]);
     const totalPages = Math.ceil(total / limit);
     return {

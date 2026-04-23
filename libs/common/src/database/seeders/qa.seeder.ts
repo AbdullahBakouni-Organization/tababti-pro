@@ -201,7 +201,7 @@ class QaSeeder {
           password: seedDoctorPassword,
           privateSpecializationId: specId,
           privateSpecialization: specKey,
-          publicSpecialization: 'طب_بشري',
+          publicSpecialization: 'طب بشري',
           city: City.Damascus,
           subcity: 'أبو رمانة',
           phones: [{ normal: [auth.phones[0]], clinic: [], whatsup: [] }],

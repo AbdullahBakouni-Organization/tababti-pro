@@ -67,7 +67,7 @@ export class SearchFilterDto {
   // ======== DOCTOR FILTERS ========
   @ApiPropertyOptional({
     description: 'General specialty names',
-    example: ['طب_بشري', 'طب_أسنان'],
+    example: ['طب بشري', 'طب أسنان'],
   })
   @IsOptional()
   @IsArray()
