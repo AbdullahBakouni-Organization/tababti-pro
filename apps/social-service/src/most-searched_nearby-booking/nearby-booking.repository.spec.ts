@@ -152,6 +152,92 @@ describe('NearbyBookingRepository', () => {
       await repo.findNextBookingsForUser(patientId, doctorId.toString());
       expect(mockBookingModel.aggregate).toHaveBeenCalled();
     });
+
+    describe('Syria-TZ window (regression for same-day bookings dropped)', () => {
+      beforeEach(() => {
+        jest.useFakeTimers();
+        mockBookingModel.aggregate.mockResolvedValue([]);
+      });
+
+      afterEach(() => {
+        jest.useRealTimers();
+      });
+
+      it('builds the same-day clause at UTC-midnight of the Syria date, not local midnight', async () => {
+        // 2026-04-23 10:00 UTC = 13:00 Asia/Damascus (UTC+3).
+        jest.setSystemTime(new Date('2026-04-23T10:00:00.000Z'));
+
+        await repo.findNextBookingsForUser(patientId);
+
+        const pipeline = mockBookingModel.aggregate.mock.calls[0][0];
+        const match = pipeline[0].$match;
+
+        expect(match.$or).toEqual([
+          { bookingDate: { $gte: new Date('2026-04-24T00:00:00.000Z') } },
+          {
+            bookingDate: {
+              $gte: new Date('2026-04-23T00:00:00.000Z'),
+              $lt: new Date('2026-04-24T00:00:00.000Z'),
+            },
+            bookingTime: { $gte: '13:00' },
+          },
+        ]);
+      });
+
+      it('rolls to the next Syria date after 21:00 UTC (past midnight in Damascus)', async () => {
+        // 2026-04-23 22:00 UTC = 2026-04-24 01:00 Asia/Damascus.
+        // If we naively used server-local UTC midnight we would still be
+        // on 2026-04-23 and drop bookings already recorded for 2026-04-24.
+        jest.setSystemTime(new Date('2026-04-23T22:00:00.000Z'));
+
+        await repo.findNextBookingsForUser(patientId);
+
+        const pipeline = mockBookingModel.aggregate.mock.calls[0][0];
+        const match = pipeline[0].$match;
+
+        expect(match.$or[0]).toEqual({
+          bookingDate: { $gte: new Date('2026-04-25T00:00:00.000Z') },
+        });
+        expect(match.$or[1].bookingDate).toEqual({
+          $gte: new Date('2026-04-24T00:00:00.000Z'),
+          $lt: new Date('2026-04-25T00:00:00.000Z'),
+        });
+        expect(match.$or[1].bookingTime).toEqual({ $gte: '01:00' });
+      });
+    });
+  });
+
+  describe('findNextBookingsForDoctor() — Syria-TZ window', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+      mockBookingModel.aggregate.mockResolvedValue([
+        { data: [], totalCount: [] },
+      ]);
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('builds the same-day clause at UTC-midnight of the Syria date', async () => {
+      jest.setSystemTime(new Date('2026-04-23T10:00:00.000Z'));
+
+      await repo.findNextBookingsForDoctor(doctorId, 1, 10);
+
+      const pipeline = mockBookingModel.aggregate.mock.calls[0][0];
+      const match = pipeline[0].$match;
+
+      expect(match.$or).toEqual([
+        { bookingDate: { $gte: new Date('2026-04-24T00:00:00.000Z') } },
+        {
+          bookingDate: {
+            $gte: new Date('2026-04-23T00:00:00.000Z'),
+            $lt: new Date('2026-04-24T00:00:00.000Z'),
+          },
+          bookingTime: { $gte: '13:00' },
+        },
+      ]);
+    });
   });
 
   describe('findAllBookingsForUser()', () => {

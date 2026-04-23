@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Types } from 'mongoose';
 import { NearbyBookingService } from './nearby-booking.service';
 import { NearbyBookingRepository } from './nearby-booking.repository';
@@ -81,25 +81,41 @@ describe('NearbyBookingService', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('returns cached result without calling repo', async () => {
-      const cached = { bookings: [] };
-      mockCacheService.get.mockResolvedValue(cached);
-      mockRepo.findUserByAuthAccountId.mockResolvedValue({
-        _id: new Types.ObjectId(),
-      });
-      const _result = await service.getNextBookingForUser(authId, 1, 10);
-      // When cache exists, repo should NOT be called
+    it('throws NotFoundException when user is not found', async () => {
+      mockRepo.findUserByAuthAccountId.mockResolvedValue(null);
+      await expect(
+        service.getNextBookingForUser(authId, 1, 10),
+      ).rejects.toThrow(NotFoundException);
       expect(mockRepo.findNextBookingsForUser).not.toHaveBeenCalled();
     });
 
-    it('fetches from repo when cache is empty', async () => {
-      mockCacheService.get.mockResolvedValue(null);
-      const mockUser = { _id: new Types.ObjectId() };
-      mockRepo.findUserByAuthAccountId.mockResolvedValue(mockUser);
+    it('delegates to the repo and returns its result', async () => {
+      const userId = new Types.ObjectId();
+      mockRepo.findUserByAuthAccountId.mockResolvedValue({ _id: userId });
       const data = [{ _id: new Types.ObjectId(), status: 'pending' }];
       mockRepo.findNextBookingsForUser.mockResolvedValue(data);
-      await service.getNextBookingForUser(authId, 1, 10);
-      expect(mockRepo.findNextBookingsForUser).toHaveBeenCalled();
+
+      const result = await service.getNextBookingForUser(authId, 1, 10);
+
+      expect(mockRepo.findNextBookingsForUser).toHaveBeenCalledWith(
+        userId,
+        undefined,
+      );
+      expect(result).toBe(data);
+    });
+
+    it('forwards the optional doctorId filter', async () => {
+      const userId = new Types.ObjectId();
+      const filterDoctorId = new Types.ObjectId().toString();
+      mockRepo.findUserByAuthAccountId.mockResolvedValue({ _id: userId });
+      mockRepo.findNextBookingsForUser.mockResolvedValue([]);
+
+      await service.getNextBookingForUser(authId, 1, 10, filterDoctorId);
+
+      expect(mockRepo.findNextBookingsForUser).toHaveBeenCalledWith(
+        userId,
+        filterDoctorId,
+      );
     });
   });
 

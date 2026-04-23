@@ -11,6 +11,7 @@ import {
   ApprovalStatus,
   BookingStatus,
 } from '@app/common/database/schemas/common.enums';
+import { getSyriaDate } from '@app/common/utils/get-syria-date';
 
 import { GetDoctorPatientsDto } from './dto/get-doctor-patients.dto';
 import { GetMyAppointmentsDto } from './dto/get-my-appointments.dto';
@@ -42,6 +43,30 @@ export class NearbyBookingRepository {
 
   private escapeRegex(str: string): string {
     return str.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  /**
+   * Build the "from now onward" window in the Syria timezone.
+   *
+   * `bookingDate` is stored as UTC midnight of the Syria calendar date
+   * (see `getSyriaDate()`), and `bookingTime` is the Syria clock "HH:MM".
+   * Using server-local `new Date()` boundaries silently drops today's
+   * bookings when the container TZ differs from Asia/Damascus.
+   */
+  private syriaNowWindow(): {
+    todaySyria: Date;
+    tomorrowSyria: Date;
+    nowHHMM: string;
+  } {
+    const todaySyria = getSyriaDate();
+    const tomorrowSyria = new Date(todaySyria.getTime() + 24 * 60 * 60 * 1000);
+    const nowHHMM = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Damascus',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(new Date());
+    return { todaySyria, tomorrowSyria, nowHHMM };
   }
 
   private safePage(p: any): number {
@@ -156,9 +181,7 @@ export class NearbyBookingRepository {
     limit: number,
   ) {
     const skip = (page - 1) * limit;
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
-    const nowHHMM = new Date().toTimeString().slice(0, 5);
+    const { todaySyria, tomorrowSyria, nowHHMM } = this.syriaNowWindow();
 
     const result = await this.bookingModel.aggregate([
       {
@@ -166,8 +189,11 @@ export class NearbyBookingRepository {
           doctorId,
           status: { $in: [BookingStatus.PENDING, BookingStatus.CONFIRMED] },
           $or: [
-            { bookingDate: { $gt: startOfToday } },
-            { bookingDate: startOfToday, bookingTime: { $gte: nowHHMM } },
+            { bookingDate: { $gte: tomorrowSyria } },
+            {
+              bookingDate: { $gte: todaySyria, $lt: tomorrowSyria },
+              bookingTime: { $gte: nowHHMM },
+            },
           ],
         },
       },
@@ -224,19 +250,17 @@ export class NearbyBookingRepository {
   // ── Next Bookings For User ────────────────────────────────────────────────
 
   async findNextBookingsForUser(patientId: Types.ObjectId, doctorId?: string) {
-    // bookingDate is stored at midnight (YYYY-MM-DD). Compare against
-    // start-of-today so bookings scheduled later today are included.
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
-
-    const nowHHMM = new Date().toTimeString().slice(0, 5);
+    const { todaySyria, tomorrowSyria, nowHHMM } = this.syriaNowWindow();
 
     const match: Record<string, any> = {
       patientId,
       status: { $in: [BookingStatus.PENDING, BookingStatus.CONFIRMED] },
       $or: [
-        { bookingDate: { $gt: startOfToday } },
-        { bookingDate: startOfToday, bookingTime: { $gte: nowHHMM } },
+        { bookingDate: { $gte: tomorrowSyria } },
+        {
+          bookingDate: { $gte: todaySyria, $lt: tomorrowSyria },
+          bookingTime: { $gte: nowHHMM },
+        },
       ],
     };
 
