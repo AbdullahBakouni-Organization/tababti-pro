@@ -42,7 +42,7 @@ export class Doctor extends Document {
     trim: true,
     minlength: 3,
     maxlength: 50,
-    match: /^[\p{L}._-]+$/u,
+    match: /^[\p{L} ._-]+$/u,
   })
   firstName: string;
 
@@ -51,7 +51,7 @@ export class Doctor extends Document {
     trim: true,
     minlength: 3,
     maxlength: 50,
-    match: /^[\p{L}._-]+$/u,
+    match: /^[\p{L} ._-]+$/u,
   })
   lastName: string;
 
@@ -60,7 +60,7 @@ export class Doctor extends Document {
     trim: true,
     minlength: 3,
     maxlength: 50,
-    match: /^[\p{L}._-]+$/u,
+    match: /^[\p{L} ._-]+$/u,
   })
   middleName: string;
 
